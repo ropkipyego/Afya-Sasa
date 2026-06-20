@@ -19,6 +19,7 @@ This repository now includes runnable foundations for Phase 1, Phase 2, skipped 
 
 - Docker Compose runtime validation on a machine with Docker installed
 - Real dynamic schema-per-tenant query switching beyond the current seeded demo schema
+- Implementation of future Theatre, Maternity, ICU, and HDU modules when approved; architecture is captured in `docs/future-clinical-modules-architecture.md`
 - Full integration and browser E2E tests
 - Redis-backed permission caching
 - Real SMS providers: Africa's Talking and Twilio

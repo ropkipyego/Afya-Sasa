@@ -79,3 +79,9 @@ The demo migration seeds:
 - Bed dashboard, admissions, emergency dashboard, critical alerts
 - Nursing vitals and basic charting
 - Clinical reporting dashboard with CSV export
+
+## Architecture documents
+
+- Phase 1 checklist: `docs/phase1-progress-checklist.md`
+- Future Theatre, Maternity, ICU, and HDU architecture: `docs/future-clinical-modules-architecture.md`
+- Production hardening notes: `docs/production-hardening-notes.md`
