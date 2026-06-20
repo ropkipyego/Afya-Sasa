@@ -28,19 +28,38 @@ Useful commands:
 
 ```bash
 npm run dev:detached
+npm run logs
 npm run stop
 npm run build
 npm run test
 npm run audit
+npm run db:backup
+npm run db:restore -- backups/your-backup.sql
 ```
 
 ## Demo login
 
-- Tenant: `demo`
-- Email: `admin@demo.afyasasa.local`
-- Temporary password: `ChangeMe123!`
+- Tenant for all demo accounts: `demo`
+- Password for all demo accounts: `ChangeMe123!`
 
-The demo admin is intentionally forced to change password on first login.
+| Role | Email | Notes |
+|---|---|---|
+| Administrator | `admin@demo.afyasasa.local` | Forced to change password on first login |
+| Doctor | `doctor@demo.afyasasa.local` | OPD, inpatient, emergency workflows |
+| Nurse | `nurse@demo.afyasasa.local` | Triage, emergency, nursing workflows |
+| Records Officer | `records@demo.afyasasa.local` | Registration and check-in workflows |
+| Lab Technician | `lab@demo.afyasasa.local` | Reserved for Phase 3 lab workflows |
+| Radiology Technician | `radiology@demo.afyasasa.local` | Reserved for Phase 3 radiology workflows |
+
+## Seeded demo data
+
+The demo migration seeds:
+
+- 3 patients with identifiers and clinical flags
+- General Ward, HDU, and Maternity Ward
+- 8 beds across those wards
+- Default system roles and permissions
+- Demo staff users for each role
 
 ## Current Phase 1 browser workflows
 
@@ -52,3 +71,11 @@ The demo admin is intentionally forced to change password on first login.
 - Role/permission review and role creation
 - Tenant settings
 - Audit log viewer
+
+## Additional workflows already scaffolded
+
+- OPD check-in, triage, doctor queue, SOAP consultation, diagnosis entry
+- Appointments and OPD reports
+- Bed dashboard, admissions, emergency dashboard, critical alerts
+- Nursing vitals and basic charting
+- Clinical reporting dashboard with CSV export
