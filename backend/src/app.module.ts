@@ -20,6 +20,8 @@ import { TheatreModule } from './theatre/theatre.module';
 import { MaternityModule } from './maternity/maternity.module';
 import { IcuModule } from './icu/icu.module';
 import { HduModule } from './hdu/hdu.module';
+import { LaboratoryModule } from './laboratory/laboratory.module';
+import { RadiologyModule } from './radiology/radiology.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -75,6 +77,8 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     MaternityModule,
     IcuModule,
     HduModule,
+    LaboratoryModule,
+    RadiologyModule,
     HealthModule,
   ],
   controllers: [AppController],
