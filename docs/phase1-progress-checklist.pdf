@@ -1,0 +1,473 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 2073 >>
+stream
+BT
+/F1 10 Tf
+48 744 Td
+(AfyaSasa Phase 1 Progress Checklist) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Generated: 2026-06-20) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Executive status) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Phase 1 is substantially implemented as a runnable foundation for local Cursor IDE use. The) Tj
+0 -13 Td
+(system includes infrastructure scaffolding, backend foundations, patient) Tj
+0 -13 Td
+(registration/profile workflows, admin screens, notification stubs, and root run scripts.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Docker Compose runtime could not be probed in the cloud machine because Docker is not) Tj
+0 -13 Td
+(installed in this environment. The repository is prepared for local Docker execution.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(How to run locally) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(cp .env.example .env) Tj
+0 -13 Td
+(npm run dev) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Demo login:) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(- Tenant: demo) Tj
+0 -13 Td
+(- Email: admin@demo.afyasasa.local) Tj
+0 -13 Td
+(- Password: ChangeMe123!) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(The demo admin is forced to change password on first login.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Completed checklist) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Infrastructure) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([DONE] Monorepo structure) Tj
+0 -13 Td
+([DONE] NestJS backend scaffold) Tj
+0 -13 Td
+([DONE] React + Vite + TypeScript frontend scaffold) Tj
+0 -13 Td
+([DONE] Tailwind CSS setup) Tj
+0 -13 Td
+([DONE] Docker Compose file) Tj
+0 -13 Td
+([DONE] PostgreSQL service) Tj
+0 -13 Td
+([DONE] Redis service) Tj
+0 -13 Td
+([DONE] MinIO service) Tj
+0 -13 Td
+([DONE] Nginx config) Tj
+0 -13 Td
+([DONE] Root run scripts) Tj
+0 -13 Td
+([DONE] .env.example) Tj
+0 -13 Td
+([DONE] README run instructions) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Core backend foundation) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([DONE] Config module) Tj
+0 -13 Td
+([DONE] TypeORM configured with migrations) Tj
+0 -13 Td
+([DONE] Public tenant registry entity) Tj
+0 -13 Td
+([DONE] Tenant settings entity) Tj
+0 -13 Td
+([DONE] Demo tenant seed) Tj
+0 -13 Td
+([DONE] Tenant resolution middleware from X-Tenant / subdomain) Tj
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 10 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>
+endobj
+4 0 obj
+<< /Length 2239 >>
+stream
+BT
+/F1 10 Tf
+48 744 Td
+([DONE] JWT access token login) Tj
+0 -13 Td
+([DONE] Refresh token table) Tj
+0 -13 Td
+([DONE] Hashed refresh tokens) Tj
+0 -13 Td
+([DONE] Logout) Tj
+0 -13 Td
+([DONE] Logout all) Tj
+0 -13 Td
+([DONE] Change password) Tj
+0 -13 Td
+([DONE] Failed-login tracking) Tj
+0 -13 Td
+([DONE] Account lockout logic) Tj
+0 -13 Td
+([DONE] Forced password change flag) Tj
+0 -13 Td
+([DONE] RBAC decorator) Tj
+0 -13 Td
+([DONE] JWT guard) Tj
+0 -13 Td
+([DONE] Permissions guard) Tj
+0 -13 Td
+([DONE] Default roles) Tj
+0 -13 Td
+([DONE] Default permissions) Tj
+0 -13 Td
+([DONE] Role-permission seed) Tj
+0 -13 Td
+([DONE] Audit log entity) Tj
+0 -13 Td
+([DONE] Global audit interceptor) Tj
+0 -13 Td
+([DONE] Append-only audit log DB trigger) Tj
+0 -13 Td
+([DONE] Swagger setup) Tj
+0 -13 Td
+([DONE] Validation pipe) Tj
+0 -13 Td
+([DONE] Helmet security headers) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Patients module) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([DONE] Patient entity) Tj
+0 -13 Td
+([DONE] Patient identifiers entity) Tj
+0 -13 Td
+([DONE] Patient next of kin entity) Tj
+0 -13 Td
+([DONE] Patient allergies entity) Tj
+0 -13 Td
+([DONE] Patient chronic conditions entity) Tj
+0 -13 Td
+([DONE] Patient registration endpoint) Tj
+0 -13 Td
+([DONE] Patient search endpoint) Tj
+0 -13 Td
+([DONE] Patient detail endpoint) Tj
+0 -13 Td
+([DONE] Patient update endpoint) Tj
+0 -13 Td
+([DONE] Patient soft delete endpoint) Tj
+0 -13 Td
+([DONE] Duplicate detection endpoint) Tj
+0 -13 Td
+([DONE] QR lookup endpoint) Tj
+0 -13 Td
+([DONE] QR card endpoint with data URL) Tj
+0 -13 Td
+([DONE] Patient history stub endpoint) Tj
+0 -13 Td
+([DONE] Identifier create/update/delete) Tj
+0 -13 Td
+([DONE] Next-of-kin create/update/delete) Tj
+0 -13 Td
+([DONE] Allergy create/update/delete) Tj
+0 -13 Td
+([DONE] Chronic-condition create/update/delete) Tj
+0 -13 Td
+([DONE] Patient registration SMS queue event) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Notifications) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([DONE] Notification templates entity) Tj
+0 -13 Td
+([DONE] Notification queue entity) Tj
+0 -13 Td
+([DONE] SMS logs entity) Tj
+0 -13 Td
+([DONE] Internal notifications entity) Tj
+0 -13 Td
+([DONE] Patient registration SMS template seed) Tj
+0 -13 Td
+([DONE] BullMQ notifications queue) Tj
+0 -13 Td
+([DONE] BullMQ worker) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 10 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 2259 >>
+stream
+BT
+/F1 10 Tf
+48 744 Td
+([DONE] Stub SMS gateway) Tj
+0 -13 Td
+([DONE] SMS log write after stub send) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Administration) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([DONE] User management API) Tj
+0 -13 Td
+([DONE] Role API) Tj
+0 -13 Td
+([DONE] Permission listing API) Tj
+0 -13 Td
+([DONE] Role assignment API) Tj
+0 -13 Td
+([DONE] Settings read/update API) Tj
+0 -13 Td
+([DONE] Audit log query API) Tj
+0 -13 Td
+([DONE] User management frontend screen) Tj
+0 -13 Td
+([DONE] Role/permission frontend screen) Tj
+0 -13 Td
+([DONE] Settings frontend screen) Tj
+0 -13 Td
+([DONE] Audit log frontend screen) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Frontend foundation) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([DONE] Login screen) Tj
+0 -13 Td
+([DONE] Forced password change screen) Tj
+0 -13 Td
+([DONE] Tenant-aware API client) Tj
+0 -13 Td
+([DONE] Refresh-on-401 API wrapper) Tj
+0 -13 Td
+([DONE] Zustand auth store) Tj
+0 -13 Td
+([DONE] TanStack Query setup) Tj
+0 -13 Td
+([DONE] Role-based navigation) Tj
+0 -13 Td
+([DONE] Patient search screen) Tj
+0 -13 Td
+([DONE] Patient registration screen) Tj
+0 -13 Td
+([DONE] Patient profile drawer) Tj
+0 -13 Td
+([DONE] Patient safety banner) Tj
+0 -13 Td
+([DONE] Quick-add identifiers) Tj
+0 -13 Td
+([DONE] Quick-add next of kin) Tj
+0 -13 Td
+([DONE] Quick-add allergies) Tj
+0 -13 Td
+([DONE] Quick-add chronic conditions) Tj
+0 -13 Td
+([DONE] QR card display) Tj
+0 -13 Td
+([DONE] Print card action) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Verification) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([DONE] Backend build passes) Tj
+0 -13 Td
+([DONE] Frontend build passes) Tj
+0 -13 Td
+([DONE] Backend unit test passes) Tj
+0 -13 Td
+([DONE] Backend production audit has zero vulnerabilities) Tj
+0 -13 Td
+([DONE] Frontend production audit has zero vulnerabilities) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Not complete / known gaps) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Runtime and infrastructure gaps) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([TODO] Docker Compose runtime was not verified in this cloud environment because Docker is) Tj
+0 -13 Td
+(not installed.) Tj
+0 -13 Td
+([TODO] Production Docker image startup has not been exercised here.) Tj
+0 -13 Td
+([TODO] Automated tenant provisioning is not implemented.) Tj
+0 -13 Td
+([TODO] Full dynamic schema switching per request remains simplified around the seeded demo) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 10 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 2273 >>
+stream
+BT
+/F1 10 Tf
+48 744 Td
+(schema.) Tj
+0 -13 Td
+([TODO] MinIO bucket creation is not automated yet.) Tj
+0 -13 Td
+([TODO] Nginx SSL termination is configured only as a local HTTP skeleton.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Core gaps) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([TODO] Redis permission caching is not fully implemented.) Tj
+0 -13 Td
+([TODO] Audit before/after snapshots are not yet complete.) Tj
+0 -13 Td
+([TODO] Audit read/access events are not comprehensively captured.) Tj
+0 -13 Td
+([TODO] Platform-admin cross-tenant portal is not implemented.) Tj
+0 -13 Td
+([TODO] Data-subject export endpoint is not implemented.) Tj
+0 -13 Td
+([TODO] Full retention policy engine is not implemented.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Patient gaps) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([TODO] Full patient card layout is basic; printable styling can be improved.) Tj
+0 -13 Td
+([TODO] Patient profile editing UI is mostly quick-add, not full edit forms for every field.) Tj
+0 -13 Td
+([TODO] Biometric enrollment remains future scope.) Tj
+0 -13 Td
+([TODO] Photo upload is not implemented.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Notifications gaps) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([TODO] Africa's Talking live provider is not implemented yet.) Tj
+0 -13 Td
+([TODO] Twilio live provider is not implemented yet.) Tj
+0 -13 Td
+([TODO] Email/SMTP flow is not implemented yet.) Tj
+0 -13 Td
+([TODO] Provider callback delivery-status handling is not implemented.) Tj
+0 -13 Td
+([TODO] Full retry schedule is approximated through BullMQ exponential backoff.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Testing gaps) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+([TODO] Endpoint integration tests are minimal.) Tj
+0 -13 Td
+([TODO] Auth failure / permission-denied endpoint tests are not complete.) Tj
+0 -13 Td
+([TODO] Browser E2E tests are not implemented.) Tj
+0 -13 Td
+([TODO] Cross-tenant isolation test suite is not implemented.) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Phase 1 assessment) Tj
+0 -13 Td
+() Tj
+0 -13 Td
+(Phase 1 is usable as a local foundation for continued tweaking and demo workflows,) Tj
+0 -13 Td
+(especially registration, profile management, admin configuration, and auth/RBAC exploration.) Tj
+0 -13 Td
+(Before production use, the remaining runtime, tenant isolation, audit snapshot, SMS) Tj
+0 -13 Td
+(provider, and integration-test gaps should be closed.) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 10 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Type /Pages /Kids [ 3 0 R 5 0 R 7 0 R 9 0 R ] /Count 4 >>
+endobj
+11 0 obj
+<< /Type /Catalog /Pages 10 0 R >>
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000002204 00000 n 
+0000002331 00000 n 
+0000004622 00000 n 
+0000004749 00000 n 
+0000007060 00000 n 
+0000007187 00000 n 
+0000009512 00000 n 
+0000009639 00000 n 
+0000009717 00000 n 
+trailer
+<< /Size 12 /Root 11 0 R >>
+startxref
+9768
+%%EOF

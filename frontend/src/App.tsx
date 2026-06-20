@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
   AlertTriangle,
@@ -10,8 +10,10 @@ import {
   KeyRound,
   LogOut,
   Printer,
+  Settings,
   Search,
   ShieldCheck,
+  Users,
   UserPlus,
 } from 'lucide-react'
 import { apiRequest } from './lib/api'
@@ -46,7 +48,26 @@ interface PatientSearchResponse {
 const navigation = [
   { label: 'Patient Search', icon: Search, permission: 'patients:read' },
   { label: 'Register Patient', icon: UserPlus, permission: 'patients:create' },
+  { label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
+  { label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
+  { label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
+  { label: 'Laboratory', icon: Activity, permission: 'lab_requests:read' },
+  { label: 'Radiology', icon: Hospital, permission: 'radiology_requests:read' },
+  { label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read' },
   { label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  { label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
+  { label: 'Bed Dashboard', icon: Hospital, permission: 'beds:read' },
+  { label: 'Admissions', icon: ClipboardList, permission: 'admissions:read' },
+  { label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read' },
+  { label: 'Nursing', icon: Activity, permission: 'vitals:read' },
+  { label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read' },
+  { label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
+  { label: 'Maternity', icon: Activity, permission: 'pregnancies:read' },
+  { label: 'ICU', icon: AlertTriangle, permission: 'icu_admissions:read' },
+  { label: 'HDU', icon: Activity, permission: 'hdu_admissions:read' },
+  { label: 'User Management', icon: Users, permission: 'users:manage' },
+  { label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
+  { label: 'Settings', icon: Settings, permission: 'settings:manage' },
   { label: 'Audit', icon: ShieldCheck, permission: 'audit_logs:read' },
 ]
 
@@ -139,8 +160,50 @@ function App() {
             <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
           ) : null}
           {activeScreen === 'Register Patient' ? <PatientRegistration /> : null}
+          {activeScreen === 'OPD Check-In' ? <OpdCheckIn /> : null}
+          {activeScreen === 'Triage Queue' ? <TriageQueue /> : null}
+          {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
+          {activeScreen === 'Laboratory' ? <LaboratoryScreen /> : null}
+          {activeScreen === 'Radiology' ? <RadiologyScreen /> : null}
+          {activeScreen === 'Results Inbox' ? <ResultsInbox /> : null}
+          {activeScreen === 'Appointments' ? <AppointmentsScreen /> : null}
+          {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
+          {activeScreen === 'Bed Dashboard' ? <BedDashboard /> : null}
+          {activeScreen === 'Admissions' ? <AdmissionsScreen /> : null}
+          {activeScreen === 'Emergency' ? <EmergencyScreen /> : null}
+          {activeScreen === 'Nursing' ? <NursingScreen /> : null}
+          {activeScreen === 'Clinical Reports' ? <ClinicalReports /> : null}
+          {activeScreen === 'Theatre' ? <TheatreScreen /> : null}
+          {activeScreen === 'Maternity' ? <MaternityScreen /> : null}
+          {activeScreen === 'ICU' ? <IcuScreen /> : null}
+          {activeScreen === 'HDU' ? <HduScreen /> : null}
+          {activeScreen === 'User Management' ? <AdminUsers /> : null}
+          {activeScreen === 'Role Permissions' ? <AdminRoles /> : null}
+          {activeScreen === 'Settings' ? <AdminSettings /> : null}
+          {activeScreen === 'Audit' ? <AuditLogViewer /> : null}
           {activeScreen !== 'Patient Search' &&
-          activeScreen !== 'Register Patient' ? (
+          activeScreen !== 'Register Patient' &&
+          activeScreen !== 'OPD Check-In' &&
+          activeScreen !== 'Triage Queue' &&
+          activeScreen !== 'Doctor Queue' &&
+          activeScreen !== 'Laboratory' &&
+          activeScreen !== 'Radiology' &&
+          activeScreen !== 'Results Inbox' &&
+          activeScreen !== 'Appointments' &&
+          activeScreen !== 'OPD Reports' &&
+          activeScreen !== 'Bed Dashboard' &&
+          activeScreen !== 'Admissions' &&
+          activeScreen !== 'Emergency' &&
+          activeScreen !== 'Nursing' &&
+          activeScreen !== 'Clinical Reports' &&
+          activeScreen !== 'Theatre' &&
+          activeScreen !== 'Maternity' &&
+          activeScreen !== 'ICU' &&
+          activeScreen !== 'HDU' &&
+          activeScreen !== 'User Management' &&
+          activeScreen !== 'Role Permissions' &&
+          activeScreen !== 'Settings' &&
+          activeScreen !== 'Audit' ? (
             <Placeholder screen={activeScreen} />
           ) : null}
           {selectedPatientId ? (
@@ -512,6 +575,7 @@ function PatientProfileDrawer({
   patientId: string
   onClose: () => void
 }) {
+  const queryClient = useQueryClient()
   const { data: patient, isLoading } = useQuery({
     queryKey: ['patient', patientId],
     queryFn: () => apiRequest<PatientSummary>(`/patients/${patientId}`),
@@ -525,6 +589,72 @@ function PatientProfileDrawer({
         qrDataUrl: string
         printableText: string
       }>(`/patients/${patientId}/qr-card`),
+  })
+  const addIdentifier = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/patients/${patientId}/identifiers`, {
+        method: 'POST',
+        body: JSON.stringify({
+          type: form.get('type'),
+          value: form.get('value'),
+          isPrimary: false,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
+    },
+  })
+  const addNok = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/patients/${patientId}/next-of-kin`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          relationship: form.get('relationship'),
+          primaryPhone: form.get('primaryPhone'),
+          isEmergencyContact: true,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
+    },
+  })
+  const addAllergy = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/patients/${patientId}/allergies`, {
+        method: 'POST',
+        body: JSON.stringify({
+          allergen: form.get('allergen'),
+          type: form.get('type'),
+          reaction: form.get('reaction'),
+          severity: form.get('severity'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
+    },
+  })
+  const addCondition = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/patients/${patientId}/chronic-conditions`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          icd10Code: form.get('icd10Code'),
+          status: form.get('status'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
+    },
   })
 
   const allergyText = useMemo(
@@ -594,6 +724,12 @@ function PatientProfileDrawer({
                 className="mt-4 h-32 w-32 rounded-xl border border-slate-200"
               />
             ) : null}
+            <button
+              className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white"
+              onClick={() => window.print()}
+            >
+              Print card
+            </button>
           </section>
 
           <section className="mt-6 grid gap-4 md:grid-cols-2">
@@ -622,9 +758,134 @@ function PatientProfileDrawer({
               {patient.bloodGroup ? ` · Blood group: ${patient.bloodGroup}` : ''}
             </p>
           </section>
+
+          <section className="mt-6 grid gap-4 md:grid-cols-2">
+            <QuickAddForm
+              title="Add identifier"
+              pending={addIdentifier.isPending}
+              onSubmit={(event) => {
+                event.preventDefault()
+                addIdentifier.mutate(event)
+                event.currentTarget.reset()
+              }}
+            >
+              <select name="type" className="input" required>
+                <option value="national_id">National ID</option>
+                <option value="sha">SHA</option>
+                <option value="passport">Passport</option>
+                <option value="birth_certificate">Birth certificate</option>
+                <option value="refugee_id">Refugee ID</option>
+              </select>
+              <input name="value" className="input" placeholder="Value" required />
+            </QuickAddForm>
+            <QuickAddForm
+              title="Add next of kin"
+              pending={addNok.isPending}
+              onSubmit={(event) => {
+                event.preventDefault()
+                addNok.mutate(event)
+                event.currentTarget.reset()
+              }}
+            >
+              <input name="name" className="input" placeholder="Name" required />
+              <input
+                name="relationship"
+                className="input"
+                placeholder="Relationship"
+                required
+              />
+              <input
+                name="primaryPhone"
+                className="input"
+                placeholder="Phone"
+                required
+              />
+            </QuickAddForm>
+            <QuickAddForm
+              title="Add allergy"
+              pending={addAllergy.isPending}
+              onSubmit={(event) => {
+                event.preventDefault()
+                addAllergy.mutate(event)
+                event.currentTarget.reset()
+              }}
+            >
+              <input
+                name="allergen"
+                className="input"
+                placeholder="Allergen"
+                required
+              />
+              <select name="type" className="input" required>
+                <option value="drug">Drug</option>
+                <option value="food">Food</option>
+                <option value="environmental">Environmental</option>
+                <option value="latex">Latex</option>
+                <option value="contrast">Contrast</option>
+              </select>
+              <input
+                name="reaction"
+                className="input"
+                placeholder="Reaction"
+                required
+              />
+              <select name="severity" className="input" required>
+                <option value="mild">Mild</option>
+                <option value="moderate">Moderate</option>
+                <option value="severe">Severe</option>
+                <option value="life_threatening">Life threatening</option>
+              </select>
+            </QuickAddForm>
+            <QuickAddForm
+              title="Add chronic condition"
+              pending={addCondition.isPending}
+              onSubmit={(event) => {
+                event.preventDefault()
+                addCondition.mutate(event)
+                event.currentTarget.reset()
+              }}
+            >
+              <input name="name" className="input" placeholder="Name" required />
+              <input
+                name="icd10Code"
+                className="input"
+                placeholder="ICD-10 code"
+              />
+              <select name="status" className="input" required>
+                <option value="active">Active</option>
+                <option value="controlled">Controlled</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </QuickAddForm>
+          </section>
         </>
       )}
     </div>
+  )
+}
+
+function QuickAddForm({
+  title,
+  pending,
+  onSubmit,
+  children,
+}: {
+  title: string
+  pending: boolean
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  children: ReactNode
+}) {
+  return (
+    <form
+      className="space-y-3 rounded-2xl border border-slate-200 p-4"
+      onSubmit={onSubmit}
+    >
+      <p className="text-xs font-bold uppercase text-slate-500">{title}</p>
+      {children}
+      <button className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white">
+        {pending ? 'Saving...' : 'Save'}
+      </button>
+    </form>
   )
 }
 
@@ -654,6 +915,1990 @@ function SafetyPanel() {
         <li>Every mutating action is audited.</li>
         <li>Clinical data uses soft delete only.</li>
       </ul>
+    </div>
+  )
+}
+
+interface EncounterItem {
+  id: string
+  encounterNo: string
+  status: string
+  presentingComplaint: string
+  startedAt: string
+  patient: PatientSummary
+  triage?: { colour: string; chiefComplaint: string } | null
+  consultation?: { id: string; status: string } | null
+}
+
+function OpdCheckIn() {
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<PatientSummary | null>(null)
+  const { data, refetch, isFetching } = useQuery({
+    queryKey: ['opd-checkin-patients', query],
+    queryFn: () =>
+      apiRequest<PatientSearchResponse>(
+        `/patients?q=${encodeURIComponent(query)}`,
+      ),
+    enabled: false,
+  })
+  const createEncounter = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/opd/encounters', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: selected?.id,
+          presentingComplaint: form.get('presentingComplaint'),
+          visitType: form.get('visitType'),
+        }),
+      })
+    },
+    onSuccess: () => setSelected(null),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Search patient for OPD check-in</h3>
+        <form
+          className="mt-4 flex gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void refetch()
+          }}
+        >
+          <input
+            className="input"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Name, patient number, phone"
+          />
+          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+            {isFetching ? 'Searching...' : 'Search'}
+          </button>
+        </form>
+        <div className="mt-4 divide-y divide-slate-100">
+          {(data?.items ?? []).map((patient) => (
+            <button
+              key={patient.id}
+              className="w-full py-3 text-left hover:bg-slate-50"
+              onClick={() => setSelected(patient)}
+            >
+              <p className="font-bold">
+                {patient.firstName} {patient.lastName}
+              </p>
+              <p className="text-sm text-slate-500">
+                {patient.patientNo} · {patient.primaryPhone}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createEncounter.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Create OPD encounter</h3>
+        <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
+          {selected
+            ? `${selected.firstName} ${selected.lastName} (${selected.patientNo})`
+            : 'Select a patient from search results first.'}
+        </p>
+        <label>
+          <span className="text-sm font-semibold">Visit type</span>
+          <select name="visitType" className="input mt-2" required>
+            <option value="new">New</option>
+            <option value="follow_up">Follow-up</option>
+            <option value="referral">Referral</option>
+          </select>
+        </label>
+        <label>
+          <span className="text-sm font-semibold">Presenting complaint</span>
+          <textarea name="presentingComplaint" className="input mt-2" required />
+        </label>
+        {createEncounter.error ? (
+          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {createEncounter.error.message}
+          </p>
+        ) : null}
+        {createEncounter.isSuccess ? (
+          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+            OPD encounter created. Patient is now in triage queue.
+          </p>
+        ) : null}
+        <button
+          className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white"
+          disabled={!selected || createEncounter.isPending}
+        >
+          Check in patient
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function TriageQueue() {
+  const queryClient = useQueryClient()
+  const { data: encounters = [] } = useQuery({
+    queryKey: ['triage-queue'],
+    queryFn: () => apiRequest<EncounterItem[]>('/opd/triage/queue'),
+  })
+  const triage = useMutation({
+    mutationFn: ({
+      event,
+      encounterId,
+    }: {
+      event: FormEvent<HTMLFormElement>
+      encounterId: string
+    }) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/opd/encounters/${encounterId}/triage`, {
+        method: 'POST',
+        body: JSON.stringify({
+          category: form.get('category'),
+          colour: form.get('colour'),
+          chiefComplaint: form.get('chiefComplaint'),
+          painScore: Number(form.get('painScore') || 0),
+          temperature: Number(form.get('temperature') || 0),
+          pulse: Number(form.get('pulse') || 0),
+          respiratoryRate: Number(form.get('respiratoryRate') || 0),
+          bpSystolic: Number(form.get('bpSystolic') || 0),
+          bpDiastolic: Number(form.get('bpDiastolic') || 0),
+          spo2: Number(form.get('spo2') || 0),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['triage-queue'] })
+    },
+  })
+
+  return (
+    <div className="space-y-4">
+      {encounters.map((encounter) => (
+        <form
+          key={encounter.id}
+          className="grid gap-4 rounded-3xl bg-white p-6 shadow-sm lg:grid-cols-[1fr_1.4fr]"
+          onSubmit={(event) => {
+            event.preventDefault()
+            triage.mutate({ event, encounterId: encounter.id })
+          }}
+        >
+          <div>
+            <p className="text-sm font-semibold text-blue-600">
+              {encounter.encounterNo}
+            </p>
+            <h3 className="text-xl font-bold">
+              {encounter.patient.firstName} {encounter.patient.lastName}
+            </h3>
+            <p className="text-sm text-slate-500">
+              {encounter.presentingComplaint}
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <input name="category" className="input" placeholder="Category" required />
+            <select name="colour" className="input" required>
+              <option value="red">Red</option>
+              <option value="orange">Orange</option>
+              <option value="yellow">Yellow</option>
+              <option value="green">Green</option>
+              <option value="blue">Blue</option>
+            </select>
+            <input name="painScore" className="input" placeholder="Pain 0-10" />
+            <input
+              name="chiefComplaint"
+              className="input md:col-span-3"
+              placeholder="Chief complaint"
+              required
+            />
+            <input name="temperature" className="input" placeholder="Temp" />
+            <input name="pulse" className="input" placeholder="Pulse" />
+            <input name="respiratoryRate" className="input" placeholder="Resp" />
+            <input name="bpSystolic" className="input" placeholder="BP sys" />
+            <input name="bpDiastolic" className="input" placeholder="BP dia" />
+            <input name="spo2" className="input" placeholder="SpO2" />
+            <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white md:col-span-3">
+              Submit triage
+            </button>
+          </div>
+        </form>
+      ))}
+      {!encounters.length ? (
+        <p className="rounded-3xl bg-white p-10 text-center text-slate-500">
+          No patients waiting for triage.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function DoctorQueue() {
+  const queryClient = useQueryClient()
+  const [selected, setSelected] = useState<EncounterItem | null>(null)
+  const { data: queue = [] } = useQuery({
+    queryKey: ['doctor-queue'],
+    queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
+  })
+  const createConsultation = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest<{ id: string }>(`/opd/encounters/${selected?.id}/consultations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          subjective: form.get('subjective'),
+          objective: form.get('objective'),
+          assessment: form.get('assessment'),
+          plan: form.get('plan'),
+          followUpDate: form.get('followUpDate') || undefined,
+          followUpInstructions: form.get('followUpInstructions') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
+    },
+  })
+  const addDiagnosis = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/opd/encounters/${selected?.id}/diagnoses`, {
+        method: 'POST',
+        body: JSON.stringify({
+          icd10Code: form.get('icd10Code'),
+          description: form.get('description'),
+          type: form.get('type'),
+          confirmed: true,
+        }),
+      })
+    },
+  })
+  const completeEncounter = useMutation({
+    mutationFn: () =>
+      apiRequest(`/opd/encounters/${selected?.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'completed' }),
+      }),
+    onSuccess: async () => {
+      setSelected(null)
+      await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="space-y-3">
+        {queue.map((encounter) => (
+          <button
+            key={encounter.id}
+            className="w-full rounded-3xl bg-white p-5 text-left shadow-sm hover:ring-2 hover:ring-blue-200"
+            onClick={() => setSelected(encounter)}
+          >
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase text-blue-700">
+              {encounter.triage?.colour ?? 'untriaged'}
+            </span>
+            <h3 className="mt-3 text-lg font-bold">
+              {encounter.patient.firstName} {encounter.patient.lastName}
+            </h3>
+            <p className="text-sm text-slate-500">
+              {encounter.presentingComplaint}
+            </p>
+          </button>
+        ))}
+      </div>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        {selected ? (
+          <>
+            <h3 className="text-xl font-bold">
+              Consultation: {selected.patient.firstName}{' '}
+              {selected.patient.lastName}
+            </h3>
+            <PatientSafetyBanner patient={selected.patient} />
+            <form
+              className="mt-4 grid gap-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                createConsultation.mutate(event)
+              }}
+            >
+              <textarea name="subjective" className="input" placeholder="Subjective" required />
+              <textarea name="objective" className="input" placeholder="Objective" required />
+              <textarea name="assessment" className="input" placeholder="Assessment" required />
+              <textarea name="plan" className="input" placeholder="Plan" required />
+              <input name="followUpDate" className="input" type="date" />
+              <input
+                name="followUpInstructions"
+                className="input"
+                placeholder="Follow-up instructions"
+              />
+              <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+                Save SOAP
+              </button>
+            </form>
+            <form
+              className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                addDiagnosis.mutate(event)
+                event.currentTarget.reset()
+              }}
+            >
+              <p className="font-bold">Add diagnosis</p>
+              <input name="icd10Code" className="input" placeholder="ICD-10" />
+              <input name="description" className="input" placeholder="Diagnosis" required />
+              <select name="type" className="input" required>
+                <option value="primary">Primary</option>
+                <option value="secondary">Secondary</option>
+                <option value="differential">Differential</option>
+              </select>
+              <button className="rounded-xl bg-slate-900 px-4 py-2 font-bold text-white">
+                Add diagnosis
+              </button>
+            </form>
+            <button
+              className="mt-6 rounded-xl bg-green-600 px-4 py-2 font-bold text-white"
+              onClick={() => completeEncounter.mutate()}
+            >
+              Complete encounter
+            </button>
+          </>
+        ) : (
+          <p className="text-slate-500">Select a patient from the doctor queue.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PatientSafetyBanner({ patient }: { patient: PatientSummary }) {
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <div className="rounded-2xl bg-red-50 p-3 text-red-800">
+        <p className="text-xs font-bold uppercase">Allergies</p>
+        <p className="text-sm">
+          {patient.allergies?.map((allergy) => allergy.allergen).join(', ') ||
+            'None recorded'}
+        </p>
+      </div>
+      <div className="rounded-2xl bg-amber-50 p-3 text-amber-900">
+        <p className="text-xs font-bold uppercase">Chronic conditions</p>
+        <p className="text-sm">
+          {patient.chronicConditions?.map((condition) => condition.name).join(', ') ||
+            'None recorded'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function AppointmentsScreen() {
+  const queryClient = useQueryClient()
+  const { data: appointments = [] } = useQuery({
+    queryKey: ['appointments'],
+    queryFn: () => apiRequest<unknown[]>('/appointments'),
+  })
+  const createAppointment = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/appointments', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          doctorId: form.get('doctorId'),
+          appointmentDate: form.get('appointmentDate'),
+          appointmentTime: form.get('appointmentTime'),
+          type: form.get('type'),
+          reason: form.get('reason'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['appointments'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createAppointment.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Book appointment</h3>
+        <Field name="patientId" label="Patient ID" required />
+        <Field name="doctorId" label="Doctor user ID" required />
+        <Field name="appointmentDate" label="Date" type="date" required />
+        <Field name="appointmentTime" label="Time" required />
+        <label>
+          <span className="text-sm font-semibold">Type</span>
+          <select name="type" className="input mt-2" required>
+            <option value="new">New</option>
+            <option value="follow_up">Follow-up</option>
+            <option value="procedure">Procedure</option>
+            <option value="review">Review</option>
+            <option value="antenatal">Antenatal</option>
+          </select>
+        </label>
+        <Field name="reason" label="Reason" required />
+        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
+          Book appointment
+        </button>
+      </form>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Appointments</h3>
+        <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
+          {JSON.stringify(appointments, null, 2)}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function OpdReports() {
+  const { data } = useQuery({
+    queryKey: ['opd-summary'],
+    queryFn: () =>
+      apiRequest<{
+        totalVisits: number
+        activeVisits: number
+        completedVisits: number
+        topDiagnoses: { description: string; count: number }[]
+      }>('/opd/reports/summary'),
+  })
+
+  return (
+    <div className="grid gap-6 md:grid-cols-3">
+      <MetricCard label="Total OPD visits" value={data?.totalVisits ?? 0} />
+      <MetricCard label="Active visits" value={data?.activeVisits ?? 0} />
+      <MetricCard label="Completed visits" value={data?.completedVisits ?? 0} />
+      <div className="rounded-3xl bg-white p-6 shadow-sm md:col-span-3">
+        <h3 className="text-xl font-bold">Top diagnoses</h3>
+        <div className="mt-4 divide-y divide-slate-100">
+          {(data?.topDiagnoses ?? []).map((diagnosis) => (
+            <div key={diagnosis.description} className="flex justify-between py-3">
+              <span>{diagnosis.description}</span>
+              <span className="font-bold">{diagnosis.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold">{value}</p>
+    </div>
+  )
+}
+
+interface ReportPayload {
+  generatedAt: string
+  data: unknown
+  csv: string
+}
+
+const reportDefinitions = [
+  { key: 'opd-summary', title: 'OPD Summary' },
+  { key: 'admissions', title: 'Admissions' },
+  { key: 'discharges', title: 'Discharges' },
+  { key: 'bed-occupancy', title: 'Bed Occupancy' },
+  { key: 'emergency-stats', title: 'Emergency Stats' },
+  { key: 'disease-register', title: 'Disease Register' },
+  { key: 'moh-705', title: 'MOH 705 Draft' },
+]
+
+function ClinicalReports() {
+  const [selectedReport, setSelectedReport] = useState('opd-summary')
+  const { data: dashboard } = useQuery({
+    queryKey: ['reports-dashboard'],
+    queryFn: () =>
+      apiRequest<{
+        totalPatients: number
+        activeOpd: number
+        activeAdmissions: number
+        occupiedBeds: number
+        activeEmergency: number
+        activeAlerts: number
+        todayAppointments: number
+      }>('/reports/dashboard'),
+  })
+  const { data: report, isFetching } = useQuery({
+    queryKey: ['clinical-report', selectedReport],
+    queryFn: () => apiRequest<ReportPayload>(`/reports/${selectedReport}`),
+  })
+
+  function downloadCsv() {
+    if (!report?.csv) return
+    const blob = new Blob([report.csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${selectedReport}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard label="Patients" value={dashboard?.totalPatients ?? 0} />
+        <MetricCard label="Active OPD" value={dashboard?.activeOpd ?? 0} />
+        <MetricCard
+          label="Admissions"
+          value={dashboard?.activeAdmissions ?? 0}
+        />
+        <MetricCard label="Occupied beds" value={dashboard?.occupiedBeds ?? 0} />
+        <MetricCard
+          label="Emergency"
+          value={dashboard?.activeEmergency ?? 0}
+        />
+        <MetricCard label="Alerts" value={dashboard?.activeAlerts ?? 0} />
+        <MetricCard
+          label="Appointments today"
+          value={dashboard?.todayAppointments ?? 0}
+        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[0.35fr_0.65fr]">
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <h3 className="text-xl font-bold">Report library</h3>
+          <div className="mt-4 space-y-2">
+            {reportDefinitions.map((definition) => (
+              <button
+                key={definition.key}
+                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-semibold ${
+                  selectedReport === definition.key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                }`}
+                onClick={() => setSelectedReport(definition.key)}
+              >
+                {definition.title}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-500">
+                Generated {report?.generatedAt ?? '-'}
+              </p>
+              <h3 className="text-xl font-bold">
+                {reportDefinitions.find((item) => item.key === selectedReport)
+                  ?.title ?? selectedReport}
+              </h3>
+            </div>
+            <button
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white"
+              onClick={downloadCsv}
+            >
+              Download CSV
+            </button>
+          </div>
+          <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
+            {isFetching ? 'Loading...' : JSON.stringify(report?.data, null, 2)}
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BedDashboard() {
+  const queryClient = useQueryClient()
+  const { data: beds = [] } = useQuery({
+    queryKey: ['bed-dashboard'],
+    queryFn: () =>
+      apiRequest<
+        {
+          id: string
+          bedNo: string
+          status: string
+          type: string
+          ward: { name: string }
+          patient?: PatientSummary | null
+        }[]
+      >('/inpatient/beds/dashboard'),
+  })
+  const { data: wards = [] } = useQuery({
+    queryKey: ['wards'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/inpatient/wards'),
+  })
+  const createWard = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/inpatient/wards', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          code: form.get('code'),
+          type: form.get('type'),
+          floor: form.get('floor'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['wards'] })
+    },
+  })
+  const createBed = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/inpatient/beds', {
+        method: 'POST',
+        body: JSON.stringify({
+          wardId: form.get('wardId'),
+          bedNo: form.get('bedNo'),
+          type: form.get('type'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['wards'] })
+    },
+  })
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2">
+        <form
+          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
+          onSubmit={(event) => {
+            event.preventDefault()
+            createWard.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <h3 className="text-xl font-bold">Create ward</h3>
+          <Field name="name" label="Ward name" required />
+          <Field name="code" label="Ward code" required />
+          <label>
+            <span className="text-sm font-semibold">Type</span>
+            <select name="type" className="input mt-2" required>
+              <option value="general">General</option>
+              <option value="icu">ICU</option>
+              <option value="hdu">HDU</option>
+              <option value="maternity">Maternity</option>
+              <option value="paediatric">Paediatric</option>
+              <option value="surgical">Surgical</option>
+              <option value="medical">Medical</option>
+              <option value="isolation">Isolation</option>
+            </select>
+          </label>
+          <Field name="floor" label="Floor" />
+          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+            Create ward
+          </button>
+        </form>
+        <form
+          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
+          onSubmit={(event) => {
+            event.preventDefault()
+            createBed.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <h3 className="text-xl font-bold">Create bed</h3>
+          <label>
+            <span className="text-sm font-semibold">Ward</span>
+            <select name="wardId" className="input mt-2" required>
+              {wards.map((ward) => (
+                <option key={ward.id} value={ward.id}>
+                  {ward.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Field name="bedNo" label="Bed no." required />
+          <select name="type" className="input" required>
+            <option value="standard">Standard</option>
+            <option value="icu">ICU</option>
+            <option value="isolation">Isolation</option>
+            <option value="paediatric">Paediatric</option>
+            <option value="maternity">Maternity</option>
+            <option value="cardiac">Cardiac</option>
+          </select>
+          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+            Create bed
+          </button>
+        </form>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+        {beds.map((bed) => (
+          <div key={bed.id} className="rounded-3xl bg-white p-5 shadow-sm">
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
+                bed.status === 'available'
+                  ? 'bg-green-50 text-green-700'
+                  : bed.status === 'occupied'
+                    ? 'bg-red-50 text-red-700'
+                    : 'bg-amber-50 text-amber-700'
+              }`}
+            >
+              {bed.status}
+            </span>
+            <h3 className="mt-3 text-xl font-bold">{bed.bedNo}</h3>
+            <p className="text-sm text-slate-500">
+              {bed.ward?.name} · {bed.type}
+            </p>
+            {bed.patient ? (
+              <p className="mt-2 text-sm font-semibold">
+                {bed.patient.firstName} {bed.patient.lastName}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AdmissionsScreen() {
+  const queryClient = useQueryClient()
+  const { data: admissions = [] } = useQuery({
+    queryKey: ['admissions'],
+    queryFn: () =>
+      apiRequest<
+        {
+          id: string
+          admissionNo: string
+          status: string
+          patient: PatientSummary
+          bed: { bedNo: string }
+          ward: { name: string }
+        }[]
+      >('/inpatient/admissions'),
+  })
+  const { data: beds = [] } = useQuery({
+    queryKey: ['available-beds'],
+    queryFn: () =>
+      apiRequest<{ id: string; bedNo: string; ward: { name: string } }[]>(
+        '/inpatient/beds/available',
+      ),
+  })
+  const createAdmission = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/inpatient/admissions', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          encounterId: form.get('encounterId') || undefined,
+          bedId: form.get('bedId'),
+          reason: form.get('reason'),
+          type: form.get('type'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admissions'] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createAdmission.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Create admission</h3>
+        <Field name="patientId" label="Patient ID" required />
+        <Field name="encounterId" label="Source encounter ID" />
+        <label>
+          <span className="text-sm font-semibold">Available bed</span>
+          <select name="bedId" className="input mt-2" required>
+            {beds.map((bed) => (
+              <option key={bed.id} value={bed.id}>
+                {bed.ward?.name} · {bed.bedNo}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field name="reason" label="Reason" required />
+        <select name="type" className="input" required>
+          <option value="elective">Elective</option>
+          <option value="emergency">Emergency</option>
+          <option value="transfer">Transfer</option>
+        </select>
+        <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+          Admit patient
+        </button>
+      </form>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Admissions</h3>
+        <div className="mt-4 divide-y divide-slate-100">
+          {admissions.map((admission) => (
+            <div key={admission.id} className="py-4">
+              <p className="font-bold">
+                {admission.patient?.firstName} {admission.patient?.lastName}
+              </p>
+              <p className="text-sm text-slate-500">
+                {admission.admissionNo} · {admission.ward?.name} ·{' '}
+                {admission.bed?.bedNo} · {admission.status}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmergencyScreen() {
+  const queryClient = useQueryClient()
+  const { data: emergencies = [] } = useQuery({
+    queryKey: ['emergency-dashboard'],
+    queryFn: () => apiRequest<unknown[]>('/emergency/dashboard'),
+  })
+  const { data: alerts = [] } = useQuery({
+    queryKey: ['critical-alerts'],
+    queryFn: () =>
+      apiRequest<{ id: string; message: string; severity: string }[]>(
+        '/emergency/alerts',
+      ),
+  })
+  const register = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/emergency/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          presentingComplaint: form.get('presentingComplaint'),
+          arrivalMode: form.get('arrivalMode'),
+          traumaFlag: form.get('traumaFlag') === 'on',
+          traumaMechanism: form.get('traumaMechanism') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['emergency-dashboard'] })
+    },
+  })
+  const acknowledge = useMutation({
+    mutationFn: (id: string) =>
+      apiRequest(`/emergency/alerts/${id}/acknowledge`, { method: 'POST' }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['critical-alerts'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          register.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Emergency fast registration</h3>
+        <Field name="patientId" label="Patient ID" required />
+        <Field name="presentingComplaint" label="Presenting complaint" required />
+        <select name="arrivalMode" className="input" required>
+          <option value="walk_in">Walk-in</option>
+          <option value="ambulance">Ambulance</option>
+          <option value="police">Police</option>
+          <option value="referral">Referral</option>
+          <option value="airlift">Airlift</option>
+        </select>
+        <label className="flex items-center gap-2 text-sm">
+          <input name="traumaFlag" type="checkbox" /> Trauma case
+        </label>
+        <Field name="traumaMechanism" label="Trauma mechanism" />
+        <button className="rounded-xl bg-red-600 px-4 py-2 font-bold text-white">
+          Register emergency
+        </button>
+      </form>
+      <div className="space-y-6">
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <h3 className="text-xl font-bold">Emergency dashboard</h3>
+          <pre className="mt-4 max-h-72 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-white">
+            {JSON.stringify(emergencies, null, 2)}
+          </pre>
+        </div>
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <h3 className="text-xl font-bold">Critical alerts</h3>
+          <div className="mt-4 space-y-3">
+            {alerts.map((alert) => (
+              <div key={alert.id} className="rounded-2xl bg-red-50 p-4 text-red-800">
+                <p className="font-bold">{alert.severity}</p>
+                <p className="text-sm">{alert.message}</p>
+                <button
+                  className="mt-3 rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
+                  onClick={() => acknowledge.mutate(alert.id)}
+                >
+                  Acknowledge
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NursingScreen() {
+  const queryClient = useQueryClient()
+  const [admissionId, setAdmissionId] = useState('')
+  const { data: vitals = [] } = useQuery({
+    queryKey: ['vitals', admissionId],
+    queryFn: () => apiRequest<unknown[]>(`/nursing/vitals?admissionId=${admissionId}`),
+    enabled: Boolean(admissionId),
+  })
+  const createVitals = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/nursing/vitals', {
+        method: 'POST',
+        body: JSON.stringify({
+          admissionId: form.get('admissionId'),
+          temperature: Number(form.get('temperature') || 0),
+          pulse: Number(form.get('pulse') || 0),
+          respiratoryRate: Number(form.get('respiratoryRate') || 0),
+          bpSystolic: Number(form.get('bpSystolic') || 0),
+          bpDiastolic: Number(form.get('bpDiastolic') || 0),
+          spo2: Number(form.get('spo2') || 0),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['vitals'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const form = new FormData(event.currentTarget)
+          setAdmissionId(form.get('admissionId')?.toString() ?? '')
+          createVitals.mutate(event)
+        }}
+      >
+        <h3 className="text-xl font-bold">Record vitals</h3>
+        <Field name="admissionId" label="Admission ID" required />
+        <Field name="temperature" label="Temperature" />
+        <Field name="pulse" label="Pulse" />
+        <Field name="respiratoryRate" label="Respiratory rate" />
+        <Field name="bpSystolic" label="BP systolic" />
+        <Field name="bpDiastolic" label="BP diastolic" />
+        <Field name="spo2" label="SpO2" />
+        <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+          Save vitals
+        </button>
+      </form>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Recent vitals</h3>
+        <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-white">
+          {JSON.stringify(vitals, null, 2)}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function LaboratoryScreen() {
+  const queryClient = useQueryClient()
+  const { data: panels = [] } = useQuery({
+    queryKey: ['lab-panels'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/laboratory/panels'),
+  })
+  const { data: tests = [] } = useQuery({
+    queryKey: ['lab-tests'],
+    queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/laboratory/tests'),
+  })
+  const { data: requests = [] } = useQuery({
+    queryKey: ['lab-requests'],
+    queryFn: () => apiRequest<unknown[]>('/laboratory/requests'),
+  })
+  const createRequest = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      const testId = form.get('testId')?.toString()
+      const panelId = form.get('panelId')?.toString()
+      return apiRequest('/laboratory/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          encounterId: form.get('encounterId'),
+          admissionId: form.get('admissionId') || undefined,
+          priority: form.get('priority'),
+          notes: form.get('notes') || undefined,
+          testIds: testId ? [testId] : [],
+          panelIds: panelId ? [panelId] : [],
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
+  })
+  const collectSample = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/laboratory/requests/${form.get('requestId')}/samples`, {
+        method: 'POST',
+        body: JSON.stringify({ type: form.get('type') }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
+  })
+  const enterResult = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/laboratory/results', {
+        method: 'POST',
+        body: JSON.stringify({
+          requestItemId: form.get('requestItemId'),
+          sampleId: form.get('sampleId') || undefined,
+          value: form.get('value'),
+          unit: form.get('unit') || undefined,
+        }),
+      })
+    },
+  })
+  const verifyRequest = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/laboratory/requests/${form.get('requestId')}/verify`, {
+        method: 'POST',
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Create lab request"
+          pending={createRequest.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createRequest.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <input name="encounterId" className="input" placeholder="Encounter ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <select name="priority" className="input" required>
+            <option value="routine">Routine</option>
+            <option value="urgent">Urgent</option>
+            <option value="stat">STAT</option>
+          </select>
+          <select name="testId" className="input">
+            <option value="">Select test</option>
+            {tests.map((test) => (
+              <option key={test.id} value={test.id}>
+                {test.name}
+              </option>
+            ))}
+          </select>
+          <select name="panelId" className="input">
+            <option value="">Select panel</option>
+            {panels.map((panel) => (
+              <option key={panel.id} value={panel.id}>
+                {panel.name}
+              </option>
+            ))}
+          </select>
+          <input name="notes" className="input" placeholder="Clinical notes" />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Collect sample"
+          pending={collectSample.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            collectSample.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestId" className="input" placeholder="Lab request ID" required />
+          <input name="type" className="input" placeholder="Sample type" required />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Enter result"
+          pending={enterResult.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            enterResult.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestItemId" className="input" placeholder="Request item ID" required />
+          <input name="sampleId" className="input" placeholder="Sample ID" />
+          <input name="value" className="input" placeholder="Result value" required />
+          <input name="unit" className="input" placeholder="Unit" />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Verify request"
+          pending={verifyRequest.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            verifyRequest.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestId" className="input" placeholder="Lab request ID" required />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Lab requests" data={requests} />
+    </div>
+  )
+}
+
+function RadiologyScreen() {
+  const queryClient = useQueryClient()
+  const { data: modalities = [] } = useQuery({
+    queryKey: ['radiology-modalities'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/radiology/modalities'),
+  })
+  const { data: requests = [] } = useQuery({
+    queryKey: ['radiology-requests'],
+    queryFn: () => apiRequest<unknown[]>('/radiology/requests'),
+  })
+  const createRequest = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/radiology/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          encounterId: form.get('encounterId'),
+          admissionId: form.get('admissionId') || undefined,
+          modalityId: form.get('modalityId'),
+          bodyPart: form.get('bodyPart'),
+          views: form.get('views') || undefined,
+          clinicalIndication: form.get('clinicalIndication'),
+          priority: form.get('priority'),
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
+  })
+  const createReport = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/radiology/requests/${form.get('requestId')}/reports`, {
+        method: 'POST',
+        body: JSON.stringify({
+          findings: form.get('findings'),
+          impression: form.get('impression'),
+          recommendation: form.get('recommendation') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Create radiology request"
+          pending={createRequest.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createRequest.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <input name="encounterId" className="input" placeholder="Encounter ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <select name="modalityId" className="input" required>
+            {modalities.map((modality) => (
+              <option key={modality.id} value={modality.id}>
+                {modality.name}
+              </option>
+            ))}
+          </select>
+          <input name="bodyPart" className="input" placeholder="Body part" required />
+          <input name="views" className="input" placeholder="Views" />
+          <input name="clinicalIndication" className="input" placeholder="Clinical indication" required />
+          <select name="priority" className="input" required>
+            <option value="routine">Routine</option>
+            <option value="urgent">Urgent</option>
+            <option value="stat">STAT</option>
+          </select>
+        </QuickAddForm>
+        <QuickAddForm
+          title="Write report"
+          pending={createReport.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createReport.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestId" className="input" placeholder="Radiology request ID" required />
+          <textarea name="findings" className="input" placeholder="Findings" required />
+          <textarea name="impression" className="input" placeholder="Impression" required />
+          <textarea name="recommendation" className="input" placeholder="Recommendation" />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Radiology requests" data={requests} />
+    </div>
+  )
+}
+
+function ResultsInbox() {
+  const { data: labResults = [] } = useQuery({
+    queryKey: ['lab-results-inbox'],
+    queryFn: () => apiRequest<unknown[]>('/laboratory/results/inbox'),
+  })
+  const { data: criticalResults = [] } = useQuery({
+    queryKey: ['critical-results'],
+    queryFn: () => apiRequest<unknown[]>('/laboratory/results/critical'),
+  })
+  const { data: radiologyReports = [] } = useQuery({
+    queryKey: ['radiology-reports-inbox'],
+    queryFn: () => apiRequest<unknown[]>('/radiology/reports/inbox'),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-3">
+      <JsonPanel title="Verified lab results" data={labResults} />
+      <JsonPanel title="Critical lab results" data={criticalResults} />
+      <JsonPanel title="Radiology reports" data={radiologyReports} />
+    </div>
+  )
+}
+
+function TheatreScreen() {
+  const queryClient = useQueryClient()
+  const { data: theatres = [] } = useQuery({
+    queryKey: ['theatres'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/theatre/theatres'),
+  })
+  const { data: procedures = [] } = useQuery({
+    queryKey: ['surgical-procedures'],
+    queryFn: () =>
+      apiRequest<{ id: string; name: string }[]>('/theatre/procedures'),
+  })
+  const { data: bookings = [] } = useQuery({
+    queryKey: ['surgery-bookings'],
+    queryFn: () => apiRequest<unknown[]>('/theatre/bookings'),
+  })
+  const createTheatre = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/theatre/theatres', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          code: form.get('code'),
+          location: form.get('location'),
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['theatres'] }),
+  })
+  const createProcedure = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/theatre/procedures', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          code: form.get('code'),
+          category: form.get('category'),
+          expectedDurationMinutes: Number(form.get('expectedDurationMinutes') || 0),
+        }),
+      })
+    },
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ['surgical-procedures'] }),
+  })
+  const createBooking = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/theatre/bookings', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          admissionId: form.get('admissionId') || undefined,
+          procedureId: form.get('procedureId'),
+          theatreId: form.get('theatreId') || undefined,
+          scheduledStartAt: form.get('scheduledStartAt'),
+          priority: form.get('priority'),
+        }),
+      })
+    },
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Create theatre"
+          pending={createTheatre.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createTheatre.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="name" className="input" placeholder="Theatre name" required />
+          <input name="code" className="input" placeholder="Code" required />
+          <input name="location" className="input" placeholder="Location" />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Create surgical procedure"
+          pending={createProcedure.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createProcedure.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="name" className="input" placeholder="Procedure name" required />
+          <input name="code" className="input" placeholder="Code" required />
+          <input name="category" className="input" placeholder="Category" />
+          <input
+            name="expectedDurationMinutes"
+            className="input"
+            placeholder="Expected minutes"
+          />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Book surgery"
+          pending={createBooking.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createBooking.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <select name="procedureId" className="input" required>
+            {procedures.map((procedure) => (
+              <option key={procedure.id} value={procedure.id}>
+                {procedure.name}
+              </option>
+            ))}
+          </select>
+          <select name="theatreId" className="input">
+            <option value="">No theatre assigned</option>
+            {theatres.map((theatre) => (
+              <option key={theatre.id} value={theatre.id}>
+                {theatre.name}
+              </option>
+            ))}
+          </select>
+          <input name="scheduledStartAt" type="datetime-local" className="input" required />
+          <select name="priority" className="input" required>
+            <option value="elective">Elective</option>
+            <option value="urgent">Urgent</option>
+            <option value="emergency">Emergency</option>
+          </select>
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Surgery bookings" data={bookings} />
+    </div>
+  )
+}
+
+function MaternityScreen() {
+  const queryClient = useQueryClient()
+  const [selectedPregnancyId, setSelectedPregnancyId] = useState('')
+  const { data: pregnancies = [] } = useQuery({
+    queryKey: ['pregnancies'],
+    queryFn: () =>
+      apiRequest<{ id: string; pregnancyNo: string; patient?: PatientSummary }[]>(
+        '/maternity/pregnancies',
+      ),
+  })
+  const createPregnancy = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/maternity/pregnancies', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          admissionId: form.get('admissionId') || undefined,
+          gravida: Number(form.get('gravida') || 0),
+          para: Number(form.get('para') || 0),
+          lmpDate: form.get('lmpDate') || undefined,
+          riskLevel: form.get('riskLevel'),
+          riskNotes: form.get('riskNotes') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
+  })
+  const createAnc = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/anc-visits`, {
+        method: 'POST',
+        body: JSON.stringify({
+          visitDate: form.get('visitDate'),
+          gestationalAgeWeeks: Number(form.get('gestationalAgeWeeks') || 0),
+          riskAssessment: form.get('riskAssessment') || undefined,
+          plan: form.get('plan'),
+        }),
+      })
+    },
+  })
+  const createDelivery = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/deliveries`, {
+        method: 'POST',
+        body: JSON.stringify({
+          deliveryTime: form.get('deliveryTime'),
+          mode: form.get('mode'),
+          outcome: form.get('outcome'),
+          bloodLossMl: Number(form.get('bloodLossMl') || 0),
+          complications: form.get('complications') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Register pregnancy"
+          pending={createPregnancy.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createPregnancy.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Mother patient ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <input name="gravida" className="input" placeholder="Gravida" required />
+          <input name="para" className="input" placeholder="Para" required />
+          <input name="lmpDate" className="input" type="date" />
+          <select name="riskLevel" className="input">
+            <option value="low">Low risk</option>
+            <option value="moderate">Moderate risk</option>
+            <option value="high">High risk</option>
+          </select>
+          <input name="riskNotes" className="input" placeholder="Risk notes" />
+        </QuickAddForm>
+        <select
+          className="input"
+          value={selectedPregnancyId}
+          onChange={(event) => setSelectedPregnancyId(event.target.value)}
+        >
+          <option value="">Select pregnancy for ANC/delivery</option>
+          {pregnancies.map((pregnancy) => (
+            <option key={pregnancy.id} value={pregnancy.id}>
+              {pregnancy.pregnancyNo}
+            </option>
+          ))}
+        </select>
+        <QuickAddForm
+          title="Add ANC visit"
+          pending={createAnc.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createAnc.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="visitDate" className="input" type="date" required />
+          <input name="gestationalAgeWeeks" className="input" placeholder="Gestational weeks" />
+          <input name="riskAssessment" className="input" placeholder="Risk assessment" />
+          <input name="plan" className="input" placeholder="Plan" required />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Record delivery"
+          pending={createDelivery.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createDelivery.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="deliveryTime" className="input" type="datetime-local" required />
+          <select name="mode" className="input" required>
+            <option value="svd">SVD</option>
+            <option value="assisted">Assisted</option>
+            <option value="cesarean">Cesarean</option>
+            <option value="breech">Breech</option>
+          </select>
+          <select name="outcome" className="input" required>
+            <option value="live_birth">Live birth</option>
+            <option value="stillbirth">Stillbirth</option>
+            <option value="maternal_transfer">Maternal transfer</option>
+            <option value="maternal_death">Maternal death</option>
+          </select>
+          <input name="bloodLossMl" className="input" placeholder="Blood loss ml" />
+          <input name="complications" className="input" placeholder="Complications" />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Pregnancies" data={pregnancies} />
+    </div>
+  )
+}
+
+function IcuScreen() {
+  return <CriticalCareScreen unit="icu" title="ICU" />
+}
+
+function HduScreen() {
+  return <CriticalCareScreen unit="hdu" title="HDU" />
+}
+
+function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: string }) {
+  const queryClient = useQueryClient()
+  const [selectedId, setSelectedId] = useState('')
+  const { data: admissions = [] } = useQuery({
+    queryKey: [`${unit}-admissions`],
+    queryFn: () =>
+      apiRequest<{ id: string; admission?: { admissionNo: string; patient?: PatientSummary } }[]>(
+        `/${unit}/admissions`,
+      ),
+  })
+  const admit = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/${unit}/admissions`, {
+        method: 'POST',
+        body: JSON.stringify({
+          admissionId: form.get('admissionId'),
+          [`${unit}BedId`]: form.get('bedId') || undefined,
+          reason: form.get('reason'),
+          severityScore: unit === 'icu' ? Number(form.get('severityScore') || 0) : undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: [`${unit}-admissions`] }),
+  })
+  const observe = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/${unit}/admissions/${selectedId}/observations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          heartRate: Number(form.get('heartRate') || 0),
+          respiratoryRate: Number(form.get('respiratoryRate') || 0),
+          bpSystolic: Number(form.get('bpSystolic') || 0),
+          bpDiastolic: Number(form.get('bpDiastolic') || 0),
+          spo2: Number(form.get('spo2') || 0),
+          gcs: unit === 'icu' ? Number(form.get('gcs') || 0) : undefined,
+          oxygenSupport: unit === 'hdu' ? form.get('oxygenSupport') || undefined : undefined,
+          escalationRequired: unit === 'hdu' ? form.get('escalationRequired') === 'on' : undefined,
+          notes: form.get('notes') || undefined,
+        }),
+      })
+    },
+  })
+  const round = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/${unit}/admissions/${selectedId}/rounds`, {
+        method: 'POST',
+        body: JSON.stringify({
+          assessment: form.get('assessment'),
+          plan: form.get('plan'),
+          escalationDecision: form.get('escalationDecision') || undefined,
+        }),
+      })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title={`${title} admission`}
+          pending={admit.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            admit.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="admissionId" className="input" placeholder="Base admission ID" required />
+          <input name="bedId" className="input" placeholder={`${title} bed ID`} />
+          <input name="reason" className="input" placeholder="Reason" required />
+          {unit === 'icu' ? (
+            <input name="severityScore" className="input" placeholder="Severity score" />
+          ) : null}
+        </QuickAddForm>
+        <select className="input" value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+          <option value="">Select {title} admission</option>
+          {admissions.map((admission) => (
+            <option key={admission.id} value={admission.id}>
+              {admission.admission?.admissionNo ?? admission.id}
+            </option>
+          ))}
+        </select>
+        <QuickAddForm
+          title={`${title} observation`}
+          pending={observe.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            observe.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="heartRate" className="input" placeholder="Heart rate" />
+          <input name="respiratoryRate" className="input" placeholder="Resp rate" />
+          <input name="bpSystolic" className="input" placeholder="BP sys" />
+          <input name="bpDiastolic" className="input" placeholder="BP dia" />
+          <input name="spo2" className="input" placeholder="SpO2" />
+          {unit === 'icu' ? <input name="gcs" className="input" placeholder="GCS" /> : null}
+          {unit === 'hdu' ? <input name="oxygenSupport" className="input" placeholder="Oxygen support" /> : null}
+          {unit === 'hdu' ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input name="escalationRequired" type="checkbox" /> Escalation required
+            </label>
+          ) : null}
+          <input name="notes" className="input" placeholder="Notes" />
+        </QuickAddForm>
+        <QuickAddForm
+          title={`${title} round`}
+          pending={round.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            round.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <textarea name="assessment" className="input" placeholder="Assessment" required />
+          <textarea name="plan" className="input" placeholder="Plan" required />
+          <input name="escalationDecision" className="input" placeholder="Escalation decision" />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title={`${title} admissions`} data={admissions} />
+    </div>
+  )
+}
+
+function JsonPanel({ title, data }: { title: string; data: unknown }) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <h3 className="text-xl font-bold">{title}</h3>
+      <pre className="mt-4 max-h-[42rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
+        {JSON.stringify(data, null, 2)}
+      </pre>
+    </div>
+  )
+}
+
+interface RoleItem {
+  id: string
+  name: string
+  label: string
+  permissions?: { id: string; permissionKey: string }[]
+}
+
+interface AdminUserItem {
+  id: string
+  employeeNo: string
+  firstName: string
+  lastName: string
+  email: string
+  active: boolean
+  roles: RoleItem[]
+}
+
+function AdminUsers() {
+  const queryClient = useQueryClient()
+  const { data: users = [] } = useQuery({
+    queryKey: ['admin-users'],
+    queryFn: () => apiRequest<AdminUserItem[]>('/admin/users'),
+  })
+  const { data: roles = [] } = useQuery({
+    queryKey: ['admin-roles'],
+    queryFn: () => apiRequest<RoleItem[]>('/admin/roles'),
+  })
+  const createUser = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      const roleId = form.get('roleId')?.toString()
+      return apiRequest('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          employeeNo: form.get('employeeNo'),
+          firstName: form.get('firstName'),
+          lastName: form.get('lastName'),
+          email: form.get('email'),
+          phone: form.get('phone'),
+          temporaryPassword: form.get('temporaryPassword'),
+          roleIds: roleId ? [roleId] : [],
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createUser.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Create staff user</h3>
+        <Field name="employeeNo" label="Employee no." required />
+        <Field name="firstName" label="First name" required />
+        <Field name="lastName" label="Last name" required />
+        <Field name="email" label="Email" type="email" required />
+        <Field name="phone" label="Phone" />
+        <Field
+          name="temporaryPassword"
+          label="Temporary password"
+          type="password"
+          required
+        />
+        <label>
+          <span className="text-sm font-semibold">Role</span>
+          <select name="roleId" className="input mt-2">
+            <option value="">No role</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
+          {createUser.isPending ? 'Creating...' : 'Create user'}
+        </button>
+      </form>
+
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Users</h3>
+        <div className="mt-4 divide-y divide-slate-100">
+          {users.map((user) => (
+            <div key={user.id} className="py-4">
+              <p className="font-bold">
+                {user.firstName} {user.lastName}
+              </p>
+              <p className="text-sm text-slate-500">
+                {user.employeeNo} · {user.email} ·{' '}
+                {user.active ? 'active' : 'inactive'}
+              </p>
+              <p className="mt-1 text-sm text-blue-700">
+                {user.roles.map((role) => role.label).join(', ') || 'No roles'}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AdminRoles() {
+  const queryClient = useQueryClient()
+  const { data: roles = [] } = useQuery({
+    queryKey: ['admin-roles'],
+    queryFn: () => apiRequest<RoleItem[]>('/admin/roles'),
+  })
+  const { data: permissions = [] } = useQuery({
+    queryKey: ['admin-permissions'],
+    queryFn: () =>
+      apiRequest<{ id: string; permissionKey: string; description?: string }[]>(
+        '/admin/permissions',
+      ),
+  })
+  const createRole = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/admin/roles', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          label: form.get('label'),
+          description: form.get('description'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-roles'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createRole.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Create role</h3>
+        <Field name="name" label="Role key" required />
+        <Field name="label" label="Display label" required />
+        <Field name="description" label="Description" />
+        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
+          {createRole.isPending ? 'Creating...' : 'Create role'}
+        </button>
+      </form>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Roles and permissions</h3>
+        <div className="mt-4 space-y-4">
+          {roles.map((role) => (
+            <div key={role.id} className="rounded-2xl border border-slate-200 p-4">
+              <p className="font-bold">{role.label}</p>
+              <p className="text-sm text-slate-500">{role.name}</p>
+              <p className="mt-2 text-xs text-slate-500">
+                {(role.permissions ?? [])
+                  .map((permission) => permission.permissionKey)
+                  .join(', ') || 'No permissions'}
+              </p>
+            </div>
+          ))}
+        </div>
+        <details className="mt-6 rounded-2xl bg-slate-50 p-4">
+          <summary className="cursor-pointer font-semibold">
+            Available permissions
+          </summary>
+          <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+            {permissions.map((permission) => (
+              <span key={permission.id} className="rounded-lg bg-white p-2">
+                {permission.permissionKey}
+              </span>
+            ))}
+          </div>
+        </details>
+      </div>
+    </div>
+  )
+}
+
+function AdminSettings() {
+  const queryClient = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: () =>
+      apiRequest<{
+        smsSenderName: string
+        patientIdPrefix: string
+        triageSystem: string
+      }>('/admin/settings'),
+  })
+  const update = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/admin/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          smsSenderName: form.get('smsSenderName'),
+          patientIdPrefix: form.get('patientIdPrefix'),
+          triageSystem: form.get('triageSystem'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
+    },
+  })
+
+  return (
+    <form
+      className="max-w-2xl space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+      onSubmit={(event) => {
+        event.preventDefault()
+        update.mutate(event)
+      }}
+    >
+      <h3 className="text-xl font-bold">Hospital settings</h3>
+      <label>
+        <span className="text-sm font-semibold">SMS sender name</span>
+        <input
+          name="smsSenderName"
+          className="input mt-2"
+          defaultValue={data?.smsSenderName}
+        />
+      </label>
+      <label>
+        <span className="text-sm font-semibold">Patient ID prefix</span>
+        <input
+          name="patientIdPrefix"
+          className="input mt-2"
+          defaultValue={data?.patientIdPrefix}
+        />
+      </label>
+      <label>
+        <span className="text-sm font-semibold">Triage system</span>
+        <input
+          name="triageSystem"
+          className="input mt-2"
+          defaultValue={data?.triageSystem}
+        />
+      </label>
+      <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
+        {update.isPending ? 'Saving...' : 'Save settings'}
+      </button>
+    </form>
+  )
+}
+
+function AuditLogViewer() {
+  const { data } = useQuery({
+    queryKey: ['audit-logs'],
+    queryFn: () =>
+      apiRequest<{
+        items: {
+          id: string
+          action: string
+          endpoint: string
+          httpCode: number
+          createdAt: string
+        }[]
+      }>('/admin/audit-logs'),
+  })
+
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <h3 className="text-xl font-bold">Audit logs</h3>
+      <div className="mt-4 divide-y divide-slate-100">
+        {(data?.items ?? []).map((entry) => (
+          <div key={entry.id} className="py-3 text-sm">
+            <p className="font-semibold">
+              {entry.action.toUpperCase()} · {entry.httpCode}
+            </p>
+            <p className="text-slate-500">{entry.endpoint}</p>
+            <p className="text-xs text-slate-400">{entry.createdAt}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

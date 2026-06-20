@@ -1,0 +1,18 @@
+{
+  "name": "afyasasa",
+  "private": true,
+  "scripts": {
+    "dev": "docker compose up --build",
+    "dev:detached": "docker compose up -d --build",
+    "dev:fresh": "docker compose down -v && docker compose up --build",
+    "stop": "docker compose down",
+    "logs": "docker compose logs -f",
+    "preflight": "ops/preflight.sh",
+    "smoke": "ops/smoke-test.sh",
+    "db:backup": "ops/backup-postgres.sh",
+    "db:restore": "ops/restore-postgres.sh",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "test": "npm --prefix backend test -- --runInBand",
+    "audit": "npm --prefix backend audit --omit=dev && npm --prefix frontend audit --omit=dev"
+  }
+}

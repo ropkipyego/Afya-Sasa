@@ -10,6 +10,19 @@ import { CoreModule } from './core/core.module';
 import { PatientsModule } from './patients/patients.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthModule } from './health/health.module';
+import { OpdModule } from './opd/opd.module';
+import { AppointmentsModule } from './appointments/appointments.module';
+import { InpatientModule } from './inpatient/inpatient.module';
+import { EmergencyModule } from './emergency/emergency.module';
+import { NursingModule } from './nursing/nursing.module';
+import { ReportingModule } from './reporting/reporting.module';
+import { TheatreModule } from './theatre/theatre.module';
+import { MaternityModule } from './maternity/maternity.module';
+import { IcuModule } from './icu/icu.module';
+import { HduModule } from './hdu/hdu.module';
+import { LaboratoryModule } from './laboratory/laboratory.module';
+import { RadiologyModule } from './radiology/radiology.module';
+import { StorageModule } from './storage/storage.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -55,6 +68,19 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     CoreModule,
     PatientsModule,
     NotificationsModule,
+    OpdModule,
+    AppointmentsModule,
+    InpatientModule,
+    EmergencyModule,
+    NursingModule,
+    ReportingModule,
+    TheatreModule,
+    MaternityModule,
+    IcuModule,
+    HduModule,
+    LaboratoryModule,
+    RadiologyModule,
+    StorageModule,
     HealthModule,
   ],
   controllers: [AppController],
