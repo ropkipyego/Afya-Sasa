@@ -48,11 +48,15 @@ interface PatientSearchResponse {
 const navigation = [
   { label: 'Patient Search', icon: Search, permission: 'patients:read' },
   { label: 'Register Patient', icon: UserPlus, permission: 'patients:create' },
+  { label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
+  { label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
+  { label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
+  { label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  { label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
   { label: 'User Management', icon: Users, permission: 'users:manage' },
   { label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
   { label: 'Settings', icon: Settings, permission: 'settings:manage' },
   { label: 'Audit', icon: ShieldCheck, permission: 'audit_logs:read' },
-  { label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
 ]
 
 function App() {
@@ -144,12 +148,22 @@ function App() {
             <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
           ) : null}
           {activeScreen === 'Register Patient' ? <PatientRegistration /> : null}
+          {activeScreen === 'OPD Check-In' ? <OpdCheckIn /> : null}
+          {activeScreen === 'Triage Queue' ? <TriageQueue /> : null}
+          {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
+          {activeScreen === 'Appointments' ? <AppointmentsScreen /> : null}
+          {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
           {activeScreen === 'User Management' ? <AdminUsers /> : null}
           {activeScreen === 'Role Permissions' ? <AdminRoles /> : null}
           {activeScreen === 'Settings' ? <AdminSettings /> : null}
           {activeScreen === 'Audit' ? <AuditLogViewer /> : null}
           {activeScreen !== 'Patient Search' &&
           activeScreen !== 'Register Patient' &&
+          activeScreen !== 'OPD Check-In' &&
+          activeScreen !== 'Triage Queue' &&
+          activeScreen !== 'Doctor Queue' &&
+          activeScreen !== 'Appointments' &&
+          activeScreen !== 'OPD Reports' &&
           activeScreen !== 'User Management' &&
           activeScreen !== 'Role Permissions' &&
           activeScreen !== 'Settings' &&
@@ -865,6 +879,489 @@ function SafetyPanel() {
         <li>Every mutating action is audited.</li>
         <li>Clinical data uses soft delete only.</li>
       </ul>
+    </div>
+  )
+}
+
+interface EncounterItem {
+  id: string
+  encounterNo: string
+  status: string
+  presentingComplaint: string
+  startedAt: string
+  patient: PatientSummary
+  triage?: { colour: string; chiefComplaint: string } | null
+  consultation?: { id: string; status: string } | null
+}
+
+function OpdCheckIn() {
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<PatientSummary | null>(null)
+  const { data, refetch, isFetching } = useQuery({
+    queryKey: ['opd-checkin-patients', query],
+    queryFn: () =>
+      apiRequest<PatientSearchResponse>(
+        `/patients?q=${encodeURIComponent(query)}`,
+      ),
+    enabled: false,
+  })
+  const createEncounter = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/opd/encounters', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: selected?.id,
+          presentingComplaint: form.get('presentingComplaint'),
+          visitType: form.get('visitType'),
+        }),
+      })
+    },
+    onSuccess: () => setSelected(null),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Search patient for OPD check-in</h3>
+        <form
+          className="mt-4 flex gap-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void refetch()
+          }}
+        >
+          <input
+            className="input"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Name, patient number, phone"
+          />
+          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+            {isFetching ? 'Searching...' : 'Search'}
+          </button>
+        </form>
+        <div className="mt-4 divide-y divide-slate-100">
+          {(data?.items ?? []).map((patient) => (
+            <button
+              key={patient.id}
+              className="w-full py-3 text-left hover:bg-slate-50"
+              onClick={() => setSelected(patient)}
+            >
+              <p className="font-bold">
+                {patient.firstName} {patient.lastName}
+              </p>
+              <p className="text-sm text-slate-500">
+                {patient.patientNo} · {patient.primaryPhone}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createEncounter.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Create OPD encounter</h3>
+        <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
+          {selected
+            ? `${selected.firstName} ${selected.lastName} (${selected.patientNo})`
+            : 'Select a patient from search results first.'}
+        </p>
+        <label>
+          <span className="text-sm font-semibold">Visit type</span>
+          <select name="visitType" className="input mt-2" required>
+            <option value="new">New</option>
+            <option value="follow_up">Follow-up</option>
+            <option value="referral">Referral</option>
+          </select>
+        </label>
+        <label>
+          <span className="text-sm font-semibold">Presenting complaint</span>
+          <textarea name="presentingComplaint" className="input mt-2" required />
+        </label>
+        {createEncounter.error ? (
+          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {createEncounter.error.message}
+          </p>
+        ) : null}
+        {createEncounter.isSuccess ? (
+          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+            OPD encounter created. Patient is now in triage queue.
+          </p>
+        ) : null}
+        <button
+          className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white"
+          disabled={!selected || createEncounter.isPending}
+        >
+          Check in patient
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function TriageQueue() {
+  const queryClient = useQueryClient()
+  const { data: encounters = [] } = useQuery({
+    queryKey: ['triage-queue'],
+    queryFn: () => apiRequest<EncounterItem[]>('/opd/triage/queue'),
+  })
+  const triage = useMutation({
+    mutationFn: ({
+      event,
+      encounterId,
+    }: {
+      event: FormEvent<HTMLFormElement>
+      encounterId: string
+    }) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/opd/encounters/${encounterId}/triage`, {
+        method: 'POST',
+        body: JSON.stringify({
+          category: form.get('category'),
+          colour: form.get('colour'),
+          chiefComplaint: form.get('chiefComplaint'),
+          painScore: Number(form.get('painScore') || 0),
+          temperature: Number(form.get('temperature') || 0),
+          pulse: Number(form.get('pulse') || 0),
+          respiratoryRate: Number(form.get('respiratoryRate') || 0),
+          bpSystolic: Number(form.get('bpSystolic') || 0),
+          bpDiastolic: Number(form.get('bpDiastolic') || 0),
+          spo2: Number(form.get('spo2') || 0),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['triage-queue'] })
+    },
+  })
+
+  return (
+    <div className="space-y-4">
+      {encounters.map((encounter) => (
+        <form
+          key={encounter.id}
+          className="grid gap-4 rounded-3xl bg-white p-6 shadow-sm lg:grid-cols-[1fr_1.4fr]"
+          onSubmit={(event) => {
+            event.preventDefault()
+            triage.mutate({ event, encounterId: encounter.id })
+          }}
+        >
+          <div>
+            <p className="text-sm font-semibold text-blue-600">
+              {encounter.encounterNo}
+            </p>
+            <h3 className="text-xl font-bold">
+              {encounter.patient.firstName} {encounter.patient.lastName}
+            </h3>
+            <p className="text-sm text-slate-500">
+              {encounter.presentingComplaint}
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <input name="category" className="input" placeholder="Category" required />
+            <select name="colour" className="input" required>
+              <option value="red">Red</option>
+              <option value="orange">Orange</option>
+              <option value="yellow">Yellow</option>
+              <option value="green">Green</option>
+              <option value="blue">Blue</option>
+            </select>
+            <input name="painScore" className="input" placeholder="Pain 0-10" />
+            <input
+              name="chiefComplaint"
+              className="input md:col-span-3"
+              placeholder="Chief complaint"
+              required
+            />
+            <input name="temperature" className="input" placeholder="Temp" />
+            <input name="pulse" className="input" placeholder="Pulse" />
+            <input name="respiratoryRate" className="input" placeholder="Resp" />
+            <input name="bpSystolic" className="input" placeholder="BP sys" />
+            <input name="bpDiastolic" className="input" placeholder="BP dia" />
+            <input name="spo2" className="input" placeholder="SpO2" />
+            <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white md:col-span-3">
+              Submit triage
+            </button>
+          </div>
+        </form>
+      ))}
+      {!encounters.length ? (
+        <p className="rounded-3xl bg-white p-10 text-center text-slate-500">
+          No patients waiting for triage.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function DoctorQueue() {
+  const queryClient = useQueryClient()
+  const [selected, setSelected] = useState<EncounterItem | null>(null)
+  const { data: queue = [] } = useQuery({
+    queryKey: ['doctor-queue'],
+    queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
+  })
+  const createConsultation = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest<{ id: string }>(`/opd/encounters/${selected?.id}/consultations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          subjective: form.get('subjective'),
+          objective: form.get('objective'),
+          assessment: form.get('assessment'),
+          plan: form.get('plan'),
+          followUpDate: form.get('followUpDate') || undefined,
+          followUpInstructions: form.get('followUpInstructions') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
+    },
+  })
+  const addDiagnosis = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/opd/encounters/${selected?.id}/diagnoses`, {
+        method: 'POST',
+        body: JSON.stringify({
+          icd10Code: form.get('icd10Code'),
+          description: form.get('description'),
+          type: form.get('type'),
+          confirmed: true,
+        }),
+      })
+    },
+  })
+  const completeEncounter = useMutation({
+    mutationFn: () =>
+      apiRequest(`/opd/encounters/${selected?.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'completed' }),
+      }),
+    onSuccess: async () => {
+      setSelected(null)
+      await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="space-y-3">
+        {queue.map((encounter) => (
+          <button
+            key={encounter.id}
+            className="w-full rounded-3xl bg-white p-5 text-left shadow-sm hover:ring-2 hover:ring-blue-200"
+            onClick={() => setSelected(encounter)}
+          >
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase text-blue-700">
+              {encounter.triage?.colour ?? 'untriaged'}
+            </span>
+            <h3 className="mt-3 text-lg font-bold">
+              {encounter.patient.firstName} {encounter.patient.lastName}
+            </h3>
+            <p className="text-sm text-slate-500">
+              {encounter.presentingComplaint}
+            </p>
+          </button>
+        ))}
+      </div>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        {selected ? (
+          <>
+            <h3 className="text-xl font-bold">
+              Consultation: {selected.patient.firstName}{' '}
+              {selected.patient.lastName}
+            </h3>
+            <PatientSafetyBanner patient={selected.patient} />
+            <form
+              className="mt-4 grid gap-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                createConsultation.mutate(event)
+              }}
+            >
+              <textarea name="subjective" className="input" placeholder="Subjective" required />
+              <textarea name="objective" className="input" placeholder="Objective" required />
+              <textarea name="assessment" className="input" placeholder="Assessment" required />
+              <textarea name="plan" className="input" placeholder="Plan" required />
+              <input name="followUpDate" className="input" type="date" />
+              <input
+                name="followUpInstructions"
+                className="input"
+                placeholder="Follow-up instructions"
+              />
+              <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+                Save SOAP
+              </button>
+            </form>
+            <form
+              className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                addDiagnosis.mutate(event)
+                event.currentTarget.reset()
+              }}
+            >
+              <p className="font-bold">Add diagnosis</p>
+              <input name="icd10Code" className="input" placeholder="ICD-10" />
+              <input name="description" className="input" placeholder="Diagnosis" required />
+              <select name="type" className="input" required>
+                <option value="primary">Primary</option>
+                <option value="secondary">Secondary</option>
+                <option value="differential">Differential</option>
+              </select>
+              <button className="rounded-xl bg-slate-900 px-4 py-2 font-bold text-white">
+                Add diagnosis
+              </button>
+            </form>
+            <button
+              className="mt-6 rounded-xl bg-green-600 px-4 py-2 font-bold text-white"
+              onClick={() => completeEncounter.mutate()}
+            >
+              Complete encounter
+            </button>
+          </>
+        ) : (
+          <p className="text-slate-500">Select a patient from the doctor queue.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PatientSafetyBanner({ patient }: { patient: PatientSummary }) {
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <div className="rounded-2xl bg-red-50 p-3 text-red-800">
+        <p className="text-xs font-bold uppercase">Allergies</p>
+        <p className="text-sm">
+          {patient.allergies?.map((allergy) => allergy.allergen).join(', ') ||
+            'None recorded'}
+        </p>
+      </div>
+      <div className="rounded-2xl bg-amber-50 p-3 text-amber-900">
+        <p className="text-xs font-bold uppercase">Chronic conditions</p>
+        <p className="text-sm">
+          {patient.chronicConditions?.map((condition) => condition.name).join(', ') ||
+            'None recorded'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function AppointmentsScreen() {
+  const queryClient = useQueryClient()
+  const { data: appointments = [] } = useQuery({
+    queryKey: ['appointments'],
+    queryFn: () => apiRequest<unknown[]>('/appointments'),
+  })
+  const createAppointment = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/appointments', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          doctorId: form.get('doctorId'),
+          appointmentDate: form.get('appointmentDate'),
+          appointmentTime: form.get('appointmentTime'),
+          type: form.get('type'),
+          reason: form.get('reason'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['appointments'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createAppointment.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Book appointment</h3>
+        <Field name="patientId" label="Patient ID" required />
+        <Field name="doctorId" label="Doctor user ID" required />
+        <Field name="appointmentDate" label="Date" type="date" required />
+        <Field name="appointmentTime" label="Time" required />
+        <label>
+          <span className="text-sm font-semibold">Type</span>
+          <select name="type" className="input mt-2" required>
+            <option value="new">New</option>
+            <option value="follow_up">Follow-up</option>
+            <option value="procedure">Procedure</option>
+            <option value="review">Review</option>
+            <option value="antenatal">Antenatal</option>
+          </select>
+        </label>
+        <Field name="reason" label="Reason" required />
+        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
+          Book appointment
+        </button>
+      </form>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Appointments</h3>
+        <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
+          {JSON.stringify(appointments, null, 2)}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function OpdReports() {
+  const { data } = useQuery({
+    queryKey: ['opd-summary'],
+    queryFn: () =>
+      apiRequest<{
+        totalVisits: number
+        activeVisits: number
+        completedVisits: number
+        topDiagnoses: { description: string; count: number }[]
+      }>('/opd/reports/summary'),
+  })
+
+  return (
+    <div className="grid gap-6 md:grid-cols-3">
+      <MetricCard label="Total OPD visits" value={data?.totalVisits ?? 0} />
+      <MetricCard label="Active visits" value={data?.activeVisits ?? 0} />
+      <MetricCard label="Completed visits" value={data?.completedVisits ?? 0} />
+      <div className="rounded-3xl bg-white p-6 shadow-sm md:col-span-3">
+        <h3 className="text-xl font-bold">Top diagnoses</h3>
+        <div className="mt-4 divide-y divide-slate-100">
+          {(data?.topDiagnoses ?? []).map((diagnosis) => (
+            <div key={diagnosis.description} className="flex justify-between py-3">
+              <span>{diagnosis.description}</span>
+              <span className="font-bold">{diagnosis.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold">{value}</p>
     </div>
   )
 }
