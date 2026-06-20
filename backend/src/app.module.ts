@@ -10,6 +10,8 @@ import { CoreModule } from './core/core.module';
 import { PatientsModule } from './patients/patients.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthModule } from './health/health.module';
+import { OpdModule } from './opd/opd.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -55,6 +57,8 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     CoreModule,
     PatientsModule,
     NotificationsModule,
+    OpdModule,
+    AppointmentsModule,
     HealthModule,
   ],
   controllers: [AppController],
