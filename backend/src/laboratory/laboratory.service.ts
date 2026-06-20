@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { Admission } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
@@ -230,7 +230,7 @@ export class LaboratoryService {
 
   async resultsInbox() {
     return this.results.find({
-      where: { verifiedAt: undefined },
+      where: { verifiedAt: Not(IsNull()) },
       relations: { requestItem: { request: { patient: true }, test: true, panel: true } },
       order: { enteredAt: 'DESC' },
       take: 100,
