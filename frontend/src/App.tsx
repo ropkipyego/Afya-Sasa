@@ -53,6 +53,10 @@ const navigation = [
   { label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
   { label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
   { label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
+  { label: 'Bed Dashboard', icon: Hospital, permission: 'beds:read' },
+  { label: 'Admissions', icon: ClipboardList, permission: 'admissions:read' },
+  { label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read' },
+  { label: 'Nursing', icon: Activity, permission: 'vitals:read' },
   { label: 'User Management', icon: Users, permission: 'users:manage' },
   { label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
   { label: 'Settings', icon: Settings, permission: 'settings:manage' },
@@ -153,6 +157,10 @@ function App() {
           {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
           {activeScreen === 'Appointments' ? <AppointmentsScreen /> : null}
           {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
+          {activeScreen === 'Bed Dashboard' ? <BedDashboard /> : null}
+          {activeScreen === 'Admissions' ? <AdmissionsScreen /> : null}
+          {activeScreen === 'Emergency' ? <EmergencyScreen /> : null}
+          {activeScreen === 'Nursing' ? <NursingScreen /> : null}
           {activeScreen === 'User Management' ? <AdminUsers /> : null}
           {activeScreen === 'Role Permissions' ? <AdminRoles /> : null}
           {activeScreen === 'Settings' ? <AdminSettings /> : null}
@@ -164,6 +172,10 @@ function App() {
           activeScreen !== 'Doctor Queue' &&
           activeScreen !== 'Appointments' &&
           activeScreen !== 'OPD Reports' &&
+          activeScreen !== 'Bed Dashboard' &&
+          activeScreen !== 'Admissions' &&
+          activeScreen !== 'Emergency' &&
+          activeScreen !== 'Nursing' &&
           activeScreen !== 'User Management' &&
           activeScreen !== 'Role Permissions' &&
           activeScreen !== 'Settings' &&
@@ -1362,6 +1374,411 @@ function MetricCard({ label, value }: { label: string; value: number }) {
     <div className="rounded-3xl bg-white p-6 shadow-sm">
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
+    </div>
+  )
+}
+
+function BedDashboard() {
+  const queryClient = useQueryClient()
+  const { data: beds = [] } = useQuery({
+    queryKey: ['bed-dashboard'],
+    queryFn: () =>
+      apiRequest<
+        {
+          id: string
+          bedNo: string
+          status: string
+          type: string
+          ward: { name: string }
+          patient?: PatientSummary | null
+        }[]
+      >('/inpatient/beds/dashboard'),
+  })
+  const { data: wards = [] } = useQuery({
+    queryKey: ['wards'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/inpatient/wards'),
+  })
+  const createWard = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/inpatient/wards', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          code: form.get('code'),
+          type: form.get('type'),
+          floor: form.get('floor'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['wards'] })
+    },
+  })
+  const createBed = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/inpatient/beds', {
+        method: 'POST',
+        body: JSON.stringify({
+          wardId: form.get('wardId'),
+          bedNo: form.get('bedNo'),
+          type: form.get('type'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['wards'] })
+    },
+  })
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2">
+        <form
+          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
+          onSubmit={(event) => {
+            event.preventDefault()
+            createWard.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <h3 className="text-xl font-bold">Create ward</h3>
+          <Field name="name" label="Ward name" required />
+          <Field name="code" label="Ward code" required />
+          <label>
+            <span className="text-sm font-semibold">Type</span>
+            <select name="type" className="input mt-2" required>
+              <option value="general">General</option>
+              <option value="icu">ICU</option>
+              <option value="hdu">HDU</option>
+              <option value="maternity">Maternity</option>
+              <option value="paediatric">Paediatric</option>
+              <option value="surgical">Surgical</option>
+              <option value="medical">Medical</option>
+              <option value="isolation">Isolation</option>
+            </select>
+          </label>
+          <Field name="floor" label="Floor" />
+          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+            Create ward
+          </button>
+        </form>
+        <form
+          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
+          onSubmit={(event) => {
+            event.preventDefault()
+            createBed.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <h3 className="text-xl font-bold">Create bed</h3>
+          <label>
+            <span className="text-sm font-semibold">Ward</span>
+            <select name="wardId" className="input mt-2" required>
+              {wards.map((ward) => (
+                <option key={ward.id} value={ward.id}>
+                  {ward.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Field name="bedNo" label="Bed no." required />
+          <select name="type" className="input" required>
+            <option value="standard">Standard</option>
+            <option value="icu">ICU</option>
+            <option value="isolation">Isolation</option>
+            <option value="paediatric">Paediatric</option>
+            <option value="maternity">Maternity</option>
+            <option value="cardiac">Cardiac</option>
+          </select>
+          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+            Create bed
+          </button>
+        </form>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+        {beds.map((bed) => (
+          <div key={bed.id} className="rounded-3xl bg-white p-5 shadow-sm">
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
+                bed.status === 'available'
+                  ? 'bg-green-50 text-green-700'
+                  : bed.status === 'occupied'
+                    ? 'bg-red-50 text-red-700'
+                    : 'bg-amber-50 text-amber-700'
+              }`}
+            >
+              {bed.status}
+            </span>
+            <h3 className="mt-3 text-xl font-bold">{bed.bedNo}</h3>
+            <p className="text-sm text-slate-500">
+              {bed.ward?.name} · {bed.type}
+            </p>
+            {bed.patient ? (
+              <p className="mt-2 text-sm font-semibold">
+                {bed.patient.firstName} {bed.patient.lastName}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AdmissionsScreen() {
+  const queryClient = useQueryClient()
+  const { data: admissions = [] } = useQuery({
+    queryKey: ['admissions'],
+    queryFn: () =>
+      apiRequest<
+        {
+          id: string
+          admissionNo: string
+          status: string
+          patient: PatientSummary
+          bed: { bedNo: string }
+          ward: { name: string }
+        }[]
+      >('/inpatient/admissions'),
+  })
+  const { data: beds = [] } = useQuery({
+    queryKey: ['available-beds'],
+    queryFn: () =>
+      apiRequest<{ id: string; bedNo: string; ward: { name: string } }[]>(
+        '/inpatient/beds/available',
+      ),
+  })
+  const createAdmission = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/inpatient/admissions', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          encounterId: form.get('encounterId') || undefined,
+          bedId: form.get('bedId'),
+          reason: form.get('reason'),
+          type: form.get('type'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admissions'] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          createAdmission.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Create admission</h3>
+        <Field name="patientId" label="Patient ID" required />
+        <Field name="encounterId" label="Source encounter ID" />
+        <label>
+          <span className="text-sm font-semibold">Available bed</span>
+          <select name="bedId" className="input mt-2" required>
+            {beds.map((bed) => (
+              <option key={bed.id} value={bed.id}>
+                {bed.ward?.name} · {bed.bedNo}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field name="reason" label="Reason" required />
+        <select name="type" className="input" required>
+          <option value="elective">Elective</option>
+          <option value="emergency">Emergency</option>
+          <option value="transfer">Transfer</option>
+        </select>
+        <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+          Admit patient
+        </button>
+      </form>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Admissions</h3>
+        <div className="mt-4 divide-y divide-slate-100">
+          {admissions.map((admission) => (
+            <div key={admission.id} className="py-4">
+              <p className="font-bold">
+                {admission.patient?.firstName} {admission.patient?.lastName}
+              </p>
+              <p className="text-sm text-slate-500">
+                {admission.admissionNo} · {admission.ward?.name} ·{' '}
+                {admission.bed?.bedNo} · {admission.status}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmergencyScreen() {
+  const queryClient = useQueryClient()
+  const { data: emergencies = [] } = useQuery({
+    queryKey: ['emergency-dashboard'],
+    queryFn: () => apiRequest<unknown[]>('/emergency/dashboard'),
+  })
+  const { data: alerts = [] } = useQuery({
+    queryKey: ['critical-alerts'],
+    queryFn: () =>
+      apiRequest<{ id: string; message: string; severity: string }[]>(
+        '/emergency/alerts',
+      ),
+  })
+  const register = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/emergency/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          presentingComplaint: form.get('presentingComplaint'),
+          arrivalMode: form.get('arrivalMode'),
+          traumaFlag: form.get('traumaFlag') === 'on',
+          traumaMechanism: form.get('traumaMechanism') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['emergency-dashboard'] })
+    },
+  })
+  const acknowledge = useMutation({
+    mutationFn: (id: string) =>
+      apiRequest(`/emergency/alerts/${id}/acknowledge`, { method: 'POST' }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['critical-alerts'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          register.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <h3 className="text-xl font-bold">Emergency fast registration</h3>
+        <Field name="patientId" label="Patient ID" required />
+        <Field name="presentingComplaint" label="Presenting complaint" required />
+        <select name="arrivalMode" className="input" required>
+          <option value="walk_in">Walk-in</option>
+          <option value="ambulance">Ambulance</option>
+          <option value="police">Police</option>
+          <option value="referral">Referral</option>
+          <option value="airlift">Airlift</option>
+        </select>
+        <label className="flex items-center gap-2 text-sm">
+          <input name="traumaFlag" type="checkbox" /> Trauma case
+        </label>
+        <Field name="traumaMechanism" label="Trauma mechanism" />
+        <button className="rounded-xl bg-red-600 px-4 py-2 font-bold text-white">
+          Register emergency
+        </button>
+      </form>
+      <div className="space-y-6">
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <h3 className="text-xl font-bold">Emergency dashboard</h3>
+          <pre className="mt-4 max-h-72 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-white">
+            {JSON.stringify(emergencies, null, 2)}
+          </pre>
+        </div>
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <h3 className="text-xl font-bold">Critical alerts</h3>
+          <div className="mt-4 space-y-3">
+            {alerts.map((alert) => (
+              <div key={alert.id} className="rounded-2xl bg-red-50 p-4 text-red-800">
+                <p className="font-bold">{alert.severity}</p>
+                <p className="text-sm">{alert.message}</p>
+                <button
+                  className="mt-3 rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
+                  onClick={() => acknowledge.mutate(alert.id)}
+                >
+                  Acknowledge
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NursingScreen() {
+  const queryClient = useQueryClient()
+  const [admissionId, setAdmissionId] = useState('')
+  const { data: vitals = [] } = useQuery({
+    queryKey: ['vitals', admissionId],
+    queryFn: () => apiRequest<unknown[]>(`/nursing/vitals?admissionId=${admissionId}`),
+    enabled: Boolean(admissionId),
+  })
+  const createVitals = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/nursing/vitals', {
+        method: 'POST',
+        body: JSON.stringify({
+          admissionId: form.get('admissionId'),
+          temperature: Number(form.get('temperature') || 0),
+          pulse: Number(form.get('pulse') || 0),
+          respiratoryRate: Number(form.get('respiratoryRate') || 0),
+          bpSystolic: Number(form.get('bpSystolic') || 0),
+          bpDiastolic: Number(form.get('bpDiastolic') || 0),
+          spo2: Number(form.get('spo2') || 0),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['vitals'] })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <form
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const form = new FormData(event.currentTarget)
+          setAdmissionId(form.get('admissionId')?.toString() ?? '')
+          createVitals.mutate(event)
+        }}
+      >
+        <h3 className="text-xl font-bold">Record vitals</h3>
+        <Field name="admissionId" label="Admission ID" required />
+        <Field name="temperature" label="Temperature" />
+        <Field name="pulse" label="Pulse" />
+        <Field name="respiratoryRate" label="Respiratory rate" />
+        <Field name="bpSystolic" label="BP systolic" />
+        <Field name="bpDiastolic" label="BP diastolic" />
+        <Field name="spo2" label="SpO2" />
+        <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+          Save vitals
+        </button>
+      </form>
+      <div className="rounded-3xl bg-white p-6 shadow-sm">
+        <h3 className="text-xl font-bold">Recent vitals</h3>
+        <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-white">
+          {JSON.stringify(vitals, null, 2)}
+        </pre>
+      </div>
     </div>
   )
 }
