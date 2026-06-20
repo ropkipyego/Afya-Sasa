@@ -58,6 +58,10 @@ const navigation = [
   { label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read' },
   { label: 'Nursing', icon: Activity, permission: 'vitals:read' },
   { label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read' },
+  { label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
+  { label: 'Maternity', icon: Activity, permission: 'pregnancies:read' },
+  { label: 'ICU', icon: AlertTriangle, permission: 'icu_admissions:read' },
+  { label: 'HDU', icon: Activity, permission: 'hdu_admissions:read' },
   { label: 'User Management', icon: Users, permission: 'users:manage' },
   { label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
   { label: 'Settings', icon: Settings, permission: 'settings:manage' },
@@ -163,6 +167,10 @@ function App() {
           {activeScreen === 'Emergency' ? <EmergencyScreen /> : null}
           {activeScreen === 'Nursing' ? <NursingScreen /> : null}
           {activeScreen === 'Clinical Reports' ? <ClinicalReports /> : null}
+          {activeScreen === 'Theatre' ? <TheatreScreen /> : null}
+          {activeScreen === 'Maternity' ? <MaternityScreen /> : null}
+          {activeScreen === 'ICU' ? <IcuScreen /> : null}
+          {activeScreen === 'HDU' ? <HduScreen /> : null}
           {activeScreen === 'User Management' ? <AdminUsers /> : null}
           {activeScreen === 'Role Permissions' ? <AdminRoles /> : null}
           {activeScreen === 'Settings' ? <AdminSettings /> : null}
@@ -179,6 +187,10 @@ function App() {
           activeScreen !== 'Emergency' &&
           activeScreen !== 'Nursing' &&
           activeScreen !== 'Clinical Reports' &&
+          activeScreen !== 'Theatre' &&
+          activeScreen !== 'Maternity' &&
+          activeScreen !== 'ICU' &&
+          activeScreen !== 'HDU' &&
           activeScreen !== 'User Management' &&
           activeScreen !== 'Role Permissions' &&
           activeScreen !== 'Settings' &&
@@ -1897,6 +1909,429 @@ function NursingScreen() {
           {JSON.stringify(vitals, null, 2)}
         </pre>
       </div>
+    </div>
+  )
+}
+
+function TheatreScreen() {
+  const queryClient = useQueryClient()
+  const { data: theatres = [] } = useQuery({
+    queryKey: ['theatres'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/theatre/theatres'),
+  })
+  const { data: procedures = [] } = useQuery({
+    queryKey: ['surgical-procedures'],
+    queryFn: () =>
+      apiRequest<{ id: string; name: string }[]>('/theatre/procedures'),
+  })
+  const { data: bookings = [] } = useQuery({
+    queryKey: ['surgery-bookings'],
+    queryFn: () => apiRequest<unknown[]>('/theatre/bookings'),
+  })
+  const createTheatre = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/theatre/theatres', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          code: form.get('code'),
+          location: form.get('location'),
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['theatres'] }),
+  })
+  const createProcedure = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/theatre/procedures', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          code: form.get('code'),
+          category: form.get('category'),
+          expectedDurationMinutes: Number(form.get('expectedDurationMinutes') || 0),
+        }),
+      })
+    },
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ['surgical-procedures'] }),
+  })
+  const createBooking = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/theatre/bookings', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          admissionId: form.get('admissionId') || undefined,
+          procedureId: form.get('procedureId'),
+          theatreId: form.get('theatreId') || undefined,
+          scheduledStartAt: form.get('scheduledStartAt'),
+          priority: form.get('priority'),
+        }),
+      })
+    },
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Create theatre"
+          pending={createTheatre.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createTheatre.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="name" className="input" placeholder="Theatre name" required />
+          <input name="code" className="input" placeholder="Code" required />
+          <input name="location" className="input" placeholder="Location" />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Create surgical procedure"
+          pending={createProcedure.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createProcedure.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="name" className="input" placeholder="Procedure name" required />
+          <input name="code" className="input" placeholder="Code" required />
+          <input name="category" className="input" placeholder="Category" />
+          <input
+            name="expectedDurationMinutes"
+            className="input"
+            placeholder="Expected minutes"
+          />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Book surgery"
+          pending={createBooking.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createBooking.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <select name="procedureId" className="input" required>
+            {procedures.map((procedure) => (
+              <option key={procedure.id} value={procedure.id}>
+                {procedure.name}
+              </option>
+            ))}
+          </select>
+          <select name="theatreId" className="input">
+            <option value="">No theatre assigned</option>
+            {theatres.map((theatre) => (
+              <option key={theatre.id} value={theatre.id}>
+                {theatre.name}
+              </option>
+            ))}
+          </select>
+          <input name="scheduledStartAt" type="datetime-local" className="input" required />
+          <select name="priority" className="input" required>
+            <option value="elective">Elective</option>
+            <option value="urgent">Urgent</option>
+            <option value="emergency">Emergency</option>
+          </select>
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Surgery bookings" data={bookings} />
+    </div>
+  )
+}
+
+function MaternityScreen() {
+  const queryClient = useQueryClient()
+  const [selectedPregnancyId, setSelectedPregnancyId] = useState('')
+  const { data: pregnancies = [] } = useQuery({
+    queryKey: ['pregnancies'],
+    queryFn: () =>
+      apiRequest<{ id: string; pregnancyNo: string; patient?: PatientSummary }[]>(
+        '/maternity/pregnancies',
+      ),
+  })
+  const createPregnancy = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/maternity/pregnancies', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          admissionId: form.get('admissionId') || undefined,
+          gravida: Number(form.get('gravida') || 0),
+          para: Number(form.get('para') || 0),
+          lmpDate: form.get('lmpDate') || undefined,
+          riskLevel: form.get('riskLevel'),
+          riskNotes: form.get('riskNotes') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
+  })
+  const createAnc = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/anc-visits`, {
+        method: 'POST',
+        body: JSON.stringify({
+          visitDate: form.get('visitDate'),
+          gestationalAgeWeeks: Number(form.get('gestationalAgeWeeks') || 0),
+          riskAssessment: form.get('riskAssessment') || undefined,
+          plan: form.get('plan'),
+        }),
+      })
+    },
+  })
+  const createDelivery = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/deliveries`, {
+        method: 'POST',
+        body: JSON.stringify({
+          deliveryTime: form.get('deliveryTime'),
+          mode: form.get('mode'),
+          outcome: form.get('outcome'),
+          bloodLossMl: Number(form.get('bloodLossMl') || 0),
+          complications: form.get('complications') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Register pregnancy"
+          pending={createPregnancy.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createPregnancy.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Mother patient ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <input name="gravida" className="input" placeholder="Gravida" required />
+          <input name="para" className="input" placeholder="Para" required />
+          <input name="lmpDate" className="input" type="date" />
+          <select name="riskLevel" className="input">
+            <option value="low">Low risk</option>
+            <option value="moderate">Moderate risk</option>
+            <option value="high">High risk</option>
+          </select>
+          <input name="riskNotes" className="input" placeholder="Risk notes" />
+        </QuickAddForm>
+        <select
+          className="input"
+          value={selectedPregnancyId}
+          onChange={(event) => setSelectedPregnancyId(event.target.value)}
+        >
+          <option value="">Select pregnancy for ANC/delivery</option>
+          {pregnancies.map((pregnancy) => (
+            <option key={pregnancy.id} value={pregnancy.id}>
+              {pregnancy.pregnancyNo}
+            </option>
+          ))}
+        </select>
+        <QuickAddForm
+          title="Add ANC visit"
+          pending={createAnc.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createAnc.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="visitDate" className="input" type="date" required />
+          <input name="gestationalAgeWeeks" className="input" placeholder="Gestational weeks" />
+          <input name="riskAssessment" className="input" placeholder="Risk assessment" />
+          <input name="plan" className="input" placeholder="Plan" required />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Record delivery"
+          pending={createDelivery.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createDelivery.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="deliveryTime" className="input" type="datetime-local" required />
+          <select name="mode" className="input" required>
+            <option value="svd">SVD</option>
+            <option value="assisted">Assisted</option>
+            <option value="cesarean">Cesarean</option>
+            <option value="breech">Breech</option>
+          </select>
+          <select name="outcome" className="input" required>
+            <option value="live_birth">Live birth</option>
+            <option value="stillbirth">Stillbirth</option>
+            <option value="maternal_transfer">Maternal transfer</option>
+            <option value="maternal_death">Maternal death</option>
+          </select>
+          <input name="bloodLossMl" className="input" placeholder="Blood loss ml" />
+          <input name="complications" className="input" placeholder="Complications" />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Pregnancies" data={pregnancies} />
+    </div>
+  )
+}
+
+function IcuScreen() {
+  return <CriticalCareScreen unit="icu" title="ICU" />
+}
+
+function HduScreen() {
+  return <CriticalCareScreen unit="hdu" title="HDU" />
+}
+
+function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: string }) {
+  const queryClient = useQueryClient()
+  const [selectedId, setSelectedId] = useState('')
+  const { data: admissions = [] } = useQuery({
+    queryKey: [`${unit}-admissions`],
+    queryFn: () =>
+      apiRequest<{ id: string; admission?: { admissionNo: string; patient?: PatientSummary } }[]>(
+        `/${unit}/admissions`,
+      ),
+  })
+  const admit = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/${unit}/admissions`, {
+        method: 'POST',
+        body: JSON.stringify({
+          admissionId: form.get('admissionId'),
+          [`${unit}BedId`]: form.get('bedId') || undefined,
+          reason: form.get('reason'),
+          severityScore: unit === 'icu' ? Number(form.get('severityScore') || 0) : undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: [`${unit}-admissions`] }),
+  })
+  const observe = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/${unit}/admissions/${selectedId}/observations`, {
+        method: 'POST',
+        body: JSON.stringify({
+          heartRate: Number(form.get('heartRate') || 0),
+          respiratoryRate: Number(form.get('respiratoryRate') || 0),
+          bpSystolic: Number(form.get('bpSystolic') || 0),
+          bpDiastolic: Number(form.get('bpDiastolic') || 0),
+          spo2: Number(form.get('spo2') || 0),
+          gcs: unit === 'icu' ? Number(form.get('gcs') || 0) : undefined,
+          oxygenSupport: unit === 'hdu' ? form.get('oxygenSupport') || undefined : undefined,
+          escalationRequired: unit === 'hdu' ? form.get('escalationRequired') === 'on' : undefined,
+          notes: form.get('notes') || undefined,
+        }),
+      })
+    },
+  })
+  const round = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/${unit}/admissions/${selectedId}/rounds`, {
+        method: 'POST',
+        body: JSON.stringify({
+          assessment: form.get('assessment'),
+          plan: form.get('plan'),
+          escalationDecision: form.get('escalationDecision') || undefined,
+        }),
+      })
+    },
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title={`${title} admission`}
+          pending={admit.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            admit.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="admissionId" className="input" placeholder="Base admission ID" required />
+          <input name="bedId" className="input" placeholder={`${title} bed ID`} />
+          <input name="reason" className="input" placeholder="Reason" required />
+          {unit === 'icu' ? (
+            <input name="severityScore" className="input" placeholder="Severity score" />
+          ) : null}
+        </QuickAddForm>
+        <select className="input" value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+          <option value="">Select {title} admission</option>
+          {admissions.map((admission) => (
+            <option key={admission.id} value={admission.id}>
+              {admission.admission?.admissionNo ?? admission.id}
+            </option>
+          ))}
+        </select>
+        <QuickAddForm
+          title={`${title} observation`}
+          pending={observe.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            observe.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="heartRate" className="input" placeholder="Heart rate" />
+          <input name="respiratoryRate" className="input" placeholder="Resp rate" />
+          <input name="bpSystolic" className="input" placeholder="BP sys" />
+          <input name="bpDiastolic" className="input" placeholder="BP dia" />
+          <input name="spo2" className="input" placeholder="SpO2" />
+          {unit === 'icu' ? <input name="gcs" className="input" placeholder="GCS" /> : null}
+          {unit === 'hdu' ? <input name="oxygenSupport" className="input" placeholder="Oxygen support" /> : null}
+          {unit === 'hdu' ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input name="escalationRequired" type="checkbox" /> Escalation required
+            </label>
+          ) : null}
+          <input name="notes" className="input" placeholder="Notes" />
+        </QuickAddForm>
+        <QuickAddForm
+          title={`${title} round`}
+          pending={round.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            round.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <textarea name="assessment" className="input" placeholder="Assessment" required />
+          <textarea name="plan" className="input" placeholder="Plan" required />
+          <input name="escalationDecision" className="input" placeholder="Escalation decision" />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title={`${title} admissions`} data={admissions} />
+    </div>
+  )
+}
+
+function JsonPanel({ title, data }: { title: string; data: unknown }) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <h3 className="text-xl font-bold">{title}</h3>
+      <pre className="mt-4 max-h-[42rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
+        {JSON.stringify(data, null, 2)}
+      </pre>
     </div>
   )
 }
