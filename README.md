@@ -15,6 +15,7 @@ Requires Docker / Docker Compose.
 
 ```bash
 cp .env.example .env
+npm run preflight
 npm run dev
 ```
 
@@ -28,8 +29,10 @@ Useful commands:
 
 ```bash
 npm run dev:detached
+npm run smoke
 npm run logs
 npm run stop
+npm run dev:fresh
 npm run build
 npm run test
 npm run audit
@@ -93,3 +96,4 @@ The demo migration seeds:
 - Future Theatre, Maternity, ICU, and HDU architecture: `docs/future-clinical-modules-architecture.md`
 - Production hardening notes: `docs/production-hardening-notes.md`
 - SMS and object storage integrations: `docs/integrations.md`
+- Local testing guide: `docs/local-testing-guide.md`
