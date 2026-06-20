@@ -51,6 +51,9 @@ const navigation = [
   { label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
   { label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
   { label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
+  { label: 'Laboratory', icon: Activity, permission: 'lab_requests:read' },
+  { label: 'Radiology', icon: Hospital, permission: 'radiology_requests:read' },
+  { label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read' },
   { label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
   { label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
   { label: 'Bed Dashboard', icon: Hospital, permission: 'beds:read' },
@@ -160,6 +163,9 @@ function App() {
           {activeScreen === 'OPD Check-In' ? <OpdCheckIn /> : null}
           {activeScreen === 'Triage Queue' ? <TriageQueue /> : null}
           {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
+          {activeScreen === 'Laboratory' ? <LaboratoryScreen /> : null}
+          {activeScreen === 'Radiology' ? <RadiologyScreen /> : null}
+          {activeScreen === 'Results Inbox' ? <ResultsInbox /> : null}
           {activeScreen === 'Appointments' ? <AppointmentsScreen /> : null}
           {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
           {activeScreen === 'Bed Dashboard' ? <BedDashboard /> : null}
@@ -180,6 +186,9 @@ function App() {
           activeScreen !== 'OPD Check-In' &&
           activeScreen !== 'Triage Queue' &&
           activeScreen !== 'Doctor Queue' &&
+          activeScreen !== 'Laboratory' &&
+          activeScreen !== 'Radiology' &&
+          activeScreen !== 'Results Inbox' &&
           activeScreen !== 'Appointments' &&
           activeScreen !== 'OPD Reports' &&
           activeScreen !== 'Bed Dashboard' &&
@@ -1909,6 +1918,273 @@ function NursingScreen() {
           {JSON.stringify(vitals, null, 2)}
         </pre>
       </div>
+    </div>
+  )
+}
+
+function LaboratoryScreen() {
+  const queryClient = useQueryClient()
+  const { data: panels = [] } = useQuery({
+    queryKey: ['lab-panels'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/laboratory/panels'),
+  })
+  const { data: tests = [] } = useQuery({
+    queryKey: ['lab-tests'],
+    queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/laboratory/tests'),
+  })
+  const { data: requests = [] } = useQuery({
+    queryKey: ['lab-requests'],
+    queryFn: () => apiRequest<unknown[]>('/laboratory/requests'),
+  })
+  const createRequest = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      const testId = form.get('testId')?.toString()
+      const panelId = form.get('panelId')?.toString()
+      return apiRequest('/laboratory/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          encounterId: form.get('encounterId'),
+          admissionId: form.get('admissionId') || undefined,
+          priority: form.get('priority'),
+          notes: form.get('notes') || undefined,
+          testIds: testId ? [testId] : [],
+          panelIds: panelId ? [panelId] : [],
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
+  })
+  const collectSample = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/laboratory/requests/${form.get('requestId')}/samples`, {
+        method: 'POST',
+        body: JSON.stringify({ type: form.get('type') }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
+  })
+  const enterResult = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/laboratory/results', {
+        method: 'POST',
+        body: JSON.stringify({
+          requestItemId: form.get('requestItemId'),
+          sampleId: form.get('sampleId') || undefined,
+          value: form.get('value'),
+          unit: form.get('unit') || undefined,
+        }),
+      })
+    },
+  })
+  const verifyRequest = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/laboratory/requests/${form.get('requestId')}/verify`, {
+        method: 'POST',
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Create lab request"
+          pending={createRequest.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createRequest.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <input name="encounterId" className="input" placeholder="Encounter ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <select name="priority" className="input" required>
+            <option value="routine">Routine</option>
+            <option value="urgent">Urgent</option>
+            <option value="stat">STAT</option>
+          </select>
+          <select name="testId" className="input">
+            <option value="">Select test</option>
+            {tests.map((test) => (
+              <option key={test.id} value={test.id}>
+                {test.name}
+              </option>
+            ))}
+          </select>
+          <select name="panelId" className="input">
+            <option value="">Select panel</option>
+            {panels.map((panel) => (
+              <option key={panel.id} value={panel.id}>
+                {panel.name}
+              </option>
+            ))}
+          </select>
+          <input name="notes" className="input" placeholder="Clinical notes" />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Collect sample"
+          pending={collectSample.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            collectSample.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestId" className="input" placeholder="Lab request ID" required />
+          <input name="type" className="input" placeholder="Sample type" required />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Enter result"
+          pending={enterResult.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            enterResult.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestItemId" className="input" placeholder="Request item ID" required />
+          <input name="sampleId" className="input" placeholder="Sample ID" />
+          <input name="value" className="input" placeholder="Result value" required />
+          <input name="unit" className="input" placeholder="Unit" />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Verify request"
+          pending={verifyRequest.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            verifyRequest.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestId" className="input" placeholder="Lab request ID" required />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Lab requests" data={requests} />
+    </div>
+  )
+}
+
+function RadiologyScreen() {
+  const queryClient = useQueryClient()
+  const { data: modalities = [] } = useQuery({
+    queryKey: ['radiology-modalities'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/radiology/modalities'),
+  })
+  const { data: requests = [] } = useQuery({
+    queryKey: ['radiology-requests'],
+    queryFn: () => apiRequest<unknown[]>('/radiology/requests'),
+  })
+  const createRequest = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/radiology/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: form.get('patientId'),
+          encounterId: form.get('encounterId'),
+          admissionId: form.get('admissionId') || undefined,
+          modalityId: form.get('modalityId'),
+          bodyPart: form.get('bodyPart'),
+          views: form.get('views') || undefined,
+          clinicalIndication: form.get('clinicalIndication'),
+          priority: form.get('priority'),
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
+  })
+  const createReport = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/radiology/requests/${form.get('requestId')}/reports`, {
+        method: 'POST',
+        body: JSON.stringify({
+          findings: form.get('findings'),
+          impression: form.get('impression'),
+          recommendation: form.get('recommendation') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Create radiology request"
+          pending={createRequest.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createRequest.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <input name="encounterId" className="input" placeholder="Encounter ID" required />
+          <input name="admissionId" className="input" placeholder="Admission ID" />
+          <select name="modalityId" className="input" required>
+            {modalities.map((modality) => (
+              <option key={modality.id} value={modality.id}>
+                {modality.name}
+              </option>
+            ))}
+          </select>
+          <input name="bodyPart" className="input" placeholder="Body part" required />
+          <input name="views" className="input" placeholder="Views" />
+          <input name="clinicalIndication" className="input" placeholder="Clinical indication" required />
+          <select name="priority" className="input" required>
+            <option value="routine">Routine</option>
+            <option value="urgent">Urgent</option>
+            <option value="stat">STAT</option>
+          </select>
+        </QuickAddForm>
+        <QuickAddForm
+          title="Write report"
+          pending={createReport.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createReport.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="requestId" className="input" placeholder="Radiology request ID" required />
+          <textarea name="findings" className="input" placeholder="Findings" required />
+          <textarea name="impression" className="input" placeholder="Impression" required />
+          <textarea name="recommendation" className="input" placeholder="Recommendation" />
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Radiology requests" data={requests} />
+    </div>
+  )
+}
+
+function ResultsInbox() {
+  const { data: labResults = [] } = useQuery({
+    queryKey: ['lab-results-inbox'],
+    queryFn: () => apiRequest<unknown[]>('/laboratory/results/inbox'),
+  })
+  const { data: criticalResults = [] } = useQuery({
+    queryKey: ['critical-results'],
+    queryFn: () => apiRequest<unknown[]>('/laboratory/results/critical'),
+  })
+  const { data: radiologyReports = [] } = useQuery({
+    queryKey: ['radiology-reports-inbox'],
+    queryFn: () => apiRequest<unknown[]>('/radiology/reports/inbox'),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-3">
+      <JsonPanel title="Verified lab results" data={labResults} />
+      <JsonPanel title="Critical lab results" data={criticalResults} />
+      <JsonPanel title="Radiology reports" data={radiologyReports} />
     </div>
   )
 }

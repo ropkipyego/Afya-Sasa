@@ -76,6 +76,9 @@ The demo migration seeds:
 
 - OPD check-in, triage, doctor queue, SOAP consultation, diagnosis entry
 - Appointments and OPD reports
+- Laboratory catalogue, requests, samples, result entry, verification, critical results
+- Radiology modalities, requests, report writing, verification, attachments
+- Results inbox for lab and radiology outputs
 - Bed dashboard, admissions, emergency dashboard, critical alerts
 - Nursing vitals and basic charting
 - Clinical reporting dashboard with CSV export
