@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   InternalNotification,
@@ -6,10 +7,15 @@ import {
   NotificationTemplate,
   SmsLog,
 } from './notification.entities';
+import { NotificationsProcessor } from './notifications.processor';
 import { NotificationsService } from './notifications.service';
+import { StubSmsGateway } from './sms.gateway';
 
 @Module({
   imports: [
+    BullModule.registerQueue({
+      name: 'notifications',
+    }),
     TypeOrmModule.forFeature([
       NotificationTemplate,
       NotificationQueueEntry,
@@ -17,7 +23,7 @@ import { NotificationsService } from './notifications.service';
       InternalNotification,
     ]),
   ],
-  providers: [NotificationsService],
+  providers: [NotificationsService, NotificationsProcessor, StubSmsGateway],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -7,7 +7,9 @@ import {
   CalendarDays,
   ClipboardList,
   Hospital,
+  KeyRound,
   LogOut,
+  Printer,
   Search,
   ShieldCheck,
   UserPlus,
@@ -24,7 +26,14 @@ interface PatientSummary {
   gender: string
   primaryPhone: string
   bloodGroup?: string | null
+  qrCode?: string
   identifiers?: { type: string; value: string }[]
+  nextOfKin?: {
+    name: string
+    relationship: string
+    primaryPhone: string
+    isEmergencyContact?: boolean
+  }[]
   allergies?: { allergen: string; severity: string }[]
   chronicConditions?: { name: string; status: string }[]
 }
@@ -44,12 +53,14 @@ const navigation = [
 function App() {
   const { user, accessToken, tenant, setTenant, clearSession } = useAuthStore()
   const [activeScreen, setActiveScreen] = useState('Patient Search')
-  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(
-    null,
-  )
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
 
   if (!accessToken || !user) {
     return <LoginScreen tenant={tenant} setTenant={setTenant} />
+  }
+
+  if (user.forcePasswordChange) {
+    return <ForcedPasswordChangeScreen />
   }
 
   const allowedNavigation = navigation.filter((item) =>
@@ -125,17 +136,17 @@ function App() {
 
         <section className="p-6">
           {activeScreen === 'Patient Search' ? (
-            <PatientSearch onSelect={setSelectedPatient} />
+            <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
           ) : null}
           {activeScreen === 'Register Patient' ? <PatientRegistration /> : null}
           {activeScreen !== 'Patient Search' &&
           activeScreen !== 'Register Patient' ? (
             <Placeholder screen={activeScreen} />
           ) : null}
-          {selectedPatient ? (
-            <PatientBanner
-              patient={selectedPatient}
-              onClose={() => setSelectedPatient(null)}
+          {selectedPatientId ? (
+            <PatientProfileDrawer
+              patientId={selectedPatientId}
+              onClose={() => setSelectedPatientId(null)}
             />
           ) : null}
         </section>
@@ -233,6 +244,76 @@ function ForcedPasswordNotice() {
     <div className="hidden items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800 md:flex">
       <AlertTriangle size={16} />
       Password change required
+    </div>
+  )
+}
+
+function ForcedPasswordChangeScreen() {
+  const clearSession = useAuthStore((state) => state.clearSession)
+  const [message, setMessage] = useState<string | null>(null)
+  const mutation = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest<{ changed: boolean }>('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          currentPassword: form.get('currentPassword'),
+          newPassword: form.get('newPassword'),
+        }),
+      })
+    },
+    onSuccess: () => {
+      setMessage('Password changed. Please sign in again.')
+      setTimeout(clearSession, 1200)
+    },
+  })
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-blue-950 p-6">
+      <form
+        className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
+        onSubmit={(event) => {
+          event.preventDefault()
+          mutation.mutate(event)
+        }}
+      >
+        <div className="mb-8 flex items-center gap-3">
+          <div className="rounded-2xl bg-amber-500 p-3 text-white">
+            <KeyRound />
+          </div>
+          <div>
+            <p className="text-sm font-semibold uppercase text-amber-600">
+              First login security
+            </p>
+            <h1 className="text-2xl font-bold">Change your password</h1>
+          </div>
+        </div>
+        <Field
+          name="currentPassword"
+          label="Current password"
+          type="password"
+          required
+        />
+        <div className="mt-4">
+          <Field name="newPassword" label="New password" type="password" required />
+        </div>
+        {mutation.error ? (
+          <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {mutation.error.message}
+          </p>
+        ) : null}
+        {message ? (
+          <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">
+            {message}
+          </p>
+        ) : null}
+        <button
+          className="mt-6 w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
+          disabled={mutation.isPending}
+        >
+          {mutation.isPending ? 'Changing...' : 'Change password'}
+        </button>
+      </form>
     </div>
   )
 }
@@ -424,52 +505,140 @@ function Field({
   )
 }
 
-function PatientBanner({
-  patient,
+function PatientProfileDrawer({
+  patientId,
   onClose,
 }: {
-  patient: PatientSummary
+  patientId: string
   onClose: () => void
 }) {
+  const { data: patient, isLoading } = useQuery({
+    queryKey: ['patient', patientId],
+    queryFn: () => apiRequest<PatientSummary>(`/patients/${patientId}`),
+  })
+  const { data: qrCard } = useQuery({
+    queryKey: ['patient-qr-card', patientId],
+    queryFn: () =>
+      apiRequest<{
+        patientNo: string
+        qrCode: string
+        qrDataUrl: string
+        printableText: string
+      }>(`/patients/${patientId}/qr-card`),
+  })
+
   const allergyText = useMemo(
     () =>
-      patient.allergies?.length
+      patient?.allergies?.length
         ? patient.allergies.map((allergy) => allergy.allergen).join(', ')
         : 'No allergies recorded',
-    [patient.allergies],
+    [patient?.allergies],
   )
 
   return (
-    <div className="fixed bottom-6 right-6 max-w-xl rounded-3xl border border-blue-100 bg-white p-5 shadow-2xl">
-      <div className="flex items-start justify-between gap-6">
-        <div>
-          <p className="text-xs font-semibold uppercase text-blue-600">
-            Patient banner
-          </p>
-          <h3 className="text-xl font-bold">
-            {patient.firstName} {patient.lastName}
-          </h3>
-          <p className="text-sm text-slate-500">
-            {patient.patientNo} · Blood group {patient.bloodGroup ?? 'unknown'}
-          </p>
-        </div>
-        <button className="text-sm font-semibold text-slate-500" onClick={onClose}>
-          Close
-        </button>
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <div className="rounded-2xl bg-red-50 p-3 text-red-800">
-          <p className="text-xs font-bold uppercase">Allergies</p>
-          <p className="text-sm">{allergyText}</p>
-        </div>
-        <div className="rounded-2xl bg-amber-50 p-3 text-amber-900">
-          <p className="text-xs font-bold uppercase">Chronic conditions</p>
-          <p className="text-sm">
-            {patient.chronicConditions?.map((condition) => condition.name).join(', ') ??
-              'None recorded'}
-          </p>
-        </div>
-      </div>
+    <div className="fixed inset-y-0 right-0 z-20 w-full max-w-2xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl">
+      {isLoading || !patient ? (
+        <p className="text-slate-500">Loading patient profile...</p>
+      ) : (
+        <>
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <p className="text-xs font-semibold uppercase text-blue-600">
+                Patient profile
+              </p>
+              <h3 className="text-2xl font-bold">
+                {patient.firstName} {patient.lastName}
+              </h3>
+              <p className="text-sm text-slate-500">
+                {patient.patientNo} · {patient.gender} · DOB{' '}
+                {patient.dateOfBirth}
+              </p>
+            </div>
+            <button
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl bg-red-50 p-4 text-red-800">
+              <p className="text-xs font-bold uppercase">Allergies</p>
+              <p className="text-sm">{allergyText}</p>
+            </div>
+            <div className="rounded-2xl bg-amber-50 p-4 text-amber-900">
+              <p className="text-xs font-bold uppercase">Chronic conditions</p>
+              <p className="text-sm">
+                {patient.chronicConditions
+                  ?.map((condition) => condition.name)
+                  .join(', ') || 'None recorded'}
+              </p>
+            </div>
+          </div>
+
+          <section className="mt-6 rounded-2xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase text-slate-500">
+                  Printable QR card
+                </p>
+                <p className="font-semibold">{qrCard?.printableText}</p>
+              </div>
+              <Printer className="text-blue-600" />
+            </div>
+            {qrCard?.qrDataUrl ? (
+              <img
+                src={qrCard.qrDataUrl}
+                alt={`QR code for ${patient.patientNo}`}
+                className="mt-4 h-32 w-32 rounded-xl border border-slate-200"
+              />
+            ) : null}
+          </section>
+
+          <section className="mt-6 grid gap-4 md:grid-cols-2">
+            <ProfileSection title="Identifiers">
+              {patient.identifiers?.map((identifier) => (
+                <p key={`${identifier.type}-${identifier.value}`}>
+                  {identifier.type}: {identifier.value}
+                </p>
+              )) || <p>None recorded</p>}
+            </ProfileSection>
+            <ProfileSection title="Next of kin">
+              {patient.nextOfKin?.map((kin) => (
+                <p key={`${kin.name}-${kin.primaryPhone}`}>
+                  {kin.name} ({kin.relationship}) · {kin.primaryPhone}
+                </p>
+              )) || <p>None recorded</p>}
+            </ProfileSection>
+          </section>
+
+          <section className="mt-6 rounded-2xl border border-slate-200 p-4">
+            <p className="text-xs font-bold uppercase text-slate-500">
+              Contact
+            </p>
+            <p className="mt-2 text-sm">
+              Phone: {patient.primaryPhone}
+              {patient.bloodGroup ? ` · Blood group: ${patient.bloodGroup}` : ''}
+            </p>
+          </section>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ProfileSection({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 p-4">
+      <p className="text-xs font-bold uppercase text-slate-500">{title}</p>
+      <div className="mt-2 space-y-1 text-sm text-slate-700">{children}</div>
     </div>
   )
 }

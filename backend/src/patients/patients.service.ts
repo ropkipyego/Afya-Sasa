@@ -4,14 +4,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import QRCode from 'qrcode';
 import { ILike, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import {
   Patient,
+  PatientAllergy,
+  PatientChronicCondition,
   PatientIdentifier,
   PatientNextOfKin,
 } from './patient.entities';
-import { CreatePatientDto, UpdatePatientDto } from './patient.dto';
+import {
+  CreatePatientDto,
+  PatientAllergyDto,
+  PatientChronicConditionDto,
+  PatientIdentifierDto,
+  PatientNextOfKinDto,
+  UpdatePatientAllergyDto,
+  UpdatePatientChronicConditionDto,
+  UpdatePatientDto,
+  UpdatePatientIdentifierDto,
+  UpdatePatientNextOfKinDto,
+} from './patient.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
@@ -21,6 +35,12 @@ export class PatientsService {
     private readonly patients: Repository<Patient>,
     @InjectRepository(PatientIdentifier)
     private readonly identifiers: Repository<PatientIdentifier>,
+    @InjectRepository(PatientNextOfKin)
+    private readonly nextOfKin: Repository<PatientNextOfKin>,
+    @InjectRepository(PatientAllergy)
+    private readonly allergies: Repository<PatientAllergy>,
+    @InjectRepository(PatientChronicCondition)
+    private readonly chronicConditions: Repository<PatientChronicCondition>,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -134,7 +154,270 @@ export class PatientsService {
   }
 
   findByQr(qrCode: string) {
-    return this.patients.findOneOrFail({ where: { qrCode } });
+    return this.patients.findOneOrFail({
+      where: { qrCode },
+      relations: {
+        identifiers: true,
+        nextOfKin: true,
+        allergies: true,
+        chronicConditions: true,
+      },
+    });
+  }
+
+  async history(id: string) {
+    const patient = await this.findOne(id);
+    return {
+      patient,
+      encounters: [],
+      admissions: [],
+      diagnoses: [],
+      labResults: [],
+      radiologyReports: [],
+      message:
+        'Patient history endpoint is reserved for OPD, inpatient, lab, and radiology phases.',
+    };
+  }
+
+  async qrCard(id: string) {
+    const patient = await this.findOne(id);
+    return {
+      patientNo: patient.patientNo,
+      qrCode: patient.qrCode,
+      qrDataUrl: await QRCode.toDataURL(patient.qrCode, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 256,
+      }),
+      printableText: `${patient.firstName} ${patient.lastName} | ${patient.patientNo}`,
+    };
+  }
+
+  async detectDuplicates(dto: CreatePatientDto) {
+    const identifierMatches = await Promise.all(
+      dto.identifiers.map((identifier) =>
+        this.identifiers.findOne({
+          where: { type: identifier.type, value: identifier.value },
+          relations: { patient: true },
+        }),
+      ),
+    );
+    const phoneMatches = await this.patients.find({
+      where: [
+        { primaryPhone: dto.primaryPhone },
+        { secondaryPhone: dto.primaryPhone },
+      ],
+      take: 10,
+    });
+
+    return {
+      identifierMatches: identifierMatches.filter(Boolean),
+      phoneMatches,
+      hasPotentialDuplicate:
+        identifierMatches.some(Boolean) || phoneMatches.length > 0,
+    };
+  }
+
+  async addIdentifier(
+    patientId: string,
+    dto: PatientIdentifierDto,
+    request: RequestContext,
+  ) {
+    const patient = await this.findOne(patientId);
+    await this.ensureNoDuplicateIdentifier([dto]);
+    const saved = await this.identifiers.save(
+      this.identifiers.create({
+        ...dto,
+        patient,
+        verified: dto.verified ?? false,
+        isPrimary: dto.isPrimary ?? false,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+    return saved;
+  }
+
+  async updateIdentifier(
+    patientId: string,
+    identifierId: string,
+    dto: UpdatePatientIdentifierDto,
+    request: RequestContext,
+  ) {
+    await this.findOne(patientId);
+    const identifier = await this.findOwnedRecord(
+      this.identifiers,
+      patientId,
+      identifierId,
+      'Identifier not found',
+    );
+    if (dto.type && dto.value) {
+      await this.ensureNoDuplicateIdentifier([{ type: dto.type, value: dto.value }]);
+    }
+    await this.identifiers.update(identifier.id, {
+      ...dto,
+      updatedBy: request.user?.sub ?? null,
+    });
+    return this.identifiers.findOneOrFail({ where: { id: identifier.id } });
+  }
+
+  async removeIdentifier(patientId: string, identifierId: string) {
+    await this.findOwnedRecord(
+      this.identifiers,
+      patientId,
+      identifierId,
+      'Identifier not found',
+    );
+    await this.identifiers.softDelete(identifierId);
+    return { deleted: true };
+  }
+
+  async addNextOfKin(
+    patientId: string,
+    dto: PatientNextOfKinDto,
+    request: RequestContext,
+  ) {
+    const patient = await this.findOne(patientId);
+    return this.nextOfKin.save(
+      this.nextOfKin.create({
+        ...dto,
+        patient,
+        secondaryPhone: dto.secondaryPhone ?? null,
+        email: dto.email ?? null,
+        address: dto.address ?? null,
+        isEmergencyContact: dto.isEmergencyContact ?? false,
+        sortOrder: dto.sortOrder ?? 0,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+  }
+
+  async updateNextOfKin(
+    patientId: string,
+    nextOfKinId: string,
+    dto: UpdatePatientNextOfKinDto,
+    request: RequestContext,
+  ) {
+    const record = await this.findOwnedRecord(
+      this.nextOfKin,
+      patientId,
+      nextOfKinId,
+      'Next of kin not found',
+    );
+    await this.nextOfKin.update(record.id, {
+      ...dto,
+      updatedBy: request.user?.sub ?? null,
+    });
+    return this.nextOfKin.findOneOrFail({ where: { id: record.id } });
+  }
+
+  async removeNextOfKin(patientId: string, nextOfKinId: string) {
+    await this.findOwnedRecord(
+      this.nextOfKin,
+      patientId,
+      nextOfKinId,
+      'Next of kin not found',
+    );
+    await this.nextOfKin.softDelete(nextOfKinId);
+    return { deleted: true };
+  }
+
+  async addAllergy(
+    patientId: string,
+    dto: PatientAllergyDto,
+    request: RequestContext,
+  ) {
+    const patient = await this.findOne(patientId);
+    return this.allergies.save(
+      this.allergies.create({
+        ...dto,
+        patient,
+        onsetDate: dto.onsetDate ?? null,
+        notes: dto.notes ?? null,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+  }
+
+  async updateAllergy(
+    patientId: string,
+    allergyId: string,
+    dto: UpdatePatientAllergyDto,
+    request: RequestContext,
+  ) {
+    const record = await this.findOwnedRecord(
+      this.allergies,
+      patientId,
+      allergyId,
+      'Allergy not found',
+    );
+    await this.allergies.update(record.id, {
+      ...dto,
+      updatedBy: request.user?.sub ?? null,
+    });
+    return this.allergies.findOneOrFail({ where: { id: record.id } });
+  }
+
+  async removeAllergy(patientId: string, allergyId: string) {
+    await this.findOwnedRecord(
+      this.allergies,
+      patientId,
+      allergyId,
+      'Allergy not found',
+    );
+    await this.allergies.softDelete(allergyId);
+    return { deleted: true };
+  }
+
+  async addChronicCondition(
+    patientId: string,
+    dto: PatientChronicConditionDto,
+    request: RequestContext,
+  ) {
+    const patient = await this.findOne(patientId);
+    return this.chronicConditions.save(
+      this.chronicConditions.create({
+        ...dto,
+        patient,
+        icd10Code: dto.icd10Code ?? null,
+        onsetDate: dto.onsetDate ?? null,
+        notes: dto.notes ?? null,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+  }
+
+  async updateChronicCondition(
+    patientId: string,
+    conditionId: string,
+    dto: UpdatePatientChronicConditionDto,
+    request: RequestContext,
+  ) {
+    const record = await this.findOwnedRecord(
+      this.chronicConditions,
+      patientId,
+      conditionId,
+      'Chronic condition not found',
+    );
+    await this.chronicConditions.update(record.id, {
+      ...dto,
+      updatedBy: request.user?.sub ?? null,
+    });
+    return this.chronicConditions.findOneOrFail({ where: { id: record.id } });
+  }
+
+  async removeChronicCondition(patientId: string, conditionId: string) {
+    await this.findOwnedRecord(
+      this.chronicConditions,
+      patientId,
+      conditionId,
+      'Chronic condition not found',
+    );
+    await this.chronicConditions.softDelete(conditionId);
+    return { deleted: true };
   }
 
   private async ensureNoDuplicateIdentifier(
@@ -175,5 +458,21 @@ export class PatientsService {
         patient.secondaryPhone?.includes(params.phone);
       return identifierMatches && phoneMatches;
     });
+  }
+
+  private async findOwnedRecord<T extends { id: string; patient: Patient }>(
+    repository: Repository<T>,
+    patientId: string,
+    recordId: string,
+    notFoundMessage: string,
+  ): Promise<T> {
+    const record = await repository.findOne({
+      where: { id: recordId, patient: { id: patientId } } as never,
+      relations: { patient: true } as never,
+    });
+    if (!record) {
+      throw new NotFoundException(notFoundMessage);
+    }
+    return record;
   }
 }

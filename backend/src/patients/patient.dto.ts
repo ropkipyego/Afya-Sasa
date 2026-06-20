@@ -6,8 +6,10 @@ import {
   IsDateString,
   IsEmail,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -60,6 +62,72 @@ export class PatientNextOfKinDto {
   @IsOptional()
   @IsString()
   address?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isEmergencyContact?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+}
+
+export class PatientAllergyDto {
+  @ApiProperty()
+  @IsString()
+  allergen!: string;
+
+  @ApiProperty({ enum: ['drug', 'food', 'environmental', 'latex', 'contrast'] })
+  @IsIn(['drug', 'food', 'environmental', 'latex', 'contrast'])
+  type!: 'drug' | 'food' | 'environmental' | 'latex' | 'contrast';
+
+  @ApiProperty()
+  @IsString()
+  reaction!: string;
+
+  @ApiProperty({
+    enum: ['mild', 'moderate', 'severe', 'life_threatening'],
+  })
+  @IsIn(['mild', 'moderate', 'severe', 'life_threatening'])
+  severity!: 'mild' | 'moderate' | 'severe' | 'life_threatening';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  onsetDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class PatientChronicConditionDto {
+  @ApiProperty()
+  @IsString()
+  name!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  icd10Code?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  onsetDate?: string;
+
+  @ApiProperty({ enum: ['active', 'controlled', 'resolved'] })
+  @IsIn(['active', 'controlled', 'resolved'])
+  status!: 'active' | 'controlled' | 'resolved';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class CreatePatientDto {
@@ -124,3 +192,17 @@ export class CreatePatientDto {
 }
 
 export class UpdatePatientDto extends PartialType(CreatePatientDto) {}
+
+export class UpdatePatientIdentifierDto extends PartialType(
+  PatientIdentifierDto,
+) {}
+
+export class UpdatePatientNextOfKinDto extends PartialType(
+  PatientNextOfKinDto,
+) {}
+
+export class UpdatePatientAllergyDto extends PartialType(PatientAllergyDto) {}
+
+export class UpdatePatientChronicConditionDto extends PartialType(
+  PatientChronicConditionDto,
+) {}
