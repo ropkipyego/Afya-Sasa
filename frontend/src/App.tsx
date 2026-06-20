@@ -57,6 +57,7 @@ const navigation = [
   { label: 'Admissions', icon: ClipboardList, permission: 'admissions:read' },
   { label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read' },
   { label: 'Nursing', icon: Activity, permission: 'vitals:read' },
+  { label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read' },
   { label: 'User Management', icon: Users, permission: 'users:manage' },
   { label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
   { label: 'Settings', icon: Settings, permission: 'settings:manage' },
@@ -161,6 +162,7 @@ function App() {
           {activeScreen === 'Admissions' ? <AdmissionsScreen /> : null}
           {activeScreen === 'Emergency' ? <EmergencyScreen /> : null}
           {activeScreen === 'Nursing' ? <NursingScreen /> : null}
+          {activeScreen === 'Clinical Reports' ? <ClinicalReports /> : null}
           {activeScreen === 'User Management' ? <AdminUsers /> : null}
           {activeScreen === 'Role Permissions' ? <AdminRoles /> : null}
           {activeScreen === 'Settings' ? <AdminSettings /> : null}
@@ -176,6 +178,7 @@ function App() {
           activeScreen !== 'Admissions' &&
           activeScreen !== 'Emergency' &&
           activeScreen !== 'Nursing' &&
+          activeScreen !== 'Clinical Reports' &&
           activeScreen !== 'User Management' &&
           activeScreen !== 'Role Permissions' &&
           activeScreen !== 'Settings' &&
@@ -1374,6 +1377,121 @@ function MetricCard({ label, value }: { label: string; value: number }) {
     <div className="rounded-3xl bg-white p-6 shadow-sm">
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
+    </div>
+  )
+}
+
+interface ReportPayload {
+  generatedAt: string
+  data: unknown
+  csv: string
+}
+
+const reportDefinitions = [
+  { key: 'opd-summary', title: 'OPD Summary' },
+  { key: 'admissions', title: 'Admissions' },
+  { key: 'discharges', title: 'Discharges' },
+  { key: 'bed-occupancy', title: 'Bed Occupancy' },
+  { key: 'emergency-stats', title: 'Emergency Stats' },
+  { key: 'disease-register', title: 'Disease Register' },
+  { key: 'moh-705', title: 'MOH 705 Draft' },
+]
+
+function ClinicalReports() {
+  const [selectedReport, setSelectedReport] = useState('opd-summary')
+  const { data: dashboard } = useQuery({
+    queryKey: ['reports-dashboard'],
+    queryFn: () =>
+      apiRequest<{
+        totalPatients: number
+        activeOpd: number
+        activeAdmissions: number
+        occupiedBeds: number
+        activeEmergency: number
+        activeAlerts: number
+        todayAppointments: number
+      }>('/reports/dashboard'),
+  })
+  const { data: report, isFetching } = useQuery({
+    queryKey: ['clinical-report', selectedReport],
+    queryFn: () => apiRequest<ReportPayload>(`/reports/${selectedReport}`),
+  })
+
+  function downloadCsv() {
+    if (!report?.csv) return
+    const blob = new Blob([report.csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${selectedReport}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard label="Patients" value={dashboard?.totalPatients ?? 0} />
+        <MetricCard label="Active OPD" value={dashboard?.activeOpd ?? 0} />
+        <MetricCard
+          label="Admissions"
+          value={dashboard?.activeAdmissions ?? 0}
+        />
+        <MetricCard label="Occupied beds" value={dashboard?.occupiedBeds ?? 0} />
+        <MetricCard
+          label="Emergency"
+          value={dashboard?.activeEmergency ?? 0}
+        />
+        <MetricCard label="Alerts" value={dashboard?.activeAlerts ?? 0} />
+        <MetricCard
+          label="Appointments today"
+          value={dashboard?.todayAppointments ?? 0}
+        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[0.35fr_0.65fr]">
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <h3 className="text-xl font-bold">Report library</h3>
+          <div className="mt-4 space-y-2">
+            {reportDefinitions.map((definition) => (
+              <button
+                key={definition.key}
+                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-semibold ${
+                  selectedReport === definition.key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                }`}
+                onClick={() => setSelectedReport(definition.key)}
+              >
+                {definition.title}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-500">
+                Generated {report?.generatedAt ?? '-'}
+              </p>
+              <h3 className="text-xl font-bold">
+                {reportDefinitions.find((item) => item.key === selectedReport)
+                  ?.title ?? selectedReport}
+              </h3>
+            </div>
+            <button
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white"
+              onClick={downloadCsv}
+            >
+              Download CSV
+            </button>
+          </div>
+          <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
+            {isFetching ? 'Loading...' : JSON.stringify(report?.data, null, 2)}
+          </pre>
+        </div>
+      </div>
     </div>
   )
 }
