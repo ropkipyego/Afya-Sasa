@@ -15,6 +15,7 @@ import { AppointmentsModule } from './appointments/appointments.module';
 import { InpatientModule } from './inpatient/inpatient.module';
 import { EmergencyModule } from './emergency/emergency.module';
 import { NursingModule } from './nursing/nursing.module';
+import { ReportingModule } from './reporting/reporting.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -65,6 +66,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     InpatientModule,
     EmergencyModule,
     NursingModule,
+    ReportingModule,
     HealthModule,
   ],
   controllers: [AppController],
