@@ -1,10 +1,11 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Job } from 'bullmq';
 import { Repository } from 'typeorm';
 import { NotificationQueueEntry, SmsLog } from './notification.entities';
-import { StubSmsGateway } from './sms.gateway';
+import { SMS_GATEWAY } from './sms.gateway';
+import type { SmsGateway } from './sms.gateway';
 
 interface SendNotificationJob {
   queueEntryId: string;
@@ -18,7 +19,8 @@ export class NotificationsProcessor extends WorkerHost {
     private readonly entries: Repository<NotificationQueueEntry>,
     @InjectRepository(SmsLog)
     private readonly smsLogs: Repository<SmsLog>,
-    private readonly smsGateway: StubSmsGateway,
+    @Inject(SMS_GATEWAY)
+    private readonly smsGateway: SmsGateway,
   ) {
     super();
   }

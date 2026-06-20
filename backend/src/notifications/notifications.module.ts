@@ -9,7 +9,7 @@ import {
 } from './notification.entities';
 import { NotificationsProcessor } from './notifications.processor';
 import { NotificationsService } from './notifications.service';
-import { StubSmsGateway } from './sms.gateway';
+import { ConfigurableSmsGateway, SMS_GATEWAY } from './sms.gateway';
 
 @Module({
   imports: [
@@ -23,7 +23,12 @@ import { StubSmsGateway } from './sms.gateway';
       InternalNotification,
     ]),
   ],
-  providers: [NotificationsService, NotificationsProcessor, StubSmsGateway],
+  providers: [
+    NotificationsService,
+    NotificationsProcessor,
+    ConfigurableSmsGateway,
+    { provide: SMS_GATEWAY, useExisting: ConfigurableSmsGateway },
+  ],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

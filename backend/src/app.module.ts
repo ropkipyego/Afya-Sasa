@@ -22,6 +22,7 @@ import { IcuModule } from './icu/icu.module';
 import { HduModule } from './hdu/hdu.module';
 import { LaboratoryModule } from './laboratory/laboratory.module';
 import { RadiologyModule } from './radiology/radiology.module';
+import { StorageModule } from './storage/storage.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -79,6 +80,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     HduModule,
     LaboratoryModule,
     RadiologyModule,
+    StorageModule,
     HealthModule,
   ],
   controllers: [AppController],

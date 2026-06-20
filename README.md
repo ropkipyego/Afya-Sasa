@@ -92,3 +92,4 @@ The demo migration seeds:
 - Phase 1 checklist: `docs/phase1-progress-checklist.md`
 - Future Theatre, Maternity, ICU, and HDU architecture: `docs/future-clinical-modules-architecture.md`
 - Production hardening notes: `docs/production-hardening-notes.md`
+- SMS and object storage integrations: `docs/integrations.md`
