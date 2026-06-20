@@ -15,8 +15,11 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('should return AfyaSasa service metadata', () => {
+      expect(appController.getHello()).toEqual({
+        service: 'AfyaSasa Clinical Management System',
+        scope: 'Phase 1 foundation',
+      });
     });
   });
 });

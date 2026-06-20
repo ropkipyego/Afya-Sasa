@@ -7,7 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { RefreshToken, User } from '../core.entities';
 import { UsersService } from '../users/users.service';
 
@@ -53,9 +53,9 @@ export class AuthService {
   }
 
   async refresh(rawRefreshToken: string) {
-    const tokenHash = await this.hashToken(rawRefreshToken);
+    const tokenHash = this.hashToken(rawRefreshToken);
     const token = await this.refreshTokens.findOne({
-      where: { tokenHash, revokedAt: null },
+      where: { tokenHash, revokedAt: IsNull() },
     });
 
     if (!token || token.expiresAt.getTime() <= Date.now()) {
@@ -75,9 +75,9 @@ export class AuthService {
   }
 
   async logout(rawRefreshToken: string): Promise<{ revoked: boolean }> {
-    const tokenHash = await this.hashToken(rawRefreshToken);
+    const tokenHash = this.hashToken(rawRefreshToken);
     await this.refreshTokens.update(
-      { tokenHash, revokedAt: null },
+      { tokenHash, revokedAt: IsNull() },
       { revokedAt: new Date() },
     );
     return { revoked: true };
@@ -85,7 +85,7 @@ export class AuthService {
 
   async logoutAll(userId: string): Promise<{ revoked: boolean }> {
     await this.refreshTokens.update(
-      { userId, revokedAt: null },
+      { userId, revokedAt: IsNull() },
       { revokedAt: new Date() },
     );
     return { revoked: true };
@@ -139,7 +139,7 @@ export class AuthService {
     const rawToken = randomBytes(48).toString('base64url');
     const token = this.refreshTokens.create({
       userId,
-      tokenHash: await this.hashToken(rawToken),
+      tokenHash: this.hashToken(rawToken),
       device: device ?? null,
       ip: ip ?? null,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

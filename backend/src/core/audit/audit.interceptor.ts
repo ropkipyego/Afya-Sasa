@@ -30,7 +30,8 @@ export class AuditInterceptor implements NestInterceptor {
           userId: request.user?.sub ?? null,
           action: request.method.toLowerCase(),
           recordType: request.route?.path ?? null,
-          recordId: request.params?.id ?? null,
+          recordId:
+            typeof request.params?.id === 'string' ? request.params.id : null,
           beforeJson: null,
           afterJson: null,
           ip: request.ip,

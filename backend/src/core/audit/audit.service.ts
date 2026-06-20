@@ -14,7 +14,7 @@ export class AuditService {
 
   async record(entry: Partial<AuditLog>): Promise<void> {
     try {
-      await this.auditLogs.insert(this.auditLogs.create(entry));
+      await this.auditLogs.save(this.auditLogs.create(entry));
     } catch (error) {
       this.logger.error('Failed to write audit log', error);
     }
