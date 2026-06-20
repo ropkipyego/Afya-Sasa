@@ -16,6 +16,10 @@ import { InpatientModule } from './inpatient/inpatient.module';
 import { EmergencyModule } from './emergency/emergency.module';
 import { NursingModule } from './nursing/nursing.module';
 import { ReportingModule } from './reporting/reporting.module';
+import { TheatreModule } from './theatre/theatre.module';
+import { MaternityModule } from './maternity/maternity.module';
+import { IcuModule } from './icu/icu.module';
+import { HduModule } from './hdu/hdu.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -67,6 +71,10 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     EmergencyModule,
     NursingModule,
     ReportingModule,
+    TheatreModule,
+    MaternityModule,
+    IcuModule,
+    HduModule,
     HealthModule,
   ],
   controllers: [AppController],
