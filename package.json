@@ -1,0 +1,12 @@
+{
+  "name": "afyasasa",
+  "private": true,
+  "scripts": {
+    "dev": "docker compose up --build",
+    "dev:detached": "docker compose up -d --build",
+    "stop": "docker compose down",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "test": "npm --prefix backend test -- --runInBand",
+    "audit": "npm --prefix backend audit --omit=dev && npm --prefix frontend audit --omit=dev"
+  }
+}
