@@ -79,6 +79,10 @@ The demo migration seeds:
 - Bed dashboard, admissions, emergency dashboard, critical alerts
 - Nursing vitals and basic charting
 - Clinical reporting dashboard with CSV export
+- Theatre scheduling, procedure booking, team assignment, surgery notes, complications
+- Maternity pregnancy registration, ANC, labour, delivery, newborn, postnatal workflows
+- ICU admissions, observations, ventilator records, fluid balance, rounds
+- HDU admissions, observations, and rounds
 
 ## Architecture documents
 

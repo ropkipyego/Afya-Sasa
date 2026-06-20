@@ -1,6 +1,6 @@
 # Future Clinical Modules Architecture
 
-Status: architecture-only design. Do not implement tables, migrations, endpoints, or UI for these modules until their build phase is explicitly started.
+Status: implemented foundation. This document now serves as the design reference for the implemented Theatre, Maternity, ICU, and HDU modules.
 
 This project currently uses NestJS + TypeORM + PostgreSQL, not Prisma. The schema below is written as a database/entity design that can be translated to TypeORM entities and migrations later. If Prisma is introduced in a future branch, these relationships map directly to Prisma models.
 
@@ -665,9 +665,7 @@ Current status:
 
 - Inpatient: implemented foundation.
 - Emergency: implemented foundation.
-- Theatre: architecture only, not implemented.
-- Maternity: architecture only, not implemented.
-- ICU: architecture only, not implemented.
-- HDU: architecture only, not implemented.
-
-Theatre, Maternity, ICU, and HDU should remain architecture-only until explicitly approved for implementation.
+- Theatre: implemented foundation with tables, backend APIs, permissions, and frontend screen.
+- Maternity: implemented foundation with tables, backend APIs, permissions, and frontend screen.
+- ICU: implemented foundation with tables, backend APIs, permissions, and frontend screen.
+- HDU: implemented foundation with tables, backend APIs, permissions, and frontend screen.
