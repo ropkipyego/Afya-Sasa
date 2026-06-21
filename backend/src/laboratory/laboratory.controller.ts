@@ -95,4 +95,10 @@ export class LaboratoryController {
   criticalResults() {
     return this.laboratoryService.criticalResults();
   }
+
+  @Post('results/:id/review')
+  @RequirePermissions('lab_results:read')
+  reviewResult(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.laboratoryService.reviewResult(id, request);
+  }
 }
