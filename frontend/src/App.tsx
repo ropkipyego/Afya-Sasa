@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import clsx from 'clsx'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
@@ -16,6 +17,24 @@ import {
   Users,
   UserPlus,
 } from 'lucide-react'
+import {
+  Alert,
+  Button,
+  Card,
+  ClinicalForm,
+  EmptyState,
+  Field,
+  FormActions,
+  FormSection,
+  PageHeader,
+  PatientContextBanner,
+  QuickAddForm,
+  SearchBar,
+  SelectField,
+  TextareaField,
+  WorkflowSteps,
+} from './components/ui'
+import { formDataFromElement, submitClinicalForm } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
 
@@ -109,46 +128,47 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <aside className="fixed inset-y-0 left-0 hidden w-80 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="shrink-0 p-6 pb-4">
+      <aside className="fixed inset-y-0 left-0 hidden w-72 flex-col border-r border-slate-200 bg-white lg:flex">
+        <div className="shrink-0 border-b border-slate-100 p-5">
           <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-600 p-3 text-white">
-            <Hospital size={28} />
+            <div className="rounded-xl bg-teal-600 p-2.5 text-white shadow-sm">
+              <Hospital size={24} />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-teal-600">
+                AfyaSasa
+              </p>
+              <h1 className="text-base font-bold text-slate-900">Clinical EMR</h1>
+            </div>
           </div>
-          <div>
-            <p className="text-xs font-semibold uppercase text-blue-600">
-              AfyaSasa
+          <div className="mt-4 rounded-lg border border-teal-100 bg-teal-50/80 px-3 py-2.5 text-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-700">
+              Tenant
             </p>
-            <h1 className="text-lg font-bold">Clinical EMR</h1>
+            <p className="font-medium text-teal-950">{tenant}</p>
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">
-          <p className="font-semibold">Tenant</p>
-          <p>{tenant}</p>
-        </div>
-        </div>
-
-        <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">
+        <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4">
           {Object.entries(groupedNavigation).map(([group, items]) => (
             <div key={group}>
-              <p className="mb-2 px-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+              <p className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 {group}
               </p>
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {items.map((item) => {
                   const Icon = item.icon
                   return (
                     <button
                       key={item.label}
-                      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold ${
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
                         activeScreen === item.label
-                          ? 'bg-blue-600 text-white shadow-sm'
+                          ? 'bg-teal-600 text-white shadow-sm'
                           : 'text-slate-600 hover:bg-slate-100'
                       }`}
                       onClick={() => setActiveScreen(item.label)}
                     >
-                      <Icon size={18} />
+                      <Icon size={17} />
                       {item.label}
                     </button>
                   )
@@ -159,14 +179,16 @@ function App() {
         </nav>
       </aside>
 
-      <main className="min-h-screen lg:pl-80">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
+      <main className="min-h-screen lg:pl-72">
+        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur md:px-6 md:py-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-sm text-slate-500">
+              <p className="text-xs text-slate-500">
                 {workflowDescriptions[activeScreen] ?? 'Clinical workflow workspace'}
               </p>
-              <h2 className="text-2xl font-bold">{activeScreen}</h2>
+              <h2 className="text-xl font-bold tracking-tight text-slate-900 md:text-2xl">
+                {activeScreen}
+              </h2>
             </div>
             <select
               className="input max-w-xs lg:hidden"
@@ -179,26 +201,22 @@ function App() {
                 </option>
               ))}
             </select>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {user.forcePasswordChange ? <ForcedPasswordNotice /> : null}
-              <div className="text-right text-sm">
-                <p className="font-semibold">
+              <div className="hidden text-right text-sm sm:block">
+                <p className="font-semibold text-slate-900">
                   {user.firstName} {user.lastName}
                 </p>
-                <p className="text-slate-500">{user.roles.join(', ')}</p>
+                <p className="text-xs text-slate-500">{user.roles.join(', ')}</p>
               </div>
-              <button
-                className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
-                onClick={clearSession}
-                aria-label="Log out"
-              >
+              <Button variant="ghost" onClick={clearSession} aria-label="Log out">
                 <LogOut size={18} />
-              </button>
+              </Button>
             </div>
           </div>
         </header>
 
-        <section className="min-h-[calc(100vh-5rem)] overflow-x-hidden p-4 md:p-6">
+        <section className="min-h-[calc(100vh-4.5rem)] overflow-x-hidden p-4 md:p-6">
           {activeScreen === 'Patient Search' ? (
             <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
           ) : null}
@@ -286,63 +304,60 @@ function LoginScreen(props: {
   })
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-blue-950 p-6">
-      <form
-        className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
-        onSubmit={(event) => {
-          event.preventDefault()
-          mutation.mutate()
-        }}
-      >
-        <div className="mb-8 flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-600 p-3 text-white">
-            <Hospital />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-teal-950 to-slate-900 p-6">
+      <Card className="w-full max-w-md shadow-xl" padding="lg">
+        <ClinicalForm
+          onSubmit={(event) => {
+            event.preventDefault()
+            mutation.mutate()
+          }}
+        >
+          <div className="mb-6 flex items-center gap-3">
+            <div className="rounded-xl bg-teal-600 p-3 text-white">
+              <Hospital />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-teal-600">
+                AfyaSasa
+              </p>
+              <h1 className="text-2xl font-bold text-slate-900">Clinical Management</h1>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold uppercase text-blue-600">
-              AfyaSasa
-            </p>
-            <h1 className="text-2xl font-bold">Clinical Management</h1>
-          </div>
-        </div>
-        <label className="mb-4 block">
-          <span className="text-sm font-semibold text-slate-700">Tenant</span>
-          <input
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
+          <Field
+            name="tenant"
+            label="Hospital tenant code"
+            hint="Use demo for the seeded hospital environment"
             value={props.tenant}
             onChange={(event) => props.setTenant(event.target.value)}
           />
-        </label>
-        <label className="mb-4 block">
-          <span className="text-sm font-semibold text-slate-700">Email</span>
-          <input
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
+          <Field
+            name="email"
+            label="Work email"
             type="email"
+            autoComplete="username"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
-        </label>
-        <label className="mb-6 block">
-          <span className="text-sm font-semibold text-slate-700">Password</span>
-          <input
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
+          <Field
+            name="password"
+            label="Password"
             type="password"
+            autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
-        </label>
-        {mutation.error ? (
-          <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {mutation.error.message}
-          </p>
-        ) : null}
-        <button
-          className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
-          disabled={mutation.isPending}
-        >
-          {mutation.isPending ? 'Signing in...' : 'Sign in'}
-        </button>
-      </form>
+          {mutation.error ? (
+            <Alert tone="error" title="Sign in failed">
+              {mutation.error.message}
+            </Alert>
+          ) : null}
+          <FormActions className="border-0 pt-2">
+            <Button type="submit" loading={mutation.isPending} className="w-full">
+              Sign in
+            </Button>
+          </FormActions>
+        </ClinicalForm>
+      </Card>
     </div>
   )
 }
@@ -360,8 +375,8 @@ function ForcedPasswordChangeScreen() {
   const clearSession = useAuthStore((state) => state.clearSession)
   const [message, setMessage] = useState<string | null>(null)
   const mutation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest<{ changed: boolean }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({
@@ -377,51 +392,52 @@ function ForcedPasswordChangeScreen() {
   })
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-blue-950 p-6">
-      <form
-        className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
-        onSubmit={(event) => {
-          event.preventDefault()
-          mutation.mutate(event)
-        }}
-      >
-        <div className="mb-8 flex items-center gap-3">
-          <div className="rounded-2xl bg-amber-500 p-3 text-white">
-            <KeyRound />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-amber-950 to-slate-900 p-6">
+      <Card className="w-full max-w-md shadow-xl" padding="lg">
+        <ClinicalForm onSubmit={(event) => submitClinicalForm(mutation, event, { resetOnSuccess: false })}>
+          <div className="mb-6 flex items-center gap-3">
+            <div className="rounded-xl bg-amber-500 p-3 text-white">
+              <KeyRound />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">
+                First login security
+              </p>
+              <h1 className="text-2xl font-bold text-slate-900">Change your password</h1>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold uppercase text-amber-600">
-              First login security
-            </p>
-            <h1 className="text-2xl font-bold">Change your password</h1>
-          </div>
-        </div>
-        <Field
-          name="currentPassword"
-          label="Current password"
-          type="password"
-          required
-        />
-        <div className="mt-4">
-          <Field name="newPassword" label="New password" type="password" required />
-        </div>
-        {mutation.error ? (
-          <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {mutation.error.message}
-          </p>
-        ) : null}
-        {message ? (
-          <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">
-            {message}
-          </p>
-        ) : null}
-        <button
-          className="mt-6 w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
-          disabled={mutation.isPending}
-        >
-          {mutation.isPending ? 'Changing...' : 'Change password'}
-        </button>
-      </form>
+          <Field
+            name="currentPassword"
+            label="Current password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
+          <Field
+            name="newPassword"
+            label="New password"
+            type="password"
+            autoComplete="new-password"
+            hint="Minimum 8 characters recommended"
+            required
+          />
+          {mutation.error ? (
+            <Alert tone="error" title="Password change failed">
+              {mutation.error.message}
+            </Alert>
+          ) : null}
+          {message ? (
+            <Alert tone="success" title="Password updated">
+              {message}
+            </Alert>
+          ) : null}
+          <FormActions className="border-0 pt-2">
+            <Button type="submit" loading={mutation.isPending} className="w-full">
+              Change password
+            </Button>
+          </FormActions>
+        </ClinicalForm>
+      </Card>
     </div>
   )
 }
@@ -445,52 +461,52 @@ function PatientSearch({
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <form
-          className="flex gap-3"
+      <Card>
+        <PageHeader
+          eyebrow="Reception"
+          title="Patient search"
+          description="Search before registration. Open a profile to review allergies, identifiers, and next of kin."
+        />
+        <SearchBar
+          value={query}
+          onChange={setQuery}
+          loading={isFetching}
+          placeholder="Name, patient number, phone, national ID, SHA, or QR"
           onSubmit={(event) => {
             event.preventDefault()
             void refetch()
           }}
-        >
-          <input
-            className="flex-1 rounded-xl border border-slate-300 px-4 py-3"
-            placeholder="Search by name, patient number, phone, ID, SHA, or QR"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-            {isFetching ? 'Searching...' : 'Search'}
-          </button>
-        </form>
+        />
 
         <div className="mt-6 divide-y divide-slate-100">
           {patients.map((patient) => (
             <button
               key={patient.id}
-              className="flex w-full items-center justify-between py-4 text-left hover:bg-slate-50"
+              type="button"
+              className="flex w-full items-center justify-between gap-4 py-4 text-left transition hover:bg-slate-50"
               onClick={() => onSelect(patient)}
             >
               <div>
-                <p className="font-bold">
+                <p className="font-semibold text-slate-900">
                   {patient.firstName} {patient.lastName}
                 </p>
                 <p className="text-sm text-slate-500">
                   {patient.patientNo} · {patient.gender} · {patient.primaryPhone}
                 </p>
               </div>
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
-                Open
+              <span className="shrink-0 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+                Open profile
               </span>
             </button>
           ))}
           {!patients.length ? (
-            <p className="py-10 text-center text-slate-500">
-              Search first before registering a new patient.
-            </p>
+            <EmptyState
+              title="No results yet"
+              description="Enter a search term above to find existing patients before registering someone new."
+            />
           ) : null}
         </div>
-      </div>
+      </Card>
 
       <SafetyPanel />
     </div>
@@ -500,8 +516,8 @@ function PatientSearch({
 function PatientRegistration() {
   const [message, setMessage] = useState<string | null>(null)
   const mutation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest<PatientSummary>('/patients', {
         method: 'POST',
         body: JSON.stringify({
@@ -525,91 +541,60 @@ function PatientRegistration() {
   })
 
   return (
-    <form
-      className="max-w-4xl rounded-3xl bg-white p-6 shadow-sm"
-      onSubmit={(event) => {
-        event.preventDefault()
-        mutation.mutate(event)
-      }}
-    >
-      <div className="mb-6">
-        <p className="text-sm font-semibold uppercase text-blue-600">
-          Search-first registration
-        </p>
-        <h3 className="text-2xl font-bold">Register a patient</h3>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field name="firstName" label="First name" required />
-        <Field name="lastName" label="Last name" required />
-        <Field name="dateOfBirth" label="Date of birth" type="date" required />
-        <label>
-          <span className="text-sm font-semibold">Gender</span>
-          <select
-            name="gender"
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-            required
-          >
+    <Card className="max-w-4xl">
+      <PageHeader
+        eyebrow="Search-first registration"
+        title="Register a patient"
+        description="Only register after searching for duplicates. A patient number and SMS notification are created on save."
+      />
+      <WorkflowSteps
+        steps={['Search duplicates', 'Capture demographics', 'Confirm & save']}
+        current={1}
+      />
+      <ClinicalForm onSubmit={(event) => submitClinicalForm(mutation, event)}>
+        <FormSection title="Demographics" description="Legal name and contact details">
+          <Field name="firstName" label="First name" required />
+          <Field name="lastName" label="Last name" required />
+          <Field name="dateOfBirth" label="Date of birth" type="date" required />
+          <SelectField name="gender" label="Gender" required>
             <option value="female">Female</option>
             <option value="male">Male</option>
             <option value="intersex">Intersex</option>
             <option value="unknown">Unknown</option>
-          </select>
-        </label>
-        <Field name="primaryPhone" label="Primary phone" required />
-        <label>
-          <span className="text-sm font-semibold">Identifier type</span>
-          <select
-            name="identifierType"
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-            required
-          >
+          </SelectField>
+          <Field name="primaryPhone" label="Primary phone" required />
+        </FormSection>
+        <FormSection
+          title="Primary identifier"
+          description="National ID, SHA, or other official document"
+          columns={2}
+        >
+          <SelectField name="identifierType" label="Identifier type" required>
             <option value="national_id">National ID</option>
             <option value="sha">SHA</option>
             <option value="passport">Passport</option>
             <option value="birth_certificate">Birth certificate</option>
             <option value="refugee_id">Refugee ID</option>
-          </select>
-        </label>
-        <Field name="identifierValue" label="Identifier value" required />
-      </div>
-      {mutation.error ? (
-        <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-          {mutation.error.message}
-        </p>
-      ) : null}
-      {message ? (
-        <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">
-          {message}
-        </p>
-      ) : null}
-      <button className="mt-6 rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-        {mutation.isPending ? 'Registering...' : 'Register patient'}
-      </button>
-    </form>
-  )
-}
-
-function Field({
-  name,
-  label,
-  type = 'text',
-  required = false,
-}: {
-  name: string
-  label: string
-  type?: string
-  required?: boolean
-}) {
-  return (
-    <label>
-      <span className="text-sm font-semibold">{label}</span>
-      <input
-        name={name}
-        type={type}
-        required={required}
-        className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-      />
-    </label>
+          </SelectField>
+          <Field name="identifierValue" label="Identifier value" required />
+        </FormSection>
+        {mutation.error ? (
+          <Alert tone="error" title="Registration failed">
+            {mutation.error.message}
+          </Alert>
+        ) : null}
+        {message ? (
+          <Alert tone="success" title="Patient registered">
+            {message}
+          </Alert>
+        ) : null}
+        <FormActions>
+          <Button type="submit" loading={mutation.isPending}>
+            Register patient
+          </Button>
+        </FormActions>
+      </ClinicalForm>
+    </Card>
   )
 }
 
@@ -631,55 +616,53 @@ function PatientLookup({
   })
 
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-sm font-semibold">Patient</p>
-      <div className="mt-3 flex gap-2">
-        <input
-          className="input"
-          placeholder="Search name, patient no, phone"
+    <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Patient lookup</p>
+      <div className="mt-3">
+        <SearchBar
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={setQuery}
+          loading={isFetching}
+          placeholder="Search name, patient no, phone"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void refetch()
+          }}
         />
-        <button
-          type="button"
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"
-          onClick={() => void refetch()}
-        >
-          {isFetching ? 'Searching...' : 'Search'}
-        </button>
       </div>
-      <div className="mt-3 max-h-40 overflow-y-auto divide-y divide-slate-200">
+      <div className="mt-3 max-h-44 overflow-y-auto divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
         {(data?.items ?? []).map((patient) => (
           <button
             type="button"
             key={patient.id}
-            className={`w-full px-2 py-3 text-left text-sm hover:bg-white ${
-              selectedPatient?.id === patient.id
-                ? 'bg-white font-semibold text-blue-700'
-                : ''
-            }`}
+            className={clsx(
+              'w-full px-3 py-2.5 text-left text-sm transition hover:bg-slate-50',
+              selectedPatient?.id === patient.id &&
+                'bg-teal-50 font-semibold text-teal-800',
+            )}
             onClick={() => onSelect(patient)}
           >
             {patient.firstName} {patient.lastName} · {patient.patientNo} ·{' '}
             {patient.primaryPhone}
           </button>
         ))}
+        {!data?.items?.length ? (
+          <p className="px-3 py-6 text-center text-xs text-slate-500">
+            Search to select a patient for this workflow.
+          </p>
+        ) : null}
       </div>
-      <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3 text-sm">
-        <span>
-          Selected:{' '}
-          {selectedPatient
-            ? `${selectedPatient.firstName} ${selectedPatient.lastName} (${selectedPatient.patientNo})`
-            : 'none'}
-        </span>
+      <div className="mt-3">
+        <PatientContextBanner
+          patient={selectedPatient}
+          emptyLabel="Select a patient from search results to continue."
+        />
         {selectedPatient ? (
-          <button
-            type="button"
-            className="font-semibold text-red-600"
-            onClick={() => onSelect(null)}
-          >
-            Clear
-          </button>
+          <div className="mt-2 text-right">
+            <Button variant="ghost" type="button" onClick={() => onSelect(null)}>
+              Clear selection
+            </Button>
+          </div>
         ) : null}
       </div>
     </div>
@@ -721,8 +704,8 @@ function PatientProfileDrawer({
       }>(`/patients/${patientId}/timeline`),
   })
   const addIdentifier = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/identifiers`, {
         method: 'POST',
         body: JSON.stringify({
@@ -737,8 +720,8 @@ function PatientProfileDrawer({
     },
   })
   const addNok = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/next-of-kin`, {
         method: 'POST',
         body: JSON.stringify({
@@ -754,8 +737,8 @@ function PatientProfileDrawer({
     },
   })
   const addAllergy = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/allergies`, {
         method: 'POST',
         body: JSON.stringify({
@@ -771,8 +754,8 @@ function PatientProfileDrawer({
     },
   })
   const addCondition = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/chronic-conditions`, {
         method: 'POST',
         body: JSON.stringify({
@@ -918,11 +901,7 @@ function PatientProfileDrawer({
             <QuickAddForm
               title="Add identifier"
               pending={addIdentifier.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addIdentifier.mutate(event)
-                event.currentTarget.reset()
-              }}
+              onSubmit={(event) => submitClinicalForm(addIdentifier, event)}
             >
               <select name="type" className="input" required>
                 <option value="national_id">National ID</option>
@@ -936,11 +915,7 @@ function PatientProfileDrawer({
             <QuickAddForm
               title="Add next of kin"
               pending={addNok.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addNok.mutate(event)
-                event.currentTarget.reset()
-              }}
+              onSubmit={(event) => submitClinicalForm(addNok, event)}
             >
               <input name="name" className="input" placeholder="Name" required />
               <input
@@ -959,11 +934,7 @@ function PatientProfileDrawer({
             <QuickAddForm
               title="Add allergy"
               pending={addAllergy.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addAllergy.mutate(event)
-                event.currentTarget.reset()
-              }}
+              onSubmit={(event) => submitClinicalForm(addAllergy, event)}
             >
               <input
                 name="allergen"
@@ -994,11 +965,7 @@ function PatientProfileDrawer({
             <QuickAddForm
               title="Add chronic condition"
               pending={addCondition.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addCondition.mutate(event)
-                event.currentTarget.reset()
-              }}
+              onSubmit={(event) => submitClinicalForm(addCondition, event)}
             >
               <input name="name" className="input" placeholder="Name" required />
               <input
@@ -1019,31 +986,6 @@ function PatientProfileDrawer({
   )
 }
 
-function QuickAddForm({
-  title,
-  pending,
-  onSubmit,
-  children,
-}: {
-  title: string
-  pending: boolean
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
-  children: ReactNode
-}) {
-  return (
-    <form
-      className="space-y-3 rounded-2xl border border-slate-200 p-4"
-      onSubmit={onSubmit}
-    >
-      <p className="text-xs font-bold uppercase text-slate-500">{title}</p>
-      {children}
-      <button className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white">
-        {pending ? 'Saving...' : 'Save'}
-      </button>
-    </form>
-  )
-}
-
 function ProfileSection({
   title,
   children,
@@ -1061,16 +1003,16 @@ function ProfileSection({
 
 function SafetyPanel() {
   return (
-    <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
-      <Activity className="mb-4 text-blue-200" />
-      <h3 className="text-xl font-bold">Phase 1 safety rules</h3>
-      <ul className="mt-4 space-y-3 text-sm text-blue-100">
+    <Card className="bg-gradient-to-br from-teal-900 to-slate-900 text-white">
+      <Activity className="mb-3 text-teal-300" />
+      <h3 className="text-lg font-bold">Clinical safety checklist</h3>
+      <ul className="mt-4 space-y-2.5 text-sm text-teal-50/90">
         <li>Search before registration to avoid duplicate records.</li>
         <li>At least one identifier and one phone number are mandatory.</li>
         <li>Every mutating action is audited.</li>
         <li>Clinical data uses soft delete only.</li>
       </ul>
-    </div>
+    </Card>
   )
 }
 
@@ -1088,6 +1030,7 @@ interface EncounterItem {
 function OpdCheckIn() {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<PatientSummary | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
   const { data, refetch, isFetching } = useQuery({
     queryKey: ['opd-checkin-patients', query],
     queryFn: () =>
@@ -1097,8 +1040,8 @@ function OpdCheckIn() {
     enabled: false,
   })
   const createEncounter = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/opd/encounters', {
         method: 'POST',
         body: JSON.stringify({
@@ -1108,91 +1051,121 @@ function OpdCheckIn() {
         }),
       })
     },
-    onSuccess: () => setSelected(null),
+    onSuccess: () => {
+      setSelected(null)
+      setValidationError(null)
+    },
   })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Search patient for OPD check-in</h3>
-        <form
-          className="mt-4 flex gap-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void refetch()
-          }}
-        >
-          <input
-            className="input"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Name, patient number, phone"
+    <div className="space-y-6">
+      <WorkflowSteps
+        steps={['Find patient', 'Capture visit details', 'Send to triage']}
+        current={selected ? 1 : 0}
+      />
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <PageHeader
+            title="Find patient"
+            description="Search and select the patient arriving for outpatient care."
           />
-          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-            {isFetching ? 'Searching...' : 'Search'}
-          </button>
-        </form>
-        <div className="mt-4 divide-y divide-slate-100">
-          {(data?.items ?? []).map((patient) => (
-            <button
-              key={patient.id}
-              className="w-full py-3 text-left hover:bg-slate-50"
-              onClick={() => setSelected(patient)}
-            >
-              <p className="font-bold">
-                {patient.firstName} {patient.lastName}
-              </p>
-              <p className="text-sm text-slate-500">
-                {patient.patientNo} · {patient.primaryPhone}
-              </p>
-            </button>
-          ))}
-        </div>
-      </div>
+          <SearchBar
+            value={query}
+            onChange={setQuery}
+            loading={isFetching}
+            placeholder="Name, patient number, or phone"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void refetch()
+            }}
+          />
+          <div className="mt-4 divide-y divide-slate-100">
+            {(data?.items ?? []).map((patient) => (
+              <button
+                key={patient.id}
+                type="button"
+                className={clsx(
+                  'w-full py-3 text-left transition hover:bg-slate-50',
+                  selected?.id === patient.id && 'bg-teal-50',
+                )}
+                onClick={() => {
+                  setSelected(patient)
+                  setValidationError(null)
+                }}
+              >
+                <p className="font-semibold text-slate-900">
+                  {patient.firstName} {patient.lastName}
+                </p>
+                <p className="text-sm text-slate-500">
+                  {patient.patientNo} · {patient.primaryPhone}
+                </p>
+              </button>
+            ))}
+            {!data?.items?.length ? (
+              <EmptyState
+                title="No patients listed"
+                description="Run a search to load matching patients for check-in."
+              />
+            ) : null}
+          </div>
+        </Card>
 
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createEncounter.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <h3 className="text-xl font-bold">Create OPD encounter</h3>
-        <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
-          {selected
-            ? `${selected.firstName} ${selected.lastName} (${selected.patientNo})`
-            : 'Select a patient from search results first.'}
-        </p>
-        <label>
-          <span className="text-sm font-semibold">Visit type</span>
-          <select name="visitType" className="input mt-2" required>
-            <option value="new">New</option>
-            <option value="follow_up">Follow-up</option>
-            <option value="referral">Referral</option>
-          </select>
-        </label>
-        <label>
-          <span className="text-sm font-semibold">Presenting complaint</span>
-          <textarea name="presentingComplaint" className="input mt-2" required />
-        </label>
-        {createEncounter.error ? (
-          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {createEncounter.error.message}
-          </p>
-        ) : null}
-        {createEncounter.isSuccess ? (
-          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-            OPD encounter created. Patient is now in triage queue.
-          </p>
-        ) : null}
-        <button
-          className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white"
-          disabled={!selected || createEncounter.isPending}
-        >
-          Check in patient
-        </button>
-      </form>
+        <Card>
+          <PageHeader
+            title="OPD encounter"
+            description="Record visit type and presenting complaint before triage."
+          />
+          <ClinicalForm
+            onSubmit={(event) =>
+              submitClinicalForm(createEncounter, event, {
+                validate: () =>
+                  selected ? null : 'Select a patient before checking in.',
+                onValidationError: setValidationError,
+              })
+            }
+          >
+            <PatientContextBanner
+              patient={selected}
+              emptyLabel="Select a patient from search results before checking in."
+            />
+            <SelectField name="visitType" label="Visit type" required>
+              <option value="new">New visit</option>
+              <option value="follow_up">Follow-up</option>
+              <option value="referral">Referral</option>
+            </SelectField>
+            <TextareaField
+              name="presentingComplaint"
+              label="Presenting complaint"
+              placeholder="Describe the main reason for today's visit"
+              required
+            />
+            {validationError ? (
+              <Alert tone="warning" title="Cannot check in">
+                {validationError}
+              </Alert>
+            ) : null}
+            {createEncounter.error ? (
+              <Alert tone="error" title="Check-in failed">
+                {createEncounter.error.message}
+              </Alert>
+            ) : null}
+            {createEncounter.isSuccess ? (
+              <Alert tone="success" title="Patient checked in">
+                OPD encounter created. Patient is now in the triage queue.
+              </Alert>
+            ) : null}
+            <FormActions className="border-0 pt-0">
+              <Button
+                type="submit"
+                loading={createEncounter.isPending}
+                disabled={!selected}
+              >
+                Check in patient
+              </Button>
+            </FormActions>
+          </ClinicalForm>
+        </Card>
+      </div>
     </div>
   )
 }
@@ -1205,13 +1178,13 @@ function TriageQueue() {
   })
   const triage = useMutation({
     mutationFn: ({
-      event,
+      formElement,
       encounterId,
     }: {
-      event: FormEvent<HTMLFormElement>
+      formElement: HTMLFormElement
       encounterId: string
     }) => {
-      const form = new FormData(event.currentTarget)
+      const form = formDataFromElement(formElement)
       return apiRequest(`/opd/encounters/${encounterId}/triage`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1241,7 +1214,7 @@ function TriageQueue() {
           className="grid gap-4 rounded-3xl bg-white p-6 shadow-sm lg:grid-cols-[1fr_1.4fr]"
           onSubmit={(event) => {
             event.preventDefault()
-            triage.mutate({ event, encounterId: encounter.id })
+            triage.mutate({ formElement: event.currentTarget, encounterId: encounter.id })
           }}
         >
           <div>
@@ -1300,8 +1273,8 @@ function DoctorQueue() {
     queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
   })
   const createConsultation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest<{ id: string }>(`/opd/encounters/${selected?.id}/consultations`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1319,8 +1292,8 @@ function DoctorQueue() {
     },
   })
   const addDiagnosis = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/opd/encounters/${selected?.id}/diagnoses`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1375,10 +1348,7 @@ function DoctorQueue() {
             <PatientSafetyBanner patient={selected.patient} />
             <form
               className="mt-4 grid gap-3"
-              onSubmit={(event) => {
-                event.preventDefault()
-                createConsultation.mutate(event)
-              }}
+              onSubmit={(event) => submitClinicalForm(createConsultation, event)}
             >
               <textarea name="subjective" className="input" placeholder="Subjective" required />
               <textarea name="objective" className="input" placeholder="Objective" required />
@@ -1396,11 +1366,7 @@ function DoctorQueue() {
             </form>
             <form
               className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4"
-              onSubmit={(event) => {
-                event.preventDefault()
-                addDiagnosis.mutate(event)
-                event.currentTarget.reset()
-              }}
+              onSubmit={(event) => submitClinicalForm(addDiagnosis, event)}
             >
               <p className="font-bold">Add diagnosis</p>
               <input name="icd10Code" className="input" placeholder="ICD-10" />
@@ -1458,8 +1424,8 @@ function AppointmentsScreen() {
     queryFn: () => apiRequest<unknown[]>('/appointments'),
   })
   const createAppointment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/appointments', {
         method: 'POST',
         body: JSON.stringify({
@@ -1481,11 +1447,7 @@ function AppointmentsScreen() {
     <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createAppointment.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createAppointment, event)}
       >
         <h3 className="text-xl font-bold">Book appointment</h3>
         <PatientLookup
@@ -1541,8 +1503,8 @@ function ReferralsScreen() {
     queryFn: () => apiRequest<unknown[]>('/referrals'),
   })
   const createReferral = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/referrals', {
         method: 'POST',
         body: JSON.stringify({
@@ -1560,8 +1522,8 @@ function ReferralsScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['referrals'] }),
   })
   const updateReferral = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/referrals/${form.get('referralId')}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status: form.get('status') }),
@@ -1576,11 +1538,7 @@ function ReferralsScreen() {
         <QuickAddForm
           title="Create referral"
           pending={createReferral.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createReferral.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createReferral, event)}
         >
           <PatientLookup selectedPatient={selectedPatient} onSelect={setSelectedPatient} />
           <input name="encounterId" className="input" placeholder="Encounter ID" />
@@ -1597,11 +1555,7 @@ function ReferralsScreen() {
         <QuickAddForm
           title="Update referral status"
           pending={updateReferral.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateReferral.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(updateReferral, event)}
         >
           <input name="referralId" className="input" placeholder="Referral ID" required />
           <select name="status" className="input" required>
@@ -1794,8 +1748,8 @@ function BedDashboard() {
     queryFn: () => apiRequest<{ id: string; name: string }[]>('/inpatient/wards'),
   })
   const createWard = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/inpatient/wards', {
         method: 'POST',
         body: JSON.stringify({
@@ -1811,8 +1765,8 @@ function BedDashboard() {
     },
   })
   const createBed = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/inpatient/beds', {
         method: 'POST',
         body: JSON.stringify({
@@ -1828,8 +1782,8 @@ function BedDashboard() {
     },
   })
   const updateBedStatus = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/beds/${form.get('bedId')}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status: form.get('status') }),
@@ -1857,11 +1811,7 @@ function BedDashboard() {
       <div className="grid gap-4 md:grid-cols-2">
         <form
           className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
-          onSubmit={(event) => {
-            event.preventDefault()
-            createWard.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createWard, event)}
         >
           <h3 className="text-xl font-bold">Create ward</h3>
           <p className="text-sm text-slate-500">
@@ -1889,11 +1839,7 @@ function BedDashboard() {
         </form>
         <form
           className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
-          onSubmit={(event) => {
-            event.preventDefault()
-            createBed.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createBed, event)}
         >
           <h3 className="text-xl font-bold">Create bed</h3>
           <p className="text-sm text-slate-500">
@@ -1924,11 +1870,7 @@ function BedDashboard() {
         </form>
         <form
           className="space-y-3 rounded-3xl bg-white p-6 shadow-sm md:col-span-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateBedStatus.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(updateBedStatus, event)}
         >
           <h3 className="text-xl font-bold">Update bed status</h3>
           <div className="grid gap-3 md:grid-cols-3">
@@ -2026,8 +1968,8 @@ function AdmissionsScreen() {
     enabled: false,
   })
   const createAdmission = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/inpatient/admissions', {
         method: 'POST',
         body: JSON.stringify({
@@ -2047,8 +1989,8 @@ function AdmissionsScreen() {
     },
   })
   const addProgressNote = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/progress-notes`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2061,8 +2003,8 @@ function AdmissionsScreen() {
     },
   })
   const createDischargeSummary = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/discharge-summary`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2080,16 +2022,16 @@ function AdmissionsScreen() {
     },
   })
   const completeSummary = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/discharge-summaries/${form.get('summaryId')}/complete`, {
         method: 'POST',
       })
     },
   })
   const dischargeAdmission = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/discharge`, {
         method: 'POST',
         body: JSON.stringify({ conditionOnDischarge: form.get('conditionOnDischarge') }),
@@ -2118,11 +2060,7 @@ function AdmissionsScreen() {
       <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createAdmission.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createAdmission, event)}
       >
         <h3 className="text-xl font-bold">Create admission</h3>
         <div className="rounded-2xl bg-slate-50 p-4">
@@ -2236,11 +2174,7 @@ function AdmissionsScreen() {
         <QuickAddForm
           title="Add daily progress note"
           pending={addProgressNote.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            addProgressNote.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(addProgressNote, event)}
         >
           <textarea name="subjective" className="input" placeholder="Subjective" required />
           <textarea name="objective" className="input" placeholder="Objective" required />
@@ -2251,11 +2185,7 @@ function AdmissionsScreen() {
         <QuickAddForm
           title="Create discharge summary"
           pending={createDischargeSummary.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createDischargeSummary.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createDischargeSummary, event)}
         >
           <input name="presentingComplaint" className="input" placeholder="Presenting complaint" required />
           <textarea name="history" className="input" placeholder="History" required />
@@ -2276,11 +2206,7 @@ function AdmissionsScreen() {
           <QuickAddForm
             title="Complete discharge summary"
             pending={completeSummary.isPending}
-            onSubmit={(event) => {
-              event.preventDefault()
-              completeSummary.mutate(event)
-              event.currentTarget.reset()
-            }}
+            onSubmit={(event) => submitClinicalForm(completeSummary, event)}
           >
             <input name="summaryId" className="input" placeholder="Discharge summary ID" required />
             {completeSummary.isSuccess ? <p className="text-sm text-green-700">Summary completed.</p> : null}
@@ -2288,10 +2214,7 @@ function AdmissionsScreen() {
           <QuickAddForm
             title="Discharge admission"
             pending={dischargeAdmission.isPending}
-            onSubmit={(event) => {
-              event.preventDefault()
-              dischargeAdmission.mutate(event)
-            }}
+            onSubmit={(event) => submitClinicalForm(dischargeAdmission, event)}
           >
             <select name="conditionOnDischarge" className="input" required>
               <option value="improved">Improved</option>
@@ -2323,8 +2246,8 @@ function EmergencyScreen() {
       ),
   })
   const register = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/emergency/register', {
         method: 'POST',
         body: JSON.stringify({
@@ -2352,11 +2275,7 @@ function EmergencyScreen() {
     <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          register.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(register, event)}
       >
         <h3 className="text-xl font-bold">Emergency fast registration</h3>
         <Field name="patientId" label="Patient ID" required />
@@ -2441,8 +2360,8 @@ function NursingScreen() {
     queryFn: () => apiRequest<{ id: string; name: string }[]>('/inpatient/wards'),
   })
   const createVitals = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/vitals', {
         method: 'POST',
         body: JSON.stringify({
@@ -2461,8 +2380,8 @@ function NursingScreen() {
     },
   })
   const createMar = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/mar', {
         method: 'POST',
         body: JSON.stringify({
@@ -2479,8 +2398,8 @@ function NursingScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['mar', admissionId] }),
   })
   const updateMar = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/nursing/mar/${form.get('marId')}/status`, {
         method: 'PATCH',
         body: JSON.stringify({
@@ -2492,8 +2411,8 @@ function NursingScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['mar', admissionId] }),
   })
   const createShiftNote = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/shift-notes', {
         method: 'POST',
         body: JSON.stringify({
@@ -2507,8 +2426,8 @@ function NursingScreen() {
     },
   })
   const createObservation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/observations', {
         method: 'POST',
         body: JSON.stringify({
@@ -2548,10 +2467,7 @@ function NursingScreen() {
     <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createVitals.mutate(event)
-        }}
+        onSubmit={(event) => submitClinicalForm(createVitals, event)}
       >
         <h3 className="text-xl font-bold">Record vitals</h3>
         <Field name="temperature" label="Temperature" />
@@ -2588,11 +2504,7 @@ function NursingScreen() {
       <QuickAddForm
         title="Schedule medication (MAR)"
         pending={createMar.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createMar.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createMar, event)}
       >
         <input name="medicationName" className="input" placeholder="Medication" required />
         <input name="genericName" className="input" placeholder="Generic name" />
@@ -2614,11 +2526,7 @@ function NursingScreen() {
       <QuickAddForm
         title="Update MAR status"
         pending={updateMar.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          updateMar.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(updateMar, event)}
       >
         <select name="marId" className="input" required>
           <option value="">Select MAR item</option>
@@ -2639,11 +2547,7 @@ function NursingScreen() {
       <QuickAddForm
         title="Nursing observation"
         pending={createObservation.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createObservation.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createObservation, event)}
       >
         <select name="type" className="input" required>
           <option value="fluid_intake">Fluid intake</option>
@@ -2661,11 +2565,7 @@ function NursingScreen() {
       <QuickAddForm
         title="Shift note"
         pending={createShiftNote.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createShiftNote.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createShiftNote, event)}
       >
         <select name="wardId" className="input" required>
           <option value="">Select ward</option>
@@ -2711,8 +2611,8 @@ function LaboratoryScreen() {
     queryFn: () => apiRequest<unknown[]>('/laboratory/requests'),
   })
   const createRequest = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       const testId = form.get('testId')?.toString()
       const panelId = form.get('panelId')?.toString()
       return apiRequest('/laboratory/requests', {
@@ -2731,8 +2631,8 @@ function LaboratoryScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
   })
   const collectSample = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/laboratory/requests/${form.get('requestId')}/samples`, {
         method: 'POST',
         body: JSON.stringify({ type: form.get('type') }),
@@ -2741,8 +2641,8 @@ function LaboratoryScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
   })
   const enterResult = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/laboratory/results', {
         method: 'POST',
         body: JSON.stringify({
@@ -2755,8 +2655,8 @@ function LaboratoryScreen() {
     },
   })
   const verifyRequest = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/laboratory/requests/${form.get('requestId')}/verify`, {
         method: 'POST',
       })
@@ -2770,11 +2670,7 @@ function LaboratoryScreen() {
         <QuickAddForm
           title="Create lab request"
           pending={createRequest.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createRequest.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createRequest, event)}
         >
           <PatientLookup
             selectedPatient={selectedPatient}
@@ -2818,11 +2714,7 @@ function LaboratoryScreen() {
         <QuickAddForm
           title="Collect sample"
           pending={collectSample.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            collectSample.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(collectSample, event)}
         >
           <input name="requestId" className="input" placeholder="Lab request ID" required />
           <input name="type" className="input" placeholder="Sample type" required />
@@ -2830,11 +2722,7 @@ function LaboratoryScreen() {
         <QuickAddForm
           title="Enter result"
           pending={enterResult.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            enterResult.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(enterResult, event)}
         >
           <input name="requestItemId" className="input" placeholder="Request item ID" required />
           <input name="sampleId" className="input" placeholder="Sample ID" />
@@ -2844,11 +2732,7 @@ function LaboratoryScreen() {
         <QuickAddForm
           title="Verify request"
           pending={verifyRequest.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            verifyRequest.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(verifyRequest, event)}
         >
           <input name="requestId" className="input" placeholder="Lab request ID" required />
         </QuickAddForm>
@@ -2871,8 +2755,8 @@ function RadiologyScreen() {
     queryFn: () => apiRequest<unknown[]>('/radiology/requests'),
   })
   const createRequest = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/radiology/requests', {
         method: 'POST',
         body: JSON.stringify({
@@ -2890,8 +2774,8 @@ function RadiologyScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
   })
   const createReport = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/radiology/requests/${form.get('requestId')}/reports`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2904,8 +2788,8 @@ function RadiologyScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
   })
   const presignUpload = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest<{ key: string; url: string }>('/storage/presign-upload', {
         method: 'POST',
         body: JSON.stringify({
@@ -2918,8 +2802,8 @@ function RadiologyScreen() {
     onSuccess: (data) => setSignedUpload(data),
   })
   const addAttachment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/radiology/requests/${form.get('requestId')}/attachments`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2938,11 +2822,7 @@ function RadiologyScreen() {
         <QuickAddForm
           title="Create radiology request"
           pending={createRequest.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createRequest.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createRequest, event)}
         >
           <PatientLookup
             selectedPatient={selectedPatient}
@@ -2979,11 +2859,7 @@ function RadiologyScreen() {
         <QuickAddForm
           title="Write report"
           pending={createReport.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createReport.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createReport, event)}
         >
           <input name="requestId" className="input" placeholder="Radiology request ID" required />
           <textarea name="findings" className="input" placeholder="Findings" required />
@@ -2993,10 +2869,7 @@ function RadiologyScreen() {
         <QuickAddForm
           title="Get signed image upload URL"
           pending={presignUpload.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            presignUpload.mutate(event)
-          }}
+          onSubmit={(event) => submitClinicalForm(presignUpload, event)}
         >
           <input name="key" className="input" placeholder="file-name-or-path.png" required />
           <input name="contentType" className="input" placeholder="image/png" required />
@@ -3010,11 +2883,7 @@ function RadiologyScreen() {
         <QuickAddForm
           title="Attach uploaded image reference"
           pending={addAttachment.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            addAttachment.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(addAttachment, event)}
         >
           <input name="requestId" className="input" placeholder="Radiology request ID" required />
           <input name="filename" className="input" placeholder="Filename" required />
@@ -3118,8 +2987,8 @@ function TheatreScreen() {
     queryFn: () => apiRequest<unknown[]>('/theatre/bookings'),
   })
   const createTheatre = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/theatre/theatres', {
         method: 'POST',
         body: JSON.stringify({
@@ -3132,8 +3001,8 @@ function TheatreScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['theatres'] }),
   })
   const createProcedure = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/theatre/procedures', {
         method: 'POST',
         body: JSON.stringify({
@@ -3148,8 +3017,8 @@ function TheatreScreen() {
       queryClient.invalidateQueries({ queryKey: ['surgical-procedures'] }),
   })
   const createBooking = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/theatre/bookings', {
         method: 'POST',
         body: JSON.stringify({
@@ -3166,8 +3035,8 @@ function TheatreScreen() {
       queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] }),
   })
   const updateBookingStatus = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/theatre/bookings/${form.get('bookingId')}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status: form.get('status') }),
@@ -3177,8 +3046,8 @@ function TheatreScreen() {
       queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] }),
   })
   const assignStaff = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/theatre/bookings/${form.get('bookingId')}/staff`, {
         method: 'POST',
         body: JSON.stringify({ userId: form.get('userId'), role: form.get('role') }),
@@ -3186,8 +3055,8 @@ function TheatreScreen() {
     },
   })
   const addSurgeryNote = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/theatre/bookings/${form.get('bookingId')}/notes`, {
         method: 'POST',
         body: JSON.stringify({ type: form.get('type'), body: form.get('body') }),
@@ -3201,11 +3070,7 @@ function TheatreScreen() {
         <QuickAddForm
           title="Create theatre"
           pending={createTheatre.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createTheatre.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createTheatre, event)}
         >
           <input name="name" className="input" placeholder="Theatre name" required />
           <input name="code" className="input" placeholder="Code" required />
@@ -3214,11 +3079,7 @@ function TheatreScreen() {
         <QuickAddForm
           title="Create surgical procedure"
           pending={createProcedure.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createProcedure.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createProcedure, event)}
         >
           <input name="name" className="input" placeholder="Procedure name" required />
           <input name="code" className="input" placeholder="Code" required />
@@ -3232,11 +3093,7 @@ function TheatreScreen() {
         <QuickAddForm
           title="Book surgery"
           pending={createBooking.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createBooking.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createBooking, event)}
         >
           <input name="patientId" className="input" placeholder="Patient ID" required />
           <input name="admissionId" className="input" placeholder="Admission ID" />
@@ -3265,11 +3122,7 @@ function TheatreScreen() {
         <QuickAddForm
           title="Update surgery status"
           pending={updateBookingStatus.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateBookingStatus.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(updateBookingStatus, event)}
         >
           <input name="bookingId" className="input" placeholder="Surgery booking ID" required />
           <select name="status" className="input" required>
@@ -3285,11 +3138,7 @@ function TheatreScreen() {
         <QuickAddForm
           title="Assign theatre staff"
           pending={assignStaff.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            assignStaff.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(assignStaff, event)}
         >
           <input name="bookingId" className="input" placeholder="Surgery booking ID" required />
           <input name="userId" className="input" placeholder="Staff user ID" required />
@@ -3305,11 +3154,7 @@ function TheatreScreen() {
         <QuickAddForm
           title="Add surgery note"
           pending={addSurgeryNote.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            addSurgeryNote.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(addSurgeryNote, event)}
         >
           <input name="bookingId" className="input" placeholder="Surgery booking ID" required />
           <select name="type" className="input" required>
@@ -3341,8 +3186,8 @@ function MaternityScreen() {
       ),
   })
   const createPregnancy = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/maternity/pregnancies', {
         method: 'POST',
         body: JSON.stringify({
@@ -3359,8 +3204,8 @@ function MaternityScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
   })
   const createAnc = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/anc-visits`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3373,8 +3218,8 @@ function MaternityScreen() {
     },
   })
   const createDelivery = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/deliveries`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3389,8 +3234,8 @@ function MaternityScreen() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
   })
   const createLabour = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/labour-records`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3405,8 +3250,8 @@ function MaternityScreen() {
     },
   })
   const createNewborn = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/maternity/deliveries/${form.get('deliveryId')}/newborns`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3423,8 +3268,8 @@ function MaternityScreen() {
     },
   })
   const createPostnatal = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/postnatal-visits`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3445,11 +3290,7 @@ function MaternityScreen() {
         <QuickAddForm
           title="Register pregnancy"
           pending={createPregnancy.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createPregnancy.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createPregnancy, event)}
         >
           <input name="patientId" className="input" placeholder="Mother patient ID" required />
           <input name="admissionId" className="input" placeholder="Admission ID" />
@@ -3478,11 +3319,7 @@ function MaternityScreen() {
         <QuickAddForm
           title="Add ANC visit"
           pending={createAnc.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createAnc.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createAnc, event)}
         >
           <input name="visitDate" className="input" type="date" required />
           <input name="gestationalAgeWeeks" className="input" placeholder="Gestational weeks" />
@@ -3492,11 +3329,7 @@ function MaternityScreen() {
         <QuickAddForm
           title="Labour record"
           pending={createLabour.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createLabour.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createLabour, event)}
         >
           <input name="admissionId" className="input" placeholder="Admission ID" />
           <input name="cervicalDilationCm" className="input" placeholder="Cervical dilation cm" />
@@ -3508,11 +3341,7 @@ function MaternityScreen() {
         <QuickAddForm
           title="Record delivery"
           pending={createDelivery.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createDelivery.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createDelivery, event)}
         >
           <input name="deliveryTime" className="input" type="datetime-local" required />
           <select name="mode" className="input" required>
@@ -3533,11 +3362,7 @@ function MaternityScreen() {
         <QuickAddForm
           title="Register newborn"
           pending={createNewborn.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createNewborn.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createNewborn, event)}
         >
           <input name="deliveryId" className="input" placeholder="Delivery ID" required />
           <input name="babyPatientId" className="input" placeholder="Baby patient ID if registered" />
@@ -3563,11 +3388,7 @@ function MaternityScreen() {
         <QuickAddForm
           title="Postnatal visit"
           pending={createPostnatal.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createPostnatal.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(createPostnatal, event)}
         >
           <input name="visitDate" className="input" type="date" required />
           <textarea name="motherCondition" className="input" placeholder="Mother condition" required />
@@ -3601,8 +3422,8 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
       ),
   })
   const admit = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/${unit}/admissions`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3616,8 +3437,8 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: [`${unit}-admissions`] }),
   })
   const observe = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/${unit}/admissions/${selectedId}/observations`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3635,8 +3456,8 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
     },
   })
   const round = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/${unit}/admissions/${selectedId}/rounds`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3648,8 +3469,8 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
     },
   })
   const updateStatus = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/${unit}/admissions/${selectedId}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status: form.get('status') }),
@@ -3658,8 +3479,8 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: [`${unit}-admissions`] }),
   })
   const ventilator = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/icu/admissions/${selectedId}/ventilator-records`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3673,8 +3494,8 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
     },
   })
   const fluid = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/icu/admissions/${selectedId}/fluid-balance`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3692,11 +3513,7 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
         <QuickAddForm
           title={`${title} admission`}
           pending={admit.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            admit.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(admit, event)}
         >
           <input name="admissionId" className="input" placeholder="Base admission ID" required />
           <input name="bedId" className="input" placeholder={`${title} bed ID`} />
@@ -3716,11 +3533,7 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
         <QuickAddForm
           title={`${title} observation`}
           pending={observe.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            observe.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(observe, event)}
         >
           <input name="heartRate" className="input" placeholder="Heart rate" />
           <input name="respiratoryRate" className="input" placeholder="Resp rate" />
@@ -3739,11 +3552,7 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
         <QuickAddForm
           title={`${title} round`}
           pending={round.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            round.mutate(event)
-            event.currentTarget.reset()
-          }}
+          onSubmit={(event) => submitClinicalForm(round, event)}
         >
           <textarea name="assessment" className="input" placeholder="Assessment" required />
           <textarea name="plan" className="input" placeholder="Plan" required />
@@ -3752,10 +3561,7 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
         <QuickAddForm
           title={`${title} status`}
           pending={updateStatus.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateStatus.mutate(event)
-          }}
+          onSubmit={(event) => submitClinicalForm(updateStatus, event)}
         >
           <select name="status" className="input" required>
             <option value="transferred_out">Transferred out</option>
@@ -3768,11 +3574,7 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
             <QuickAddForm
               title="Ventilator record"
               pending={ventilator.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                ventilator.mutate(event)
-                event.currentTarget.reset()
-              }}
+              onSubmit={(event) => submitClinicalForm(ventilator, event)}
             >
               <input name="mode" className="input" placeholder="Mode" required />
               <input name="fio2" className="input" placeholder="FiO2" />
@@ -3783,11 +3585,7 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
             <QuickAddForm
               title="Fluid balance"
               pending={fluid.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                fluid.mutate(event)
-                event.currentTarget.reset()
-              }}
+              onSubmit={(event) => submitClinicalForm(fluid, event)}
             >
               <input name="inputVolumeMl" className="input" placeholder="Input ml" />
               <input name="outputVolumeMl" className="input" placeholder="Output ml" />
@@ -3930,8 +3728,8 @@ function AdminUsers() {
     queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/admin/departments'),
   })
   const createUser = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       const roleId = form.get('roleId')?.toString()
       return apiRequest('/admin/users', {
         method: 'POST',
@@ -3951,8 +3749,8 @@ function AdminUsers() {
     },
   })
   const createDepartment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/admin/departments', {
         method: 'POST',
         body: JSON.stringify({
@@ -3965,8 +3763,8 @@ function AdminUsers() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['admin-departments'] }),
   })
   const assignDepartment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/admin/users/${form.get('userId')}/departments`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3983,11 +3781,7 @@ function AdminUsers() {
       <div className="space-y-6">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createUser.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createUser, event)}
       >
         <h3 className="text-xl font-bold">Create staff user</h3>
         <Field name="employeeNo" label="Employee no." required />
@@ -4019,11 +3813,7 @@ function AdminUsers() {
       <QuickAddForm
         title="Create department"
         pending={createDepartment.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createDepartment.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createDepartment, event)}
       >
         <input name="name" className="input" placeholder="Department name" required />
         <input name="code" className="input" placeholder="Code" required />
@@ -4032,11 +3822,7 @@ function AdminUsers() {
       <QuickAddForm
         title="Assign user to department"
         pending={assignDepartment.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          assignDepartment.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(assignDepartment, event)}
       >
         <select name="userId" className="input" required>
           <option value="">Select user</option>
@@ -4101,8 +3887,8 @@ function AdminRoles() {
       ),
   })
   const createRole = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/admin/roles', {
         method: 'POST',
         body: JSON.stringify({
@@ -4121,11 +3907,7 @@ function AdminRoles() {
     <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createRole.mutate(event)
-          event.currentTarget.reset()
-        }}
+        onSubmit={(event) => submitClinicalForm(createRole, event)}
       >
         <h3 className="text-xl font-bold">Create role</h3>
         <Field name="name" label="Role key" required />
@@ -4179,8 +3961,8 @@ function AdminSettings() {
       }>('/admin/settings'),
   })
   const update = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/admin/settings', {
         method: 'PATCH',
         body: JSON.stringify({
@@ -4200,10 +3982,7 @@ function AdminSettings() {
       <form
         key={data ? `${data.smsSenderName}-${data.patientIdPrefix}-${data.triageSystem}` : 'loading'}
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          update.mutate(event)
-        }}
+        onSubmit={(event) => submitClinicalForm(update, event)}
       >
         <div>
           <p className="text-sm font-semibold uppercase text-blue-600">Administration</p>
