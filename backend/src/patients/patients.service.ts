@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import QRCode from 'qrcode';
-import { ILike, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { Appointment } from '../appointments/appointment.entities';
 import { HduAdmission } from '../hdu/hdu.entities';
@@ -84,24 +84,47 @@ export class PatientsService {
     const page = Math.max(params.page ?? 1, 1);
     const pageSize = Math.min(Math.max(params.pageSize ?? 20, 1), 100);
 
-    const where = params.q
-      ? [
-          { firstName: ILike(`%${params.q}%`) },
-          { lastName: ILike(`%${params.q}%`) },
-          { patientNo: ILike(`%${params.q}%`) },
-        ]
-      : {};
+    const query = this.patients
+      .createQueryBuilder('patient')
+      .leftJoinAndSelect('patient.identifiers', 'identifier')
+      .where('patient.deleted_at IS NULL')
+      .orderBy('patient.created_at', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
 
-    const [items, total] = await this.patients.findAndCount({
-      where,
-      relations: { identifiers: true },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      order: { createdAt: 'DESC' },
-    });
+    if (params.q?.trim()) {
+      const term = `%${params.q.trim()}%`;
+      query.andWhere(
+        `(
+          patient.first_name ILIKE :term OR
+          patient.middle_name ILIKE :term OR
+          patient.last_name ILIKE :term OR
+          patient.patient_no ILIKE :term OR
+          patient.primary_phone ILIKE :term OR
+          patient.secondary_phone ILIKE :term OR
+          identifier.value ILIKE :term
+        )`,
+        { term },
+      );
+    }
+
+    if (params.identifier?.trim()) {
+      query.andWhere('identifier.value ILIKE :identifier', {
+        identifier: `%${params.identifier.trim()}%`,
+      });
+    }
+
+    if (params.phone?.trim()) {
+      query.andWhere(
+        '(patient.primary_phone ILIKE :phone OR patient.secondary_phone ILIKE :phone)',
+        { phone: `%${params.phone.trim()}%` },
+      );
+    }
+
+    const [items, total] = await query.getManyAndCount();
 
     return {
-      items: this.filterBySecondarySearch(items, params),
+      items,
       meta: { page, pageSize, total },
     };
   }
