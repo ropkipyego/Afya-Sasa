@@ -46,30 +46,41 @@ interface PatientSearchResponse {
 }
 
 const navigation = [
-  { label: 'Patient Search', icon: Search, permission: 'patients:read' },
-  { label: 'Register Patient', icon: UserPlus, permission: 'patients:create' },
-  { label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
-  { label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
-  { label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
-  { label: 'Laboratory', icon: Activity, permission: 'lab_requests:read' },
-  { label: 'Radiology', icon: Hospital, permission: 'radiology_requests:read' },
-  { label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read' },
-  { label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
-  { label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
-  { label: 'Bed Dashboard', icon: Hospital, permission: 'beds:read' },
-  { label: 'Admissions', icon: ClipboardList, permission: 'admissions:read' },
-  { label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read' },
-  { label: 'Nursing', icon: Activity, permission: 'vitals:read' },
-  { label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read' },
-  { label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
-  { label: 'Maternity', icon: Activity, permission: 'pregnancies:read' },
-  { label: 'ICU', icon: AlertTriangle, permission: 'icu_admissions:read' },
-  { label: 'HDU', icon: Activity, permission: 'hdu_admissions:read' },
-  { label: 'User Management', icon: Users, permission: 'users:manage' },
-  { label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
-  { label: 'Settings', icon: Settings, permission: 'settings:manage' },
-  { label: 'Audit', icon: ShieldCheck, permission: 'audit_logs:read' },
+  { group: 'Reception', label: 'Patient Search', icon: Search, permission: 'patients:read' },
+  { group: 'Reception', label: 'Register Patient', icon: UserPlus, permission: 'patients:create' },
+  { group: 'Outpatient', label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
+  { group: 'Outpatient', label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
+  { group: 'Outpatient', label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
+  { group: 'Outpatient', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  { group: 'Investigations', label: 'Laboratory', icon: Activity, permission: 'lab_requests:read' },
+  { group: 'Investigations', label: 'Radiology', icon: Hospital, permission: 'radiology_requests:read' },
+  { group: 'Investigations', label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read' },
+  { group: 'Inpatient', label: 'Bed Dashboard', icon: Hospital, permission: 'beds:read' },
+  { group: 'Inpatient', label: 'Admissions', icon: ClipboardList, permission: 'admissions:read' },
+  { group: 'Inpatient', label: 'Nursing', icon: Activity, permission: 'vitals:read' },
+  { group: 'Emergency & Critical Care', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read' },
+  { group: 'Emergency & Critical Care', label: 'ICU', icon: AlertTriangle, permission: 'icu_admissions:read' },
+  { group: 'Emergency & Critical Care', label: 'HDU', icon: Activity, permission: 'hdu_admissions:read' },
+  { group: 'Specialty', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
+  { group: 'Specialty', label: 'Maternity', icon: Activity, permission: 'pregnancies:read' },
+  { group: 'Reports', label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
+  { group: 'Reports', label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read' },
+  { group: 'Administration', label: 'User Management', icon: Users, permission: 'users:manage' },
+  { group: 'Administration', label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
+  { group: 'Administration', label: 'Settings', icon: Settings, permission: 'settings:manage' },
+  { group: 'Administration', label: 'Audit', icon: ShieldCheck, permission: 'audit_logs:read' },
 ]
+
+const workflowDescriptions: Record<string, string> = {
+  'Patient Search': 'Find existing patients first, then open their safety banner and profile.',
+  'Register Patient': 'Create a new patient only after search-first duplicate checks.',
+  'OPD Check-In': 'Select a patient and create today’s outpatient encounter.',
+  'Triage Queue': 'Record vitals and triage colour before doctor review.',
+  'Doctor Queue': 'Prioritised queue with SOAP notes, diagnosis entry, and completion.',
+  'Bed Dashboard': 'Ward and bed map with live-style status cards.',
+  Admissions: 'Admit selected patients into available beds and review current admissions.',
+  Settings: 'Hospital-level configuration for patient numbers, triage, and messaging.',
+}
 
 function App() {
   const { user, accessToken, tenant, setTenant, clearSession } = useAuthStore()
@@ -87,11 +98,19 @@ function App() {
   const allowedNavigation = navigation.filter((item) =>
     user.permissions.includes(item.permission),
   )
+  const groupedNavigation = allowedNavigation.reduce(
+    (groups, item) => {
+      groups[item.group] = [...(groups[item.group] ?? []), item]
+      return groups
+    },
+    {} as Record<string, typeof allowedNavigation>,
+  )
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-slate-200 bg-white p-6 lg:block">
-        <div className="flex items-center gap-3">
+      <aside className="fixed inset-y-0 left-0 hidden w-80 flex-col border-r border-slate-200 bg-white lg:flex">
+        <div className="shrink-0 p-6 pb-4">
+          <div className="flex items-center gap-3">
           <div className="rounded-2xl bg-blue-600 p-3 text-white">
             <Hospital size={28} />
           </div>
@@ -103,39 +122,62 @@ function App() {
           </div>
         </div>
 
-        <div className="mt-8 rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">
+        <div className="mt-6 rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">
           <p className="font-semibold">Tenant</p>
           <p>{tenant}</p>
         </div>
+        </div>
 
-        <nav className="mt-8 space-y-2">
-          {allowedNavigation.map((item) => {
-            const Icon = item.icon
-            return (
-              <button
-                key={item.label}
-                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold ${
-                  activeScreen === item.label
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-                onClick={() => setActiveScreen(item.label)}
-              >
-                <Icon size={18} />
-                {item.label}
-              </button>
-            )
-          })}
+        <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">
+          {Object.entries(groupedNavigation).map(([group, items]) => (
+            <div key={group}>
+              <p className="mb-2 px-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+                {group}
+              </p>
+              <div className="space-y-1">
+                {items.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <button
+                      key={item.label}
+                      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold ${
+                        activeScreen === item.label
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                      onClick={() => setActiveScreen(item.label)}
+                    >
+                      <Icon size={18} />
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
       </aside>
 
-      <main className="lg:pl-72">
+      <main className="min-h-screen lg:pl-80">
         <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">Phase 1 Foundation</p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm text-slate-500">
+                {workflowDescriptions[activeScreen] ?? 'Clinical workflow workspace'}
+              </p>
               <h2 className="text-2xl font-bold">{activeScreen}</h2>
             </div>
+            <select
+              className="input max-w-xs lg:hidden"
+              value={activeScreen}
+              onChange={(event) => setActiveScreen(event.target.value)}
+            >
+              {allowedNavigation.map((item) => (
+                <option key={item.label} value={item.label}>
+                  {item.group} / {item.label}
+                </option>
+              ))}
+            </select>
             <div className="flex items-center gap-4">
               {user.forcePasswordChange ? <ForcedPasswordNotice /> : null}
               <div className="text-right text-sm">
@@ -155,7 +197,7 @@ function App() {
           </div>
         </header>
 
-        <section className="p-6">
+        <section className="min-h-[calc(100vh-5rem)] overflow-x-hidden p-4 md:p-6">
           {activeScreen === 'Patient Search' ? (
             <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
           ) : null}
@@ -1571,9 +1613,20 @@ function BedDashboard() {
       await queryClient.invalidateQueries({ queryKey: ['wards'] })
     },
   })
+  const occupiedBeds = beds.filter((bed) => bed.status === 'occupied').length
+  const availableBeds = beds.filter((bed) => bed.status === 'available').length
 
   return (
     <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard label="Total beds" value={beds.length} />
+        <MetricCard label="Available" value={availableBeds} />
+        <MetricCard label="Occupied" value={occupiedBeds} />
+        <MetricCard
+          label="Occupancy %"
+          value={beds.length ? Math.round((occupiedBeds / beds.length) * 100) : 0}
+        />
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
         <form
           className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
@@ -1584,6 +1637,9 @@ function BedDashboard() {
           }}
         >
           <h3 className="text-xl font-bold">Create ward</h3>
+          <p className="text-sm text-slate-500">
+            Start inpatient setup here. Wards can be General, Maternity, ICU, HDU, or specialty wards.
+          </p>
           <Field name="name" label="Ward name" required />
           <Field name="code" label="Ward code" required />
           <label>
@@ -1613,6 +1669,9 @@ function BedDashboard() {
           }}
         >
           <h3 className="text-xl font-bold">Create bed</h3>
+          <p className="text-sm text-slate-500">
+            Beds created here become selectable in the Admissions screen.
+          </p>
           <label>
             <span className="text-sm font-semibold">Ward</span>
             <select name="wardId" className="input mt-2" required>
@@ -1662,6 +1721,11 @@ function BedDashboard() {
             ) : null}
           </div>
         ))}
+        {!beds.length ? (
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500 md:col-span-3 xl:col-span-4">
+            No beds yet. Create a ward, then create beds for that ward.
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -1669,6 +1733,8 @@ function BedDashboard() {
 
 function AdmissionsScreen() {
   const queryClient = useQueryClient()
+  const [patientQuery, setPatientQuery] = useState('')
+  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
   const { data: admissions = [] } = useQuery({
     queryKey: ['admissions'],
     queryFn: () =>
@@ -1690,13 +1756,25 @@ function AdmissionsScreen() {
         '/inpatient/beds/available',
       ),
   })
+  const {
+    data: patientResults,
+    refetch: searchPatients,
+    isFetching: searchingPatients,
+  } = useQuery({
+    queryKey: ['admission-patient-search', patientQuery],
+    queryFn: () =>
+      apiRequest<PatientSearchResponse>(
+        `/patients?q=${encodeURIComponent(patientQuery)}`,
+      ),
+    enabled: false,
+  })
   const createAdmission = useMutation({
     mutationFn: (event: FormEvent<HTMLFormElement>) => {
       const form = new FormData(event.currentTarget)
       return apiRequest('/inpatient/admissions', {
         method: 'POST',
         body: JSON.stringify({
-          patientId: form.get('patientId'),
+          patientId: selectedPatient?.id,
           encounterId: form.get('encounterId') || undefined,
           bedId: form.get('bedId'),
           reason: form.get('reason'),
@@ -1705,6 +1783,7 @@ function AdmissionsScreen() {
       })
     },
     onSuccess: async () => {
+      setSelectedPatient(null)
       await queryClient.invalidateQueries({ queryKey: ['admissions'] })
       await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
       await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
@@ -1712,7 +1791,19 @@ function AdmissionsScreen() {
   })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard label="Active admissions" value={admissions.filter((item) => item.status === 'active').length} />
+        <MetricCard label="Available beds" value={beds.length} />
+        <MetricCard label="All admissions" value={admissions.length} />
+        <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
+          <p className="text-sm text-blue-200">Flow</p>
+          <p className="mt-2 text-sm">
+            Search patient → choose available bed → admit → bed becomes occupied.
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
         onSubmit={(event) => {
@@ -1722,11 +1813,49 @@ function AdmissionsScreen() {
         }}
       >
         <h3 className="text-xl font-bold">Create admission</h3>
-        <Field name="patientId" label="Patient ID" required />
+        <div className="rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm font-semibold">1. Search and select patient</p>
+          <div className="mt-3 flex gap-2">
+            <input
+              className="input"
+              placeholder="Search name, patient no, phone"
+              value={patientQuery}
+              onChange={(event) => setPatientQuery(event.target.value)}
+            />
+            <button
+              type="button"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"
+              onClick={() => void searchPatients()}
+            >
+              {searchingPatients ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+          <div className="mt-3 max-h-44 overflow-y-auto divide-y divide-slate-200">
+            {(patientResults?.items ?? []).map((patient) => (
+              <button
+                type="button"
+                key={patient.id}
+                className={`w-full px-2 py-3 text-left text-sm hover:bg-white ${
+                  selectedPatient?.id === patient.id ? 'bg-white font-semibold text-blue-700' : ''
+                }`}
+                onClick={() => setSelectedPatient(patient)}
+              >
+                {patient.firstName} {patient.lastName} · {patient.patientNo} · {patient.primaryPhone}
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 rounded-xl bg-white p-3 text-sm text-slate-600">
+            Selected:{' '}
+            {selectedPatient
+              ? `${selectedPatient.firstName} ${selectedPatient.lastName} (${selectedPatient.patientNo})`
+              : 'none'}
+          </p>
+        </div>
         <Field name="encounterId" label="Source encounter ID" />
         <label>
-          <span className="text-sm font-semibold">Available bed</span>
+          <span className="text-sm font-semibold">2. Available bed</span>
           <select name="bedId" className="input mt-2" required>
+            <option value="">Select a bed</option>
             {beds.map((bed) => (
               <option key={bed.id} value={bed.id}>
                 {bed.ward?.name} · {bed.bedNo}
@@ -1734,14 +1863,27 @@ function AdmissionsScreen() {
             ))}
           </select>
         </label>
-        <Field name="reason" label="Reason" required />
+        <Field name="reason" label="3. Reason for admission" required />
         <select name="type" className="input" required>
           <option value="elective">Elective</option>
           <option value="emergency">Emergency</option>
           <option value="transfer">Transfer</option>
         </select>
-        <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-          Admit patient
+        {createAdmission.error ? (
+          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {createAdmission.error.message}
+          </p>
+        ) : null}
+        {createAdmission.isSuccess ? (
+          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+            Patient admitted successfully. Bed status updated.
+          </p>
+        ) : null}
+        <button
+          className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={!selectedPatient || !beds.length || createAdmission.isPending}
+        >
+          {createAdmission.isPending ? 'Admitting...' : 'Admit patient'}
         </button>
       </form>
       <div className="rounded-3xl bg-white p-6 shadow-sm">
@@ -1758,7 +1900,13 @@ function AdmissionsScreen() {
               </p>
             </div>
           ))}
+          {!admissions.length ? (
+            <p className="py-10 text-center text-slate-500">
+              No admissions yet. Create wards and beds first, then admit a patient.
+            </p>
+          ) : null}
         </div>
+      </div>
       </div>
     </div>
   )
@@ -2831,42 +2979,67 @@ function AdminSettings() {
   })
 
   return (
-    <form
-      className="max-w-2xl space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-      onSubmit={(event) => {
-        event.preventDefault()
-        update.mutate(event)
-      }}
-    >
-      <h3 className="text-xl font-bold">Hospital settings</h3>
-      <label>
-        <span className="text-sm font-semibold">SMS sender name</span>
-        <input
-          name="smsSenderName"
-          className="input mt-2"
-          defaultValue={data?.smsSenderName}
-        />
-      </label>
-      <label>
-        <span className="text-sm font-semibold">Patient ID prefix</span>
-        <input
-          name="patientIdPrefix"
-          className="input mt-2"
-          defaultValue={data?.patientIdPrefix}
-        />
-      </label>
-      <label>
-        <span className="text-sm font-semibold">Triage system</span>
-        <input
-          name="triageSystem"
-          className="input mt-2"
-          defaultValue={data?.triageSystem}
-        />
-      </label>
-      <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-        {update.isPending ? 'Saving...' : 'Save settings'}
-      </button>
-    </form>
+    <div className="grid gap-6 xl:grid-cols-[0.7fr_0.3fr]">
+      <form
+        key={data ? `${data.smsSenderName}-${data.patientIdPrefix}-${data.triageSystem}` : 'loading'}
+        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
+        onSubmit={(event) => {
+          event.preventDefault()
+          update.mutate(event)
+        }}
+      >
+        <div>
+          <p className="text-sm font-semibold uppercase text-blue-600">Administration</p>
+          <h3 className="text-xl font-bold">Hospital settings</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            These values control patient numbers, messaging identity, and triage defaults for the active tenant.
+          </p>
+        </div>
+        <label>
+          <span className="text-sm font-semibold">SMS sender name</span>
+          <input
+            name="smsSenderName"
+            className="input mt-2"
+            defaultValue={data?.smsSenderName ?? ''}
+          />
+        </label>
+        <label>
+          <span className="text-sm font-semibold">Patient ID prefix</span>
+          <input
+            name="patientIdPrefix"
+            className="input mt-2"
+            defaultValue={data?.patientIdPrefix ?? ''}
+          />
+        </label>
+        <label>
+          <span className="text-sm font-semibold">Triage system</span>
+          <input
+            name="triageSystem"
+            className="input mt-2"
+            defaultValue={data?.triageSystem ?? ''}
+          />
+        </label>
+        {update.error ? (
+          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {update.error.message}
+          </p>
+        ) : null}
+        {update.isSuccess ? (
+          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+            Settings saved.
+          </p>
+        ) : null}
+        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
+          {update.isPending ? 'Saving...' : 'Save settings'}
+        </button>
+      </form>
+      <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
+        <h3 className="text-lg font-bold">Tip</h3>
+        <p className="mt-3 text-sm text-blue-100">
+          If settings do not appear, confirm you are logged in as Administrator and using tenant <strong>demo</strong>.
+        </p>
+      </div>
+    </div>
   )
 }
 
