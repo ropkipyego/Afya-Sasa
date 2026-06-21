@@ -24,10 +24,10 @@ export class IcuAdmission extends SoftDeleteClinicalEntity {
   @Column({ type: 'text' })
   reason!: string;
 
-  @Column({ name: 'severity_score', nullable: true })
+  @Column({ type: 'int',  name: 'severity_score', nullable: true })
   severityScore!: number | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'active' | 'transferred_out' | 'discharged' | 'died';
 
   @Column({ name: 'discharged_from_icu_at', type: 'timestamptz', nullable: true })
@@ -43,22 +43,22 @@ export class IcuObservation extends SoftDeleteClinicalEntity {
   @Column({ name: 'recorded_at', type: 'timestamptz', default: () => 'now()' })
   recordedAt!: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   heartRate!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   respiratoryRate!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   bpSystolic!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   bpDiastolic!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   spo2!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   gcs!: number | null;
 
   @Column({ type: 'text', nullable: true })
@@ -74,16 +74,16 @@ export class VentilatorRecord extends SoftDeleteClinicalEntity {
   @Column({ name: 'recorded_at', type: 'timestamptz', default: () => 'now()' })
   recordedAt!: Date;
 
-  @Column()
+  @Column({ type: 'varchar' })
   mode!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   fio2!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   peep!: number | null;
 
-  @Column({ name: 'tidal_volume', nullable: true })
+  @Column({ type: 'int',  name: 'tidal_volume', nullable: true })
   tidalVolume!: number | null;
 
   @Column({ type: 'text', nullable: true })
@@ -99,13 +99,13 @@ export class FluidBalance extends SoftDeleteClinicalEntity {
   @Column({ name: 'recorded_at', type: 'timestamptz', default: () => 'now()' })
   recordedAt!: Date;
 
-  @Column({ name: 'input_volume_ml', nullable: true })
+  @Column({ type: 'int',  name: 'input_volume_ml', nullable: true })
   inputVolumeMl!: number | null;
 
-  @Column({ name: 'output_volume_ml', nullable: true })
+  @Column({ type: 'int',  name: 'output_volume_ml', nullable: true })
   outputVolumeMl!: number | null;
 
-  @Column({ name: 'net_balance_ml', nullable: true })
+  @Column({ type: 'int',  name: 'net_balance_ml', nullable: true })
   netBalanceMl!: number | null;
 
   @Column({ type: 'text', nullable: true })

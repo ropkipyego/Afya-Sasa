@@ -16,17 +16,17 @@ export type OpdEncounterStatus =
 @Index(['encounterNo'], { unique: true })
 @Index(['type', 'status', 'startedAt'])
 export class Encounter extends SoftDeleteClinicalEntity {
-  @Column({ name: 'encounter_no' })
+  @Column({ type: 'varchar',  name: 'encounter_no' })
   encounterNo!: string;
 
   @ManyToOne(() => Patient)
   @JoinColumn({ name: 'patient_id' })
   patient!: Patient;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: EncounterType;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: OpdEncounterStatus;
 
   @ManyToOne(() => User, { nullable: true })
@@ -36,10 +36,10 @@ export class Encounter extends SoftDeleteClinicalEntity {
   @Column({ name: 'presenting_complaint', type: 'text' })
   presentingComplaint!: string;
 
-  @Column({ name: 'visit_type', nullable: true })
+  @Column({ type: 'varchar',  name: 'visit_type', nullable: true })
   visitType!: 'new' | 'follow_up' | 'referral' | null;
 
-  @Column({ name: 'referral_source', nullable: true })
+  @Column({ type: 'varchar',  name: 'referral_source', nullable: true })
   referralSource!: string | null;
 
   @Column({ name: 'referral_reason', type: 'text', nullable: true })
@@ -63,34 +63,34 @@ export class TriageAssessment extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'performed_by' })
   performedBy!: User | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   category!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   colour!: 'red' | 'orange' | 'yellow' | 'green' | 'blue';
 
   @Column({ name: 'chief_complaint', type: 'text' })
   chiefComplaint!: string;
 
-  @Column({ name: 'pain_score', nullable: true })
+  @Column({ type: 'int',  name: 'pain_score', nullable: true })
   painScore!: number | null;
 
   @Column({ type: 'numeric', nullable: true })
   temperature!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   pulse!: number | null;
 
-  @Column({ name: 'respiratory_rate', nullable: true })
+  @Column({ type: 'int',  name: 'respiratory_rate', nullable: true })
   respiratoryRate!: number | null;
 
-  @Column({ name: 'bp_systolic', nullable: true })
+  @Column({ type: 'int',  name: 'bp_systolic', nullable: true })
   bpSystolic!: number | null;
 
-  @Column({ name: 'bp_diastolic', nullable: true })
+  @Column({ type: 'int',  name: 'bp_diastolic', nullable: true })
   bpDiastolic!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   spo2!: number | null;
 
   @Column({ type: 'numeric', nullable: true })
@@ -99,7 +99,7 @@ export class TriageAssessment extends SoftDeleteClinicalEntity {
   @Column({ type: 'numeric', nullable: true })
   height!: string | null;
 
-  @Column({ name: 'is_retriage', default: false })
+  @Column({ type: 'boolean',  name: 'is_retriage', default: false })
   isRetriage!: boolean;
 }
 
@@ -125,7 +125,7 @@ export class Consultation extends SoftDeleteClinicalEntity {
   @Column({ type: 'text' })
   plan!: string;
 
-  @Column({ default: 'draft' })
+  @Column({ type: 'varchar',  default: 'draft' })
   status!: 'draft' | 'completed';
 
   @Column({ name: 'started_at', type: 'timestamptz', default: () => 'now()' })
@@ -147,16 +147,16 @@ export class EncounterDiagnosis extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'encounter_id' })
   encounter!: Encounter;
 
-  @Column({ name: 'icd10_code', nullable: true })
+  @Column({ type: 'varchar',  name: 'icd10_code', nullable: true })
   icd10Code!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   description!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'primary' | 'secondary' | 'differential';
 
-  @Column({ default: false })
+  @Column({ type: 'boolean',  default: false })
   confirmed!: boolean;
 }
 
@@ -170,7 +170,7 @@ export class ClinicalNote extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'amends_note_id' })
   amendsNote!: ClinicalNote | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'doctor' | 'nursing' | 'progress' | 'procedure' | 'handover' | 'referral' | 'discharge';
 
   @Column({ type: 'text' })
@@ -186,15 +186,15 @@ export class EncounterAttachment extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'encounter_id' })
   encounter!: Encounter;
 
-  @Column()
+  @Column({ type: 'varchar' })
   filename!: string;
 
-  @Column({ name: 'mime_type' })
+  @Column({ type: 'varchar',  name: 'mime_type' })
   mimeType!: string;
 
-  @Column({ name: 'file_size' })
+  @Column({ type: 'int',  name: 'file_size' })
   fileSize!: number;
 
-  @Column({ name: 'storage_path' })
+  @Column({ type: 'varchar',  name: 'storage_path' })
   storagePath!: string;
 }

@@ -7,13 +7,13 @@ import { Patient } from '../patients/patient.entities';
 @Entity({ name: 'wards', schema: 'demo' })
 @Unique(['code'])
 export class Ward extends SoftDeleteClinicalEntity {
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   code!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!:
     | 'general'
     | 'icu'
@@ -24,13 +24,13 @@ export class Ward extends SoftDeleteClinicalEntity {
     | 'medical'
     | 'isolation';
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   floor!: string | null;
 
-  @Column({ name: 'bed_count', default: 0 })
+  @Column({ type: 'int',  name: 'bed_count', default: 0 })
   bedCount!: number;
 
-  @Column({ default: true })
+  @Column({ type: 'boolean',  default: true })
   active!: boolean;
 }
 
@@ -42,23 +42,23 @@ export class Bed extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'ward_id' })
   ward!: Ward;
 
-  @Column({ name: 'bed_no' })
+  @Column({ type: 'varchar',  name: 'bed_no' })
   bedNo!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'standard' | 'icu' | 'isolation' | 'paediatric' | 'maternity' | 'cardiac';
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'available' | 'occupied' | 'maintenance' | 'cleaning';
 
-  @Column({ default: 1 })
+  @Column({ type: 'int',  default: 1 })
   version!: number;
 }
 
 @Entity({ name: 'admissions', schema: 'demo' })
 @Index(['status'])
 export class Admission extends SoftDeleteClinicalEntity {
-  @Column({ name: 'admission_no', unique: true })
+  @Column({ type: 'varchar',  name: 'admission_no', unique: true })
   admissionNo!: string;
 
   @ManyToOne(() => Patient)
@@ -87,10 +87,10 @@ export class Admission extends SoftDeleteClinicalEntity {
   @Column({ type: 'text' })
   reason!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'elective' | 'emergency' | 'transfer';
 
-  @Column({ default: 'active' })
+  @Column({ type: 'varchar',  default: 'active' })
   status!: 'active' | 'discharged';
 
   @Column({ name: 'discharged_at', type: 'timestamptz', nullable: true })
@@ -100,10 +100,10 @@ export class Admission extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'discharging_doctor_id' })
   dischargingDoctor!: User | null;
 
-  @Column({ name: 'condition_on_discharge', nullable: true })
+  @Column({ type: 'varchar',  name: 'condition_on_discharge', nullable: true })
   conditionOnDischarge!: 'improved' | 'same' | 'deteriorated' | 'died' | 'absconded' | null;
 
-  @Column({ name: 'length_of_stay_days', nullable: true })
+  @Column({ type: 'int',  name: 'length_of_stay_days', nullable: true })
   lengthOfStayDays!: number | null;
 }
 
@@ -180,7 +180,7 @@ export class DischargeSummary extends SoftDeleteClinicalEntity {
   @Column({ type: 'text', nullable: true })
   diet!: string | null;
 
-  @Column({ default: 'draft' })
+  @Column({ type: 'varchar',  default: 'draft' })
   status!: 'draft' | 'complete';
 
   @Column({ name: 'finalised_by', type: 'uuid', nullable: true })

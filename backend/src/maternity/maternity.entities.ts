@@ -8,7 +8,7 @@ import { Patient } from '../patients/patient.entities';
 @Entity({ name: 'pregnancies', schema: 'demo' })
 @Index(['status'])
 export class Pregnancy extends SoftDeleteClinicalEntity {
-  @Column({ name: 'pregnancy_no', unique: true })
+  @Column({ type: 'varchar',  name: 'pregnancy_no', unique: true })
   pregnancyNo!: string;
 
   @ManyToOne(() => Patient)
@@ -23,10 +23,10 @@ export class Pregnancy extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'admission_id' })
   admission!: Admission | null;
 
-  @Column()
+  @Column({ type: 'int' })
   gravida!: number;
 
-  @Column()
+  @Column({ type: 'int' })
   para!: number;
 
   @Column({ name: 'lmp_date', type: 'date', nullable: true })
@@ -35,13 +35,13 @@ export class Pregnancy extends SoftDeleteClinicalEntity {
   @Column({ type: 'date', nullable: true })
   edd!: string | null;
 
-  @Column({ name: 'risk_level', default: 'low' })
+  @Column({ type: 'varchar',  name: 'risk_level', default: 'low' })
   riskLevel!: 'low' | 'moderate' | 'high';
 
   @Column({ name: 'risk_notes', type: 'text', nullable: true })
   riskNotes!: string | null;
 
-  @Column({ default: 'active' })
+  @Column({ type: 'varchar',  default: 'active' })
   status!: 'active' | 'delivered' | 'ended' | 'transferred';
 }
 
@@ -62,7 +62,7 @@ export class AncVisit extends SoftDeleteClinicalEntity {
   @Column({ name: 'visit_date', type: 'date' })
   visitDate!: string;
 
-  @Column({ name: 'gestational_age_weeks', nullable: true })
+  @Column({ type: 'int',  name: 'gestational_age_weeks', nullable: true })
   gestationalAgeWeeks!: number | null;
 
   @Column({ type: 'text', nullable: true })
@@ -88,13 +88,13 @@ export class LabourRecord extends SoftDeleteClinicalEntity {
   @Column({ name: 'cervical_dilation_cm', type: 'numeric', nullable: true })
   cervicalDilationCm!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   contractions!: string | null;
 
-  @Column({ name: 'fetal_heart_rate', nullable: true })
+  @Column({ type: 'int',  name: 'fetal_heart_rate', nullable: true })
   fetalHeartRate!: number | null;
 
-  @Column({ name: 'membranes_status', nullable: true })
+  @Column({ type: 'varchar',  name: 'membranes_status', nullable: true })
   membranesStatus!: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -118,16 +118,16 @@ export class Delivery extends SoftDeleteClinicalEntity {
   @Column({ name: 'delivery_time', type: 'timestamptz' })
   deliveryTime!: Date;
 
-  @Column()
+  @Column({ type: 'varchar' })
   mode!: 'svd' | 'assisted' | 'cesarean' | 'breech';
 
-  @Column()
+  @Column({ type: 'varchar' })
   outcome!: 'live_birth' | 'stillbirth' | 'maternal_transfer' | 'maternal_death';
 
   @Column({ type: 'text', nullable: true })
   complications!: string | null;
 
-  @Column({ name: 'blood_loss_ml', nullable: true })
+  @Column({ type: 'int',  name: 'blood_loss_ml', nullable: true })
   bloodLossMl!: number | null;
 
   @Column({ type: 'text', nullable: true })
@@ -144,25 +144,25 @@ export class Newborn extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'baby_patient_id' })
   babyPatient!: Patient | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   sex!: 'female' | 'male' | 'unknown';
 
-  @Column({ name: 'birth_weight_grams', nullable: true })
+  @Column({ type: 'int',  name: 'birth_weight_grams', nullable: true })
   birthWeightGrams!: number | null;
 
-  @Column({ name: 'apgar_1_min', nullable: true })
+  @Column({ type: 'int',  name: 'apgar_1_min', nullable: true })
   apgar1Min!: number | null;
 
-  @Column({ name: 'apgar_5_min', nullable: true })
+  @Column({ type: 'int',  name: 'apgar_5_min', nullable: true })
   apgar5Min!: number | null;
 
-  @Column({ name: 'apgar_10_min', nullable: true })
+  @Column({ type: 'int',  name: 'apgar_10_min', nullable: true })
   apgar10Min!: number | null;
 
-  @Column({ name: 'resuscitation_required', default: false })
+  @Column({ type: 'boolean',  name: 'resuscitation_required', default: false })
   resuscitationRequired!: boolean;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'alive' | 'stillborn' | 'referred' | 'deceased';
 }
 
@@ -189,7 +189,7 @@ export class PostnatalVisit extends SoftDeleteClinicalEntity {
   @Column({ name: 'newborn_condition', type: 'text', nullable: true })
   newbornCondition!: string | null;
 
-  @Column({ name: 'feeding_status', nullable: true })
+  @Column({ type: 'varchar',  name: 'feeding_status', nullable: true })
   feedingStatus!: string | null;
 
   @Column({ name: 'danger_signs', type: 'text', nullable: true })

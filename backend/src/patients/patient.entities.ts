@@ -21,79 +21,79 @@ export type IdentifierType =
 @Index(['patientNo'], { unique: true })
 @Index(['firstName', 'lastName'])
 export class Patient extends SoftDeleteClinicalEntity {
-  @Column({ name: 'patient_no' })
+  @Column({ type: 'varchar',  name: 'patient_no' })
   patientNo!: string;
 
-  @Column({ name: 'first_name' })
+  @Column({ type: 'varchar',  name: 'first_name' })
   firstName!: string;
 
-  @Column({ name: 'middle_name', nullable: true })
+  @Column({ type: 'varchar',  name: 'middle_name', nullable: true })
   middleName!: string | null;
 
-  @Column({ name: 'last_name' })
+  @Column({ type: 'varchar',  name: 'last_name' })
   lastName!: string;
 
   @Column({ name: 'date_of_birth', type: 'date' })
   dateOfBirth!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   gender!: Gender;
 
-  @Column({ name: 'blood_group', nullable: true })
+  @Column({ type: 'varchar',  name: 'blood_group', nullable: true })
   bloodGroup!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   nationality!: string | null;
 
-  @Column({ name: 'marital_status', nullable: true })
+  @Column({ type: 'varchar',  name: 'marital_status', nullable: true })
   maritalStatus!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   occupation!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   religion!: string | null;
 
-  @Column({ name: 'education_level', nullable: true })
+  @Column({ type: 'varchar',  name: 'education_level', nullable: true })
   educationLevel!: string | null;
 
-  @Column({ name: 'primary_phone' })
+  @Column({ type: 'varchar',  name: 'primary_phone' })
   primaryPhone!: string;
 
-  @Column({ name: 'secondary_phone', nullable: true })
+  @Column({ type: 'varchar',  name: 'secondary_phone', nullable: true })
   secondaryPhone!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   email!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   county!: string | null;
 
-  @Column({ name: 'sub_county', nullable: true })
+  @Column({ type: 'varchar',  name: 'sub_county', nullable: true })
   subCounty!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   ward!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   village!: string | null;
 
-  @Column({ name: 'postal_address', nullable: true })
+  @Column({ type: 'varchar',  name: 'postal_address', nullable: true })
   postalAddress!: string | null;
 
-  @Column({ name: 'photo_url', nullable: true })
+  @Column({ type: 'varchar',  name: 'photo_url', nullable: true })
   photoUrl!: string | null;
 
-  @Column({ name: 'qr_code' })
+  @Column({ type: 'varchar',  name: 'qr_code' })
   qrCode!: string;
 
-  @Column({ name: 'is_deceased', default: false })
+  @Column({ type: 'boolean',  name: 'is_deceased', default: false })
   isDeceased!: boolean;
 
   @Column({ name: 'deceased_at', type: 'date', nullable: true })
   deceasedAt!: string | null;
 
-  @Column({ name: 'biometric_enrolled', default: false })
+  @Column({ type: 'boolean',  name: 'biometric_enrolled', default: false })
   biometricEnrolled!: boolean;
 
   @Column({ name: 'registered_by', type: 'uuid', nullable: true })
@@ -125,16 +125,16 @@ export class PatientIdentifier extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'patient_id' })
   patient!: Patient;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: IdentifierType;
 
-  @Column()
+  @Column({ type: 'varchar' })
   value!: string;
 
-  @Column({ default: false })
+  @Column({ type: 'boolean',  default: false })
   verified!: boolean;
 
-  @Column({ name: 'is_primary', default: false })
+  @Column({ type: 'boolean',  name: 'is_primary', default: false })
   isPrimary!: boolean;
 }
 
@@ -146,28 +146,28 @@ export class PatientNextOfKin extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'patient_id' })
   patient!: Patient;
 
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   relationship!: string;
 
-  @Column({ name: 'primary_phone' })
+  @Column({ type: 'varchar',  name: 'primary_phone' })
   primaryPhone!: string;
 
-  @Column({ name: 'secondary_phone', nullable: true })
+  @Column({ type: 'varchar',  name: 'secondary_phone', nullable: true })
   secondaryPhone!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   email!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   address!: string | null;
 
-  @Column({ name: 'is_emergency_contact', default: false })
+  @Column({ type: 'boolean',  name: 'is_emergency_contact', default: false })
   isEmergencyContact!: boolean;
 
-  @Column({ name: 'sort_order', default: 0 })
+  @Column({ type: 'int',  name: 'sort_order', default: 0 })
   sortOrder!: number;
 }
 
@@ -179,16 +179,16 @@ export class PatientAllergy extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'patient_id' })
   patient!: Patient;
 
-  @Column()
+  @Column({ type: 'varchar' })
   allergen!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'drug' | 'food' | 'environmental' | 'latex' | 'contrast';
 
-  @Column()
+  @Column({ type: 'varchar' })
   reaction!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   severity!: 'mild' | 'moderate' | 'severe' | 'life_threatening';
 
   @Column({ name: 'onset_date', type: 'date', nullable: true })
@@ -206,16 +206,16 @@ export class PatientChronicCondition extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'patient_id' })
   patient!: Patient;
 
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column({ name: 'icd10_code', nullable: true })
+  @Column({ type: 'varchar',  name: 'icd10_code', nullable: true })
   icd10Code!: string | null;
 
   @Column({ name: 'onset_date', type: 'date', nullable: true })
   onsetDate!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'active' | 'controlled' | 'resolved';
 
   @Column({ type: 'text', nullable: true })

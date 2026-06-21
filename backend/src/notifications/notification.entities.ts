@@ -7,13 +7,13 @@ export type NotificationChannel = 'sms' | 'internal' | 'email';
 @Entity({ name: 'notification_templates', schema: 'demo' })
 @Index(['key', 'channel'], { unique: true })
 export class NotificationTemplate extends AuditableEntity {
-  @Column()
+  @Column({ type: 'varchar' })
   key!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   channel!: NotificationChannel;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   subject!: string | null;
 
   @Column({ type: 'text' })
@@ -23,22 +23,22 @@ export class NotificationTemplate extends AuditableEntity {
 @Entity({ name: 'notification_queue', schema: 'demo' })
 @Index(['channel', 'sentAt'])
 export class NotificationQueueEntry extends AuditableEntity {
-  @Column()
+  @Column({ type: 'varchar' })
   recipient!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   channel!: NotificationChannel;
 
   @Column({ type: 'text' })
   content!: string;
 
-  @Column({ default: 0 })
+  @Column({ type: 'int',  default: 0 })
   attempts!: number;
 
   @Column({ name: 'last_attempt_at', type: 'timestamptz', nullable: true })
   lastAttemptAt!: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   error!: string | null;
 
   @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
@@ -51,22 +51,22 @@ export class SmsLog extends AuditableEntity {
   @JoinColumn({ name: 'queue_id' })
   queueEntry!: NotificationQueueEntry;
 
-  @Column()
+  @Column({ type: 'varchar' })
   provider!: string;
 
-  @Column({ name: 'provider_message_id', nullable: true })
+  @Column({ type: 'varchar',  name: 'provider_message_id', nullable: true })
   providerMessageId!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   destination!: string;
 
   @Column({ type: 'text' })
   text!: string;
 
-  @Column({ name: 'delivery_status', nullable: true })
+  @Column({ type: 'varchar',  name: 'delivery_status', nullable: true })
   deliveryStatus!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   error!: string | null;
 
   @Column({ type: 'numeric', nullable: true })
@@ -89,16 +89,16 @@ export class InternalNotification extends AuditableEntity {
   @JoinColumn({ name: 'recipient_id' })
   recipient!: User | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   title!: string;
 
   @Column({ type: 'text' })
   body!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   severity!: 'info' | 'warning' | 'critical';
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   link!: string | null;
 
   @Column({ name: 'read_at', type: 'timestamptz', nullable: true })

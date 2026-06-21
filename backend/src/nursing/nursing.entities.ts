@@ -17,19 +17,19 @@ export class VitalSigns extends SoftDeleteClinicalEntity {
   @Column({ type: 'numeric', nullable: true })
   temperature!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   pulse!: number | null;
 
-  @Column({ name: 'respiratory_rate', nullable: true })
+  @Column({ type: 'int',  name: 'respiratory_rate', nullable: true })
   respiratoryRate!: number | null;
 
-  @Column({ name: 'bp_systolic', nullable: true })
+  @Column({ type: 'int',  name: 'bp_systolic', nullable: true })
   bpSystolic!: number | null;
 
-  @Column({ name: 'bp_diastolic', nullable: true })
+  @Column({ type: 'int',  name: 'bp_diastolic', nullable: true })
   bpDiastolic!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   spo2!: number | null;
 
   @Column({ type: 'numeric', nullable: true })
@@ -44,7 +44,7 @@ export class VitalSigns extends SoftDeleteClinicalEntity {
   @Column({ name: 'blood_glucose', type: 'numeric', nullable: true })
   bloodGlucose!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   gcs!: number | null;
 
   @Column({ name: 'urine_output', type: 'numeric', nullable: true })
@@ -60,19 +60,19 @@ export class MedicationAdministrationRecord extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'admission_id' })
   admission!: Admission;
 
-  @Column({ name: 'medication_name' })
+  @Column({ type: 'varchar',  name: 'medication_name' })
   medicationName!: string;
 
-  @Column({ name: 'generic_name', nullable: true })
+  @Column({ type: 'varchar',  name: 'generic_name', nullable: true })
   genericName!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   dosage!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   route!: 'oral' | 'iv' | 'im' | 'sc' | 'sl' | 'topical' | 'inhaled' | 'rectal' | 'nasal';
 
-  @Column()
+  @Column({ type: 'varchar' })
   frequency!: string;
 
   @Column({ name: 'scheduled_time', type: 'timestamptz' })
@@ -81,7 +81,7 @@ export class MedicationAdministrationRecord extends SoftDeleteClinicalEntity {
   @Column({ name: 'actual_time', type: 'timestamptz', nullable: true })
   actualTime!: Date | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'scheduled' | 'given' | 'withheld' | 'refused' | 'not_available';
 
   @Column({ name: 'withhold_reason', type: 'text', nullable: true })
@@ -94,13 +94,13 @@ export class ShiftNote extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'ward_id' })
   ward!: Ward;
 
-  @Column()
+  @Column({ type: 'varchar' })
   shift!: 'morning' | 'afternoon' | 'night';
 
   @Column({ type: 'date' })
   date!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'handover' | 'incident' | 'general';
 
   @Column({ type: 'text' })
@@ -113,13 +113,13 @@ export class NursingObservation extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'admission_id' })
   admission!: Admission;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'fluid_intake' | 'fluid_output' | 'wound' | 'bowel' | 'urine_output' | 'pain' | 'neuro' | 'skin';
 
-  @Column()
+  @Column({ type: 'varchar' })
   value!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   unit!: string | null;
 
   @Column({ name: 'recorded_at', type: 'timestamptz', default: () => 'now()' })

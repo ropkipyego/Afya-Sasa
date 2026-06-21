@@ -6,10 +6,10 @@ import { Patient } from '../patients/patient.entities';
 
 @Entity({ name: 'radiology_modalities', schema: 'demo' })
 export class RadiologyModality extends SoftDeleteClinicalEntity {
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar',  unique: true })
   code!: string;
 }
 
@@ -32,22 +32,22 @@ export class RadiologyRequest extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'modality_id' })
   modality!: RadiologyModality;
 
-  @Column({ name: 'request_no', unique: true })
+  @Column({ type: 'varchar',  name: 'request_no', unique: true })
   requestNo!: string;
 
-  @Column({ name: 'body_part' })
+  @Column({ type: 'varchar',  name: 'body_part' })
   bodyPart!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   views!: string | null;
 
   @Column({ name: 'clinical_indication', type: 'text' })
   clinicalIndication!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   priority!: 'routine' | 'urgent' | 'stat';
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'requested' | 'scheduled' | 'in_progress' | 'reported' | 'verified' | 'cancelled';
 }
 
@@ -79,12 +79,12 @@ export class RadiologyAttachment extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'request_id' })
   request!: RadiologyRequest;
 
-  @Column()
+  @Column({ type: 'varchar' })
   filename!: string;
 
-  @Column({ name: 'mime_type' })
+  @Column({ type: 'varchar',  name: 'mime_type' })
   mimeType!: string;
 
-  @Column({ name: 'storage_path' })
+  @Column({ type: 'varchar',  name: 'storage_path' })
   storagePath!: string;
 }
