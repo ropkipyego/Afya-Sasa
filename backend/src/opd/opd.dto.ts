@@ -34,6 +34,26 @@ export class CreateEncounterDto {
   @IsOptional()
   @IsString()
   referralReason?: string;
+
+  @ApiPropertyOptional({ enum: ['doctor', 'laboratory', 'radiology', 'theatre', 'maternity', 'emergency'] })
+  @IsOptional()
+  @IsIn(['doctor', 'laboratory', 'radiology', 'theatre', 'maternity', 'emergency'])
+  destination?: 'doctor' | 'laboratory' | 'radiology' | 'theatre' | 'maternity' | 'emergency';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  departmentName?: string;
+
+  @ApiPropertyOptional({ enum: ['cash', 'mpesa', 'card', 'insurance', 'quickbooks', 'waived'] })
+  @IsOptional()
+  @IsIn(['cash', 'mpesa', 'card', 'insurance', 'quickbooks', 'waived'])
+  paymentMethod?: 'cash' | 'mpesa' | 'card' | 'insurance' | 'quickbooks' | 'waived';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  receiptNumber?: string;
 }
 
 export class UpdateEncounterStatusDto {

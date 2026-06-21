@@ -45,6 +45,18 @@ export class Encounter extends SoftDeleteClinicalEntity {
   @Column({ name: 'referral_reason', type: 'text', nullable: true })
   referralReason!: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  destination!: 'doctor' | 'laboratory' | 'radiology' | 'theatre' | 'maternity' | 'emergency' | null;
+
+  @Column({ type: 'varchar', name: 'department_name', nullable: true })
+  departmentName!: string | null;
+
+  @Column({ type: 'varchar', name: 'payment_method', nullable: true })
+  paymentMethod!: 'cash' | 'mpesa' | 'card' | 'insurance' | 'quickbooks' | 'waived' | null;
+
+  @Column({ type: 'varchar', name: 'receipt_number', nullable: true })
+  receiptNumber!: string | null;
+
   @Column({ name: 'started_at', type: 'timestamptz', default: () => 'now()' })
   startedAt!: Date;
 

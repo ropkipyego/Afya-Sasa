@@ -64,6 +64,10 @@ export class OpdService {
       visitType: dto.visitType ?? 'new',
       referralSource: dto.referralSource ?? null,
       referralReason: dto.referralReason ?? null,
+      destination: dto.destination ?? 'doctor',
+      departmentName: dto.departmentName ?? null,
+      paymentMethod: dto.paymentMethod ?? null,
+      receiptNumber: dto.receiptNumber ?? null,
       createdBy: request.user?.sub ?? null,
       updatedBy: request.user?.sub ?? null,
     });

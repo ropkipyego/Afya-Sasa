@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -45,6 +45,28 @@ interface PatientSearchResponse {
   meta: { page: number; pageSize: number; total: number }
 }
 
+interface AppNotification {
+  id: string
+  title: string
+  body: string
+  severity?: 'info' | 'success' | 'warning' | 'critical'
+}
+
+function emitAppNotification(notification: Omit<AppNotification, 'id'>) {
+  window.dispatchEvent(
+    new CustomEvent('afyasasa-notification', {
+      detail: { ...notification, id: crypto.randomUUID() },
+    }),
+  )
+}
+
+function greetingForNow() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
 const navigation = [
   { group: 'Reception', label: 'Patient Search', icon: Search, permission: 'patients:read' },
   { group: 'Reception', label: 'Register Patient', icon: UserPlus, permission: 'patients:create' },
@@ -87,6 +109,7 @@ function App() {
   const { user, accessToken, tenant, setTenant, clearSession } = useAuthStore()
   const [activeScreen, setActiveScreen] = useState('Patient Search')
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
 
   if (!accessToken || !user) {
     return <LoginScreen tenant={tenant} setTenant={setTenant} />
@@ -109,6 +132,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
+      <NotificationCenter />
       <aside className="fixed inset-y-0 left-0 hidden w-80 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="shrink-0 p-6 pb-4">
           <div className="flex items-center gap-3">
@@ -164,7 +188,7 @@ function App() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-sm text-slate-500">
-                {workflowDescriptions[activeScreen] ?? 'Clinical workflow workspace'}
+                {greeting} · {workflowDescriptions[activeScreen] ?? 'Clinical workflow workspace'}
               </p>
               <h2 className="text-2xl font-bold">{activeScreen}</h2>
             </div>
@@ -426,6 +450,60 @@ function ForcedPasswordChangeScreen() {
   )
 }
 
+function NotificationCenter() {
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const notification = (event as CustomEvent<AppNotification>).detail
+      setNotifications((current) => [notification, ...current].slice(0, 5))
+      window.setTimeout(() => {
+        setNotifications((current) =>
+          current.filter((item) => item.id !== notification.id),
+        )
+      }, notification.severity === 'critical' ? 10000 : 6000)
+    }
+    window.addEventListener('afyasasa-notification', handler)
+    return () => window.removeEventListener('afyasasa-notification', handler)
+  }, [])
+
+  return (
+    <div className="fixed right-4 top-4 z-50 w-full max-w-sm space-y-3">
+      {notifications.map((notification) => (
+        <div
+          key={notification.id}
+          className={`rounded-2xl border p-4 shadow-2xl ${
+            notification.severity === 'critical'
+              ? 'border-red-200 bg-red-50 text-red-900'
+              : notification.severity === 'warning'
+                ? 'border-amber-200 bg-amber-50 text-amber-900'
+                : notification.severity === 'success'
+                  ? 'border-green-200 bg-green-50 text-green-900'
+                  : 'border-blue-200 bg-blue-50 text-blue-900'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-bold">{notification.title}</p>
+              <p className="mt-1 text-sm">{notification.body}</p>
+            </div>
+            <button
+              className="text-sm font-bold opacity-70"
+              onClick={() =>
+                setNotifications((current) =>
+                  current.filter((item) => item.id !== notification.id),
+                )
+              }
+            >
+              x
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function PatientSearch({
   onSelect,
 }: {
@@ -436,12 +514,18 @@ function PatientSearch({
     queryKey: ['patients', query],
     queryFn: () =>
       apiRequest<PatientSearchResponse>(
-        `/patients?q=${encodeURIComponent(query)}`,
+        `/patients?q=${encodeURIComponent(query)}&pageSize=8`,
       ),
     enabled: false,
   })
 
   const patients = data?.items ?? []
+
+  useEffect(() => {
+    if (query.trim().length < 2) return
+    const timeout = window.setTimeout(() => void refetch(), 300)
+    return () => window.clearTimeout(timeout)
+  }, [query, refetch])
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
@@ -464,11 +548,11 @@ function PatientSearch({
           </button>
         </form>
 
-        <div className="mt-6 divide-y divide-slate-100">
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white">
           {patients.map((patient) => (
             <button
               key={patient.id}
-              className="flex w-full items-center justify-between py-4 text-left hover:bg-slate-50"
+              className="flex w-full items-center justify-between gap-4 border-b border-slate-100 px-4 py-4 text-left last:border-b-0 hover:bg-slate-50"
               onClick={() => onSelect(patient)}
             >
               <div>
@@ -476,7 +560,10 @@ function PatientSearch({
                   {patient.firstName} {patient.lastName}
                 </p>
                 <p className="text-sm text-slate-500">
-                  {patient.patientNo} · {patient.gender} · {patient.primaryPhone}
+                  {patient.patientNo} · DOB {patient.dateOfBirth} · {patient.gender} · {patient.primaryPhone}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  IDs: {patient.identifiers?.map((item) => `${item.type}: ${item.value}`).join(' · ') || 'none recorded'}
                 </p>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
@@ -625,10 +712,16 @@ function PatientLookup({
     queryKey: ['patient-lookup', query],
     queryFn: () =>
       apiRequest<PatientSearchResponse>(
-        `/patients?q=${encodeURIComponent(query)}`,
+        `/patients?q=${encodeURIComponent(query)}&pageSize=8`,
       ),
     enabled: false,
   })
+
+  useEffect(() => {
+    if (query.trim().length < 2) return
+    const timeout = window.setTimeout(() => void refetch(), 300)
+    return () => window.clearTimeout(timeout)
+  }, [query, refetch])
 
   return (
     <div className="rounded-2xl bg-slate-50 p-4">
@@ -636,7 +729,7 @@ function PatientLookup({
       <div className="mt-3 flex gap-2">
         <input
           className="input"
-          placeholder="Search name, patient no, phone"
+          placeholder="Name, patient no, National ID/SHA, phone"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -660,8 +753,13 @@ function PatientLookup({
             }`}
             onClick={() => onSelect(patient)}
           >
-            {patient.firstName} {patient.lastName} · {patient.patientNo} ·{' '}
-            {patient.primaryPhone}
+            <span className="font-semibold">{patient.firstName} {patient.lastName}</span>
+            <span className="block text-slate-500">
+              {patient.patientNo} · DOB {patient.dateOfBirth} · {patient.primaryPhone}
+            </span>
+            <span className="block text-xs text-slate-400">
+              {patient.identifiers?.map((item) => `${item.type}: ${item.value}`).join(' · ') || 'No identifier'}
+            </span>
           </button>
         ))}
       </div>
@@ -1032,12 +1130,12 @@ function QuickAddForm({
 }) {
   return (
     <form
-      className="space-y-3 rounded-2xl border border-slate-200 p-4"
+      className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
       onSubmit={onSubmit}
     >
-      <p className="text-xs font-bold uppercase text-slate-500">{title}</p>
+      <p className="text-xs font-bold uppercase tracking-wide text-blue-600">{title}</p>
       {children}
-      <button className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white">
+      <button className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300">
         {pending ? 'Saving...' : 'Save'}
       </button>
     </form>
@@ -1105,10 +1203,21 @@ function OpdCheckIn() {
           patientId: selected?.id,
           presentingComplaint: form.get('presentingComplaint'),
           visitType: form.get('visitType'),
+          destination: form.get('destination'),
+          departmentName: form.get('departmentName') || undefined,
+          paymentMethod: form.get('paymentMethod') || undefined,
+          receiptNumber: form.get('receiptNumber') || undefined,
         }),
       })
     },
-    onSuccess: () => setSelected(null),
+    onSuccess: () => {
+      emitAppNotification({
+        title: 'OPD check-in complete',
+        body: 'Patient has been sent to triage. Triage nurse should call the patient next.',
+        severity: 'success',
+      })
+      setSelected(null)
+    },
   })
 
   return (
@@ -1173,6 +1282,33 @@ function OpdCheckIn() {
           </select>
         </label>
         <label>
+          <span className="text-sm font-semibold">Where is the patient going?</span>
+          <select name="destination" className="input mt-2" required>
+            <option value="doctor">See doctor / consultation</option>
+            <option value="laboratory">Direct to laboratory</option>
+            <option value="radiology">Direct to imaging/radiology</option>
+            <option value="theatre">Theatre review</option>
+            <option value="maternity">Maternity</option>
+            <option value="emergency">Emergency</option>
+          </select>
+        </label>
+        <Field name="departmentName" label="Department / clinic / doctor category" />
+        <div className="grid gap-4 md:grid-cols-2">
+          <label>
+            <span className="text-sm font-semibold">Payment reference source</span>
+            <select name="paymentMethod" className="input mt-2">
+              <option value="">Not captured</option>
+              <option value="quickbooks">QuickBooks receipt</option>
+              <option value="mpesa">M-Pesa</option>
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="insurance">Insurance</option>
+              <option value="waived">Waived</option>
+            </select>
+          </label>
+          <Field name="receiptNumber" label="Receipt / reference number" />
+        </div>
+        <label>
           <span className="text-sm font-semibold">Presenting complaint</span>
           <textarea name="presentingComplaint" className="input mt-2" required />
         </label>
@@ -1225,10 +1361,17 @@ function TriageQueue() {
           bpSystolic: Number(form.get('bpSystolic') || 0),
           bpDiastolic: Number(form.get('bpDiastolic') || 0),
           spo2: Number(form.get('spo2') || 0),
+          weight: Number(form.get('weight') || 0),
+          height: Number(form.get('height') || 0),
         }),
       })
     },
     onSuccess: async () => {
+      emitAppNotification({
+        title: 'Triage saved',
+        body: 'Patient has been sent to the doctor queue. Doctor should call the patient based on urgency.',
+        severity: 'success',
+      })
       await queryClient.invalidateQueries({ queryKey: ['triage-queue'] })
     },
   })
@@ -1238,13 +1381,13 @@ function TriageQueue() {
       {encounters.map((encounter) => (
         <form
           key={encounter.id}
-          className="grid gap-4 rounded-3xl bg-white p-6 shadow-sm lg:grid-cols-[1fr_1.4fr]"
+          className="grid gap-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-100 lg:grid-cols-[0.8fr_1.2fr]"
           onSubmit={(event) => {
             event.preventDefault()
             triage.mutate({ event, encounterId: encounter.id })
           }}
         >
-          <div>
+          <div className="space-y-4">
             <p className="text-sm font-semibold text-blue-600">
               {encounter.encounterNo}
             </p>
@@ -1254,31 +1397,47 @@ function TriageQueue() {
             <p className="text-sm text-slate-500">
               {encounter.presentingComplaint}
             </p>
+            <PatientSafetyBanner patient={encounter.patient} />
+            <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">After submit</p>
+              <p className="mt-1">
+                The patient moves to the doctor queue. Red/orange patients should be called first.
+              </p>
+            </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <input name="category" className="input" placeholder="Category" required />
-            <select name="colour" className="input" required>
-              <option value="red">Red</option>
-              <option value="orange">Orange</option>
-              <option value="yellow">Yellow</option>
-              <option value="green">Green</option>
-              <option value="blue">Blue</option>
-            </select>
-            <input name="painScore" className="input" placeholder="Pain 0-10" />
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <label>
+                <span className="text-sm font-semibold">Severity</span>
+                <select name="colour" className="input mt-2" required>
+                  <option value="red">Emergency / Red</option>
+                  <option value="orange">Urgent / Orange</option>
+                  <option value="yellow">Priority / Yellow</option>
+                  <option value="green">Routine / Green</option>
+                  <option value="blue">Non-urgent / Blue</option>
+                </select>
+              </label>
+              <Field name="category" label="Triage category" required />
+              <Field name="painScore" label="Pain score 0-10" />
+            </div>
             <input
               name="chiefComplaint"
               className="input md:col-span-3"
               placeholder="Chief complaint"
               required
             />
-            <input name="temperature" className="input" placeholder="Temp" />
-            <input name="pulse" className="input" placeholder="Pulse" />
-            <input name="respiratoryRate" className="input" placeholder="Resp" />
-            <input name="bpSystolic" className="input" placeholder="BP sys" />
-            <input name="bpDiastolic" className="input" placeholder="BP dia" />
-            <input name="spo2" className="input" placeholder="SpO2" />
-            <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white md:col-span-3">
-              Submit triage
+            <div className="grid gap-3 md:grid-cols-4">
+              <Field name="temperature" label="Temp C" />
+              <Field name="pulse" label="Pulse" />
+              <Field name="respiratoryRate" label="Resp rate" />
+              <Field name="spo2" label="SpO2 %" />
+              <Field name="bpSystolic" label="BP systolic" />
+              <Field name="bpDiastolic" label="BP diastolic" />
+              <Field name="weight" label="Weight kg" />
+              <Field name="height" label="Height cm" />
+            </div>
+            <button className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">
+              {triage.isPending ? 'Saving triage...' : 'Submit triage and send to doctor'}
             </button>
           </div>
         </form>
@@ -1295,6 +1454,15 @@ function TriageQueue() {
 function DoctorQueue() {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<EncounterItem | null>(null)
+  const [recentSoap, setRecentSoap] = useState<Array<{ id: string; patient: string; savedAt: string }>>([])
+  const { data: labTests = [] } = useQuery({
+    queryKey: ['doctor-lab-tests'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/laboratory/tests'),
+  })
+  const { data: radiologyModalities = [] } = useQuery({
+    queryKey: ['doctor-radiology-modalities'],
+    queryFn: () => apiRequest<{ id: string; name: string }[]>('/radiology/modalities'),
+  })
   const { data: queue = [] } = useQuery({
     queryKey: ['doctor-queue'],
     queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
@@ -1314,7 +1482,24 @@ function DoctorQueue() {
         }),
       })
     },
-    onSuccess: async () => {
+    onSuccess: async (consultation) => {
+      setRecentSoap((current) =>
+        [
+          {
+            id: consultation.id,
+            patient: selected
+              ? `${selected.patient.firstName} ${selected.patient.lastName}`
+              : 'Patient',
+            savedAt: new Date().toLocaleTimeString(),
+          },
+          ...current,
+        ].slice(0, 5),
+      )
+      emitAppNotification({
+        title: 'SOAP saved',
+        body: 'Consultation saved. The patient remains available here for orders, diagnosis, referral, or discharge.',
+        severity: 'success',
+      })
       await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
     },
   })
@@ -1343,9 +1528,76 @@ function DoctorQueue() {
       await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
     },
   })
+  const orderLab = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      const testId = form.get('testId')?.toString()
+      return apiRequest('/laboratory/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: selected?.patient.id,
+          encounterId: selected?.id,
+          priority: form.get('priority'),
+          notes: form.get('notes') || undefined,
+          testIds: testId ? [testId] : [],
+        }),
+      })
+    },
+    onSuccess: () =>
+      emitAppNotification({
+        title: 'Lab request sent',
+        body: 'Laboratory queue will receive this request.',
+        severity: 'success',
+      }),
+  })
+  const orderRadiology = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/radiology/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: selected?.patient.id,
+          encounterId: selected?.id,
+          modalityId: form.get('modalityId'),
+          bodyPart: form.get('bodyPart'),
+          clinicalIndication: form.get('clinicalIndication'),
+          priority: form.get('priority'),
+        }),
+      })
+    },
+    onSuccess: () =>
+      emitAppNotification({
+        title: 'Radiology request sent',
+        body: 'Radiology queue will receive this request.',
+        severity: 'success',
+      }),
+  })
+  const createReferral = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/referrals', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: selected?.patient.id,
+          encounterId: selected?.id,
+          type: form.get('type'),
+          targetDepartment: form.get('targetDepartment') || undefined,
+          targetFacility: form.get('targetFacility') || undefined,
+          reason: form.get('reason'),
+          letter: form.get('letter'),
+        }),
+      })
+    },
+    onSuccess: () =>
+      emitAppNotification({
+        title: 'Referral created',
+        body: 'Referral letter has been recorded for this patient.',
+        severity: 'success',
+      }),
+  })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+    <div className="grid gap-6 xl:grid-cols-[0.7fr_1.3fr]">
       <div className="space-y-3">
         {queue.map((encounter) => (
           <button
@@ -1374,16 +1626,16 @@ function DoctorQueue() {
             </h3>
             <PatientSafetyBanner patient={selected.patient} />
             <form
-              className="mt-4 grid gap-3"
+              className="mt-6 grid gap-4"
               onSubmit={(event) => {
                 event.preventDefault()
                 createConsultation.mutate(event)
               }}
             >
-              <textarea name="subjective" className="input" placeholder="Subjective" required />
-              <textarea name="objective" className="input" placeholder="Objective" required />
-              <textarea name="assessment" className="input" placeholder="Assessment" required />
-              <textarea name="plan" className="input" placeholder="Plan" required />
+              <textarea name="subjective" className="input min-h-28" placeholder="Subjective: history, symptoms, HPI" required />
+              <textarea name="objective" className="input min-h-28" placeholder="Objective: exam findings, vitals review" required />
+              <textarea name="assessment" className="input min-h-28" placeholder="Assessment: clinical impression" required />
+              <textarea name="plan" className="input min-h-32" placeholder="Plan: treatment, prescriptions, orders, advice" required />
               <input name="followUpDate" className="input" type="date" />
               <input
                 name="followUpInstructions"
@@ -1391,9 +1643,21 @@ function DoctorQueue() {
                 placeholder="Follow-up instructions"
               />
               <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-                Save SOAP
+                {createConsultation.isPending ? 'Saving SOAP...' : 'Save SOAP and keep patient open'}
               </button>
             </form>
+            {recentSoap.length ? (
+              <div className="mt-6 rounded-2xl bg-green-50 p-4 text-green-900">
+                <p className="font-bold">Recently saved consultations</p>
+                <div className="mt-2 space-y-2 text-sm">
+                  {recentSoap.map((item) => (
+                    <p key={item.id}>
+                      {item.patient} · {item.savedAt} · {item.id}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <form
               className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4"
               onSubmit={(event) => {
@@ -1414,6 +1678,75 @@ function DoctorQueue() {
                 Add diagnosis
               </button>
             </form>
+            <div className="mt-6 grid gap-4 xl:grid-cols-3">
+              <QuickAddForm
+                title="Send to lab"
+                pending={orderLab.isPending}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  orderLab.mutate(event)
+                  event.currentTarget.reset()
+                }}
+              >
+                <select name="testId" className="input" required>
+                  <option value="">Select test</option>
+                  {labTests.map((test) => (
+                    <option key={test.id} value={test.id}>
+                      {test.name}
+                    </option>
+                  ))}
+                </select>
+                <select name="priority" className="input" required>
+                  <option value="routine">Routine</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="stat">STAT</option>
+                </select>
+                <input name="notes" className="input" placeholder="Clinical notes" />
+              </QuickAddForm>
+              <QuickAddForm
+                title="Send to radiology"
+                pending={orderRadiology.isPending}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  orderRadiology.mutate(event)
+                  event.currentTarget.reset()
+                }}
+              >
+                <select name="modalityId" className="input" required>
+                  <option value="">Select modality</option>
+                  {radiologyModalities.map((modality) => (
+                    <option key={modality.id} value={modality.id}>
+                      {modality.name}
+                    </option>
+                  ))}
+                </select>
+                <input name="bodyPart" className="input" placeholder="Body part" required />
+                <input name="clinicalIndication" className="input" placeholder="Clinical indication" required />
+                <select name="priority" className="input" required>
+                  <option value="routine">Routine</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="stat">STAT</option>
+                </select>
+              </QuickAddForm>
+              <QuickAddForm
+                title="Create referral"
+                pending={createReferral.isPending}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  createReferral.mutate(event)
+                  event.currentTarget.reset()
+                }}
+              >
+                <select name="type" className="input" required>
+                  <option value="internal">Internal</option>
+                  <option value="external">External</option>
+                </select>
+                <input name="targetDepartment" className="input" placeholder="Department" />
+                <input name="targetFacility" className="input" placeholder="External facility" />
+                <input name="reason" className="input" placeholder="Reason" required />
+                <textarea name="letter" className="input" placeholder="Referral letter" required />
+              </QuickAddForm>
+            </div>
             <button
               className="mt-6 rounded-xl bg-green-600 px-4 py-2 font-bold text-white"
               onClick={() => completeEncounter.mutate()}
@@ -2709,7 +3042,13 @@ function LaboratoryScreen() {
   const { data: requests = [] } = useQuery({
     queryKey: ['lab-requests'],
     queryFn: () => apiRequest<unknown[]>('/laboratory/requests'),
+    refetchInterval: 30_000,
   })
+  const [labLastUpdated, setLabLastUpdated] = useState(new Date())
+  useEffect(() => {
+    const interval = window.setInterval(() => setLabLastUpdated(new Date()), 30_000)
+    return () => window.clearInterval(interval)
+  }, [])
   const createRequest = useMutation({
     mutationFn: (event: FormEvent<HTMLFormElement>) => {
       const form = new FormData(event.currentTarget)
@@ -2767,6 +3106,26 @@ function LaboratoryScreen() {
   return (
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
       <div className="space-y-6">
+        <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
+          <h3 className="text-xl font-bold">Laboratory dashboard</h3>
+          <p className="mt-2 text-sm text-blue-100">
+            This queue refreshes every 30 seconds. Last refresh marker: {labLastUpdated.toLocaleTimeString()}.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-white/10 p-3">
+              <p className="text-xs uppercase text-blue-200">Requests</p>
+              <p className="text-2xl font-bold">{requests.length}</p>
+            </div>
+            <div className="rounded-2xl bg-white/10 p-3">
+              <p className="text-xs uppercase text-blue-200">Tests</p>
+              <p className="text-2xl font-bold">{tests.length}</p>
+            </div>
+            <div className="rounded-2xl bg-white/10 p-3">
+              <p className="text-xs uppercase text-blue-200">Panels</p>
+              <p className="text-2xl font-bold">{panels.length}</p>
+            </div>
+          </div>
+        </div>
         <QuickAddForm
           title="Create lab request"
           pending={createRequest.isPending}
