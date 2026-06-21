@@ -17,16 +17,16 @@ export class AppointmentSlot extends SoftDeleteClinicalEntity {
   @Column({ type: 'date' })
   date!: string;
 
-  @Column({ name: 'start_time' })
+  @Column({ type: 'varchar',  name: 'start_time' })
   startTime!: string;
 
-  @Column({ name: 'end_time' })
+  @Column({ type: 'varchar',  name: 'end_time' })
   endTime!: string;
 
-  @Column({ name: 'max_patients', default: 1 })
+  @Column({ type: 'int',  name: 'max_patients', default: 1 })
   maxPatients!: number;
 
-  @Column({ default: true })
+  @Column({ type: 'boolean',  default: true })
   available!: boolean;
 }
 
@@ -51,16 +51,16 @@ export class Appointment extends SoftDeleteClinicalEntity {
   @Column({ name: 'appointment_date', type: 'date' })
   appointmentDate!: string;
 
-  @Column({ name: 'appointment_time' })
+  @Column({ type: 'varchar',  name: 'appointment_time' })
   appointmentTime!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'new' | 'follow_up' | 'procedure' | 'review' | 'antenatal';
 
   @Column({ type: 'text' })
   reason!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'scheduled' | 'confirmed' | 'arrived' | 'completed' | 'cancelled' | 'no_show';
 
   @ManyToOne(() => Encounter, { nullable: true })

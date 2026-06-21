@@ -8,45 +8,45 @@ import { Patient } from '../patients/patient.entities';
 @Entity({ name: 'theatres', schema: 'demo' })
 @Unique(['code'])
 export class Theatre extends SoftDeleteClinicalEntity {
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   code!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   location!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'available' | 'in_use' | 'maintenance' | 'closed';
 }
 
 @Entity({ name: 'surgical_procedures', schema: 'demo' })
 @Unique(['code'])
 export class SurgicalProcedure extends SoftDeleteClinicalEntity {
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   code!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   category!: string | null;
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ name: 'expected_duration_minutes', nullable: true })
+  @Column({ type: 'int',  name: 'expected_duration_minutes', nullable: true })
   expectedDurationMinutes!: number | null;
 
-  @Column({ default: true })
+  @Column({ type: 'boolean',  default: true })
   active!: boolean;
 }
 
 @Entity({ name: 'surgery_bookings', schema: 'demo' })
 @Index(['status', 'scheduledStartAt'])
 export class SurgeryBooking extends SoftDeleteClinicalEntity {
-  @Column({ name: 'booking_no', unique: true })
+  @Column({ type: 'varchar',  name: 'booking_no', unique: true })
   bookingNo!: string;
 
   @ManyToOne(() => Patient)
@@ -81,16 +81,16 @@ export class SurgeryBooking extends SoftDeleteClinicalEntity {
   @Column({ name: 'actual_end_at', type: 'timestamptz', nullable: true })
   actualEndAt!: Date | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   priority!: 'elective' | 'urgent' | 'emergency';
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'requested' | 'scheduled' | 'pre_op' | 'in_theatre' | 'recovery' | 'completed' | 'cancelled';
 
-  @Column({ name: 'consent_status', default: 'pending' })
+  @Column({ type: 'varchar',  name: 'consent_status', default: 'pending' })
   consentStatus!: 'not_required' | 'pending' | 'signed' | 'withdrawn';
 
-  @Column({ name: 'checklist_status', default: 'pending' })
+  @Column({ type: 'varchar',  name: 'checklist_status', default: 'pending' })
   checklistStatus!: 'pending' | 'complete';
 }
 
@@ -105,7 +105,7 @@ export class SurgeryStaff extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'user_id' })
   user!: User;
 
-  @Column()
+  @Column({ type: 'varchar' })
   role!: 'primary_surgeon' | 'assistant_surgeon' | 'anesthetist' | 'theatre_nurse' | 'scrub_nurse' | 'circulating_nurse';
 
   @Column({ name: 'assigned_at', type: 'timestamptz', default: () => 'now()' })
@@ -126,7 +126,7 @@ export class SurgeryNote extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'amends_note_id' })
   amendsNote!: SurgeryNote | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: 'pre_op_assessment' | 'consent' | 'checklist' | 'intraoperative' | 'operation' | 'findings' | 'post_op' | 'recovery';
 
   @Column({ type: 'text' })
@@ -146,7 +146,7 @@ export class SurgeryComplication extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'reported_by' })
   reportedBy!: User | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   severity!: 'minor' | 'moderate' | 'severe' | 'sentinel';
 
   @Column({ type: 'text' })

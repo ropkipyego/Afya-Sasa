@@ -6,16 +6,16 @@ import { Patient } from '../patients/patient.entities';
 
 @Entity({ name: 'lab_panels', schema: 'demo' })
 export class LabPanel extends SoftDeleteClinicalEntity {
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar',  unique: true })
   code!: string;
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   category!: 'haematology' | 'biochemistry' | 'microbiology' | 'immunology' | 'urinalysis' | 'coagulation';
 }
 
@@ -25,22 +25,22 @@ export class LabTest extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'panel_id' })
   panel!: LabPanel | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   name!: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar',  unique: true })
   code!: string;
 
-  @Column({ name: 'sample_type' })
+  @Column({ type: 'varchar',  name: 'sample_type' })
   sampleType!: 'whole_blood' | 'serum' | 'plasma' | 'urine' | 'swab' | 'stool' | 'csf' | 'tissue';
 
-  @Column({ name: 'turnaround_hours', nullable: true })
+  @Column({ type: 'int',  name: 'turnaround_hours', nullable: true })
   turnaroundHours!: number | null;
 
-  @Column({ name: 'reference_range', nullable: true })
+  @Column({ type: 'varchar',  name: 'reference_range', nullable: true })
   referenceRange!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   unit!: string | null;
 
   @Column({ name: 'critical_low', type: 'numeric', nullable: true })
@@ -65,16 +65,16 @@ export class LabRequest extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'admission_id' })
   admission!: Admission | null;
 
-  @Column({ name: 'request_no', unique: true })
+  @Column({ type: 'varchar',  name: 'request_no', unique: true })
   requestNo!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   priority!: 'routine' | 'urgent' | 'stat';
 
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'requested' | 'sample_collected' | 'processing' | 'resulted' | 'verified' | 'cancelled';
 
   @Column({ name: 'cancelled_reason', type: 'text', nullable: true })
@@ -95,7 +95,7 @@ export class LabRequestItem extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'panel_id' })
   panel!: LabPanel | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'requested' | 'sample_collected' | 'processing' | 'resulted' | 'verified' | 'cancelled';
 }
 
@@ -105,10 +105,10 @@ export class LabSample extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'request_id' })
   request!: LabRequest;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar',  unique: true })
   barcode!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   type!: string;
 
   @Column({ name: 'collected_at', type: 'timestamptz', nullable: true })
@@ -117,7 +117,7 @@ export class LabSample extends SoftDeleteClinicalEntity {
   @Column({ name: 'received_at', type: 'timestamptz', nullable: true })
   receivedAt!: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   condition!: 'adequate' | 'haemolysed' | 'clotted' | 'insufficient' | 'contaminated' | null;
 }
 
@@ -135,16 +135,16 @@ export class LabResult extends SoftDeleteClinicalEntity {
   @Column({ type: 'text' })
   value!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar',  nullable: true })
   unit!: string | null;
 
-  @Column()
+  @Column({ type: 'varchar' })
   flag!: 'normal' | 'low' | 'high' | 'critically_low' | 'critically_high';
 
-  @Column({ name: 'reference_range', nullable: true })
+  @Column({ type: 'varchar',  name: 'reference_range', nullable: true })
   referenceRange!: string | null;
 
-  @Column({ name: 'is_critical', default: false })
+  @Column({ type: 'boolean',  name: 'is_critical', default: false })
   isCritical!: boolean;
 
   @Column({ name: 'entered_at', type: 'timestamptz', default: () => 'now()' })

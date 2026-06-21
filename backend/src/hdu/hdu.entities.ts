@@ -24,7 +24,7 @@ export class HduAdmission extends SoftDeleteClinicalEntity {
   @Column({ type: 'text' })
   reason!: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   status!: 'active' | 'transferred_out' | 'discharged' | 'died';
 
   @Column({ name: 'discharged_from_hdu_at', type: 'timestamptz', nullable: true })
@@ -40,25 +40,25 @@ export class HduObservation extends SoftDeleteClinicalEntity {
   @Column({ name: 'recorded_at', type: 'timestamptz', default: () => 'now()' })
   recordedAt!: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   heartRate!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   respiratoryRate!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   bpSystolic!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   bpDiastolic!: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int',  nullable: true })
   spo2!: number | null;
 
-  @Column({ name: 'oxygen_support', nullable: true })
+  @Column({ type: 'varchar',  name: 'oxygen_support', nullable: true })
   oxygenSupport!: string | null;
 
-  @Column({ name: 'escalation_required', default: false })
+  @Column({ type: 'boolean',  name: 'escalation_required', default: false })
   escalationRequired!: boolean;
 
   @Column({ type: 'text', nullable: true })
