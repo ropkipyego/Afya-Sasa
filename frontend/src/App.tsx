@@ -610,6 +610,79 @@ function Field({
   )
 }
 
+function PatientLookup({
+  selectedPatient,
+  onSelect,
+}: {
+  selectedPatient: PatientSummary | null
+  onSelect: (patient: PatientSummary | null) => void
+}) {
+  const [query, setQuery] = useState('')
+  const { data, refetch, isFetching } = useQuery({
+    queryKey: ['patient-lookup', query],
+    queryFn: () =>
+      apiRequest<PatientSearchResponse>(
+        `/patients?q=${encodeURIComponent(query)}`,
+      ),
+    enabled: false,
+  })
+
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <p className="text-sm font-semibold">Patient</p>
+      <div className="mt-3 flex gap-2">
+        <input
+          className="input"
+          placeholder="Search name, patient no, phone"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <button
+          type="button"
+          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"
+          onClick={() => void refetch()}
+        >
+          {isFetching ? 'Searching...' : 'Search'}
+        </button>
+      </div>
+      <div className="mt-3 max-h-40 overflow-y-auto divide-y divide-slate-200">
+        {(data?.items ?? []).map((patient) => (
+          <button
+            type="button"
+            key={patient.id}
+            className={`w-full px-2 py-3 text-left text-sm hover:bg-white ${
+              selectedPatient?.id === patient.id
+                ? 'bg-white font-semibold text-blue-700'
+                : ''
+            }`}
+            onClick={() => onSelect(patient)}
+          >
+            {patient.firstName} {patient.lastName} · {patient.patientNo} ·{' '}
+            {patient.primaryPhone}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3 text-sm">
+        <span>
+          Selected:{' '}
+          {selectedPatient
+            ? `${selectedPatient.firstName} ${selectedPatient.lastName} (${selectedPatient.patientNo})`
+            : 'none'}
+        </span>
+        {selectedPatient ? (
+          <button
+            type="button"
+            className="font-semibold text-red-600"
+            onClick={() => onSelect(null)}
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function PatientProfileDrawer({
   patientId,
   onClose,
@@ -1339,6 +1412,7 @@ function PatientSafetyBanner({ patient }: { patient: PatientSummary }) {
 
 function AppointmentsScreen() {
   const queryClient = useQueryClient()
+  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
   const { data: appointments = [] } = useQuery({
     queryKey: ['appointments'],
     queryFn: () => apiRequest<unknown[]>('/appointments'),
@@ -1349,7 +1423,7 @@ function AppointmentsScreen() {
       return apiRequest('/appointments', {
         method: 'POST',
         body: JSON.stringify({
-          patientId: form.get('patientId'),
+          patientId: selectedPatient?.id,
           doctorId: form.get('doctorId'),
           appointmentDate: form.get('appointmentDate'),
           appointmentTime: form.get('appointmentTime'),
@@ -1374,7 +1448,10 @@ function AppointmentsScreen() {
         }}
       >
         <h3 className="text-xl font-bold">Book appointment</h3>
-        <Field name="patientId" label="Patient ID" required />
+        <PatientLookup
+          selectedPatient={selectedPatient}
+          onSelect={setSelectedPatient}
+        />
         <Field name="doctorId" label="Doctor user ID" required />
         <Field name="appointmentDate" label="Date" type="date" required />
         <Field name="appointmentTime" label="Time" required />
@@ -1389,8 +1466,21 @@ function AppointmentsScreen() {
           </select>
         </label>
         <Field name="reason" label="Reason" required />
-        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-          Book appointment
+        {createAppointment.error ? (
+          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {createAppointment.error.message}
+          </p>
+        ) : null}
+        {createAppointment.isSuccess ? (
+          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+            Appointment booked.
+          </p>
+        ) : null}
+        <button
+          className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={!selectedPatient || createAppointment.isPending}
+        >
+          {createAppointment.isPending ? 'Booking...' : 'Book appointment'}
         </button>
       </form>
       <div className="rounded-3xl bg-white p-6 shadow-sm">
@@ -2011,6 +2101,19 @@ function EmergencyScreen() {
 function NursingScreen() {
   const queryClient = useQueryClient()
   const [admissionId, setAdmissionId] = useState('')
+  const { data: admissions = [] } = useQuery({
+    queryKey: ['nursing-admissions'],
+    queryFn: () =>
+      apiRequest<
+        {
+          id: string
+          admissionNo: string
+          patient?: PatientSummary
+          bed?: { bedNo: string }
+          ward?: { name: string }
+        }[]
+      >('/inpatient/admissions?status=active'),
+  })
   const { data: vitals = [] } = useQuery({
     queryKey: ['vitals', admissionId],
     queryFn: () => apiRequest<unknown[]>(`/nursing/vitals?admissionId=${admissionId}`),
@@ -2022,7 +2125,7 @@ function NursingScreen() {
       return apiRequest('/nursing/vitals', {
         method: 'POST',
         body: JSON.stringify({
-          admissionId: form.get('admissionId'),
+          admissionId,
           temperature: Number(form.get('temperature') || 0),
           pulse: Number(form.get('pulse') || 0),
           respiratoryRate: Number(form.get('respiratoryRate') || 0),
@@ -2043,21 +2146,49 @@ function NursingScreen() {
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
         onSubmit={(event) => {
           event.preventDefault()
-          const form = new FormData(event.currentTarget)
-          setAdmissionId(form.get('admissionId')?.toString() ?? '')
           createVitals.mutate(event)
         }}
       >
         <h3 className="text-xl font-bold">Record vitals</h3>
-        <Field name="admissionId" label="Admission ID" required />
+        <label>
+          <span className="text-sm font-semibold">Active admission</span>
+          <select
+            className="input mt-2"
+            value={admissionId}
+            onChange={(event) => setAdmissionId(event.target.value)}
+            required
+          >
+            <option value="">Select admission</option>
+            {admissions.map((admission) => (
+              <option key={admission.id} value={admission.id}>
+                {admission.admissionNo} · {admission.patient?.firstName}{' '}
+                {admission.patient?.lastName} · {admission.ward?.name}{' '}
+                {admission.bed?.bedNo}
+              </option>
+            ))}
+          </select>
+        </label>
         <Field name="temperature" label="Temperature" />
         <Field name="pulse" label="Pulse" />
         <Field name="respiratoryRate" label="Respiratory rate" />
         <Field name="bpSystolic" label="BP systolic" />
         <Field name="bpDiastolic" label="BP diastolic" />
         <Field name="spo2" label="SpO2" />
-        <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-          Save vitals
+        {createVitals.error ? (
+          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+            {createVitals.error.message}
+          </p>
+        ) : null}
+        {createVitals.isSuccess ? (
+          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+            Vitals saved.
+          </p>
+        ) : null}
+        <button
+          className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={!admissionId || createVitals.isPending}
+        >
+          {createVitals.isPending ? 'Saving...' : 'Save vitals'}
         </button>
       </form>
       <div className="rounded-3xl bg-white p-6 shadow-sm">
@@ -2072,6 +2203,7 @@ function NursingScreen() {
 
 function LaboratoryScreen() {
   const queryClient = useQueryClient()
+  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
   const { data: panels = [] } = useQuery({
     queryKey: ['lab-panels'],
     queryFn: () => apiRequest<{ id: string; name: string }[]>('/laboratory/panels'),
@@ -2092,7 +2224,7 @@ function LaboratoryScreen() {
       return apiRequest('/laboratory/requests', {
         method: 'POST',
         body: JSON.stringify({
-          patientId: form.get('patientId'),
+          patientId: selectedPatient?.id,
           encounterId: form.get('encounterId'),
           admissionId: form.get('admissionId') || undefined,
           priority: form.get('priority'),
@@ -2150,7 +2282,10 @@ function LaboratoryScreen() {
             event.currentTarget.reset()
           }}
         >
-          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <PatientLookup
+            selectedPatient={selectedPatient}
+            onSelect={setSelectedPatient}
+          />
           <input name="encounterId" className="input" placeholder="Encounter ID" required />
           <input name="admissionId" className="input" placeholder="Admission ID" />
           <select name="priority" className="input" required>
@@ -2175,6 +2310,16 @@ function LaboratoryScreen() {
             ))}
           </select>
           <input name="notes" className="input" placeholder="Clinical notes" />
+          {createRequest.error ? (
+            <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+              {createRequest.error.message}
+            </p>
+          ) : null}
+          {createRequest.isSuccess ? (
+            <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+              Lab request created.
+            </p>
+          ) : null}
         </QuickAddForm>
         <QuickAddForm
           title="Collect sample"
@@ -2221,6 +2366,7 @@ function LaboratoryScreen() {
 
 function RadiologyScreen() {
   const queryClient = useQueryClient()
+  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
   const { data: modalities = [] } = useQuery({
     queryKey: ['radiology-modalities'],
     queryFn: () => apiRequest<{ id: string; name: string }[]>('/radiology/modalities'),
@@ -2235,7 +2381,7 @@ function RadiologyScreen() {
       return apiRequest('/radiology/requests', {
         method: 'POST',
         body: JSON.stringify({
-          patientId: form.get('patientId'),
+          patientId: selectedPatient?.id,
           encounterId: form.get('encounterId'),
           admissionId: form.get('admissionId') || undefined,
           modalityId: form.get('modalityId'),
@@ -2275,7 +2421,10 @@ function RadiologyScreen() {
             event.currentTarget.reset()
           }}
         >
-          <input name="patientId" className="input" placeholder="Patient ID" required />
+          <PatientLookup
+            selectedPatient={selectedPatient}
+            onSelect={setSelectedPatient}
+          />
           <input name="encounterId" className="input" placeholder="Encounter ID" required />
           <input name="admissionId" className="input" placeholder="Admission ID" />
           <select name="modalityId" className="input" required>
@@ -2293,6 +2442,16 @@ function RadiologyScreen() {
             <option value="urgent">Urgent</option>
             <option value="stat">STAT</option>
           </select>
+          {createRequest.error ? (
+            <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
+              {createRequest.error.message}
+            </p>
+          ) : null}
+          {createRequest.isSuccess ? (
+            <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
+              Radiology request created.
+            </p>
+          ) : null}
         </QuickAddForm>
         <QuickAddForm
           title="Write report"
