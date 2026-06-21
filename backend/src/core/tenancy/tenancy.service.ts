@@ -35,7 +35,11 @@ export class TenancyService {
       return header;
     }
 
-    const hostname = host?.split(':')[0] ?? '';
+    const hostname = host?.split(':')[0]?.toLowerCase() ?? '';
+    if (!hostname || hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'demo';
+    }
+
     const [subdomain] = hostname.split('.');
     return subdomain || 'demo';
   }

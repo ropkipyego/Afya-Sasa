@@ -16,7 +16,7 @@ export class TenantMiddleware implements NestMiddleware {
     _response: Response,
     next: NextFunction,
   ): Promise<void> {
-    if (request.path.startsWith('/api/v1/health') || request.path === '/docs') {
+    if (this.isPublicPath(request)) {
       next();
       return;
     }
@@ -32,5 +32,20 @@ export class TenantMiddleware implements NestMiddleware {
 
     request.tenant = await this.tenancyService.resolveTenant(identifier);
     next();
+  }
+
+  private isPublicPath(request: RequestContext): boolean {
+    const path = request.path;
+    const url = request.originalUrl ?? request.url ?? '';
+
+    return (
+      path === '/health' ||
+      path.startsWith('/health/') ||
+      path === '/docs' ||
+      path.startsWith('/docs/') ||
+      url.startsWith('/api/v1/health') ||
+      url.startsWith('/health') ||
+      url.startsWith('/docs')
+    );
   }
 }
