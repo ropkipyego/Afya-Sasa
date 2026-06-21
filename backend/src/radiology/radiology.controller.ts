@@ -70,4 +70,10 @@ export class RadiologyController {
   reportsInbox() {
     return this.radiologyService.reportsInbox();
   }
+
+  @Post('reports/:id/review')
+  @RequirePermissions('radiology_reports:read')
+  reviewReport(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.radiologyService.reviewReport(id, request);
+  }
 }

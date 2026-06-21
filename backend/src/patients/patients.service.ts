@@ -7,6 +7,16 @@ import { InjectRepository } from '@nestjs/typeorm';
 import QRCode from 'qrcode';
 import { ILike, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { Appointment } from '../appointments/appointment.entities';
+import { HduAdmission } from '../hdu/hdu.entities';
+import { IcuAdmission } from '../icu/icu.entities';
+import { Admission } from '../inpatient/inpatient.entities';
+import { LabResult } from '../laboratory/laboratory.entities';
+import { Pregnancy } from '../maternity/maternity.entities';
+import { Encounter } from '../opd/opd.entities';
+import { RadiologyReport } from '../radiology/radiology.entities';
+import { Referral } from '../referrals/referral.entities';
+import { SurgeryBooking } from '../theatre/theatre.entities';
 import {
   Patient,
   PatientAllergy,
@@ -41,6 +51,26 @@ export class PatientsService {
     private readonly allergies: Repository<PatientAllergy>,
     @InjectRepository(PatientChronicCondition)
     private readonly chronicConditions: Repository<PatientChronicCondition>,
+    @InjectRepository(Encounter)
+    private readonly encounters: Repository<Encounter>,
+    @InjectRepository(Admission)
+    private readonly admissions: Repository<Admission>,
+    @InjectRepository(LabResult)
+    private readonly labResults: Repository<LabResult>,
+    @InjectRepository(RadiologyReport)
+    private readonly radiologyReports: Repository<RadiologyReport>,
+    @InjectRepository(SurgeryBooking)
+    private readonly surgeries: Repository<SurgeryBooking>,
+    @InjectRepository(Pregnancy)
+    private readonly pregnancies: Repository<Pregnancy>,
+    @InjectRepository(IcuAdmission)
+    private readonly icuAdmissions: Repository<IcuAdmission>,
+    @InjectRepository(HduAdmission)
+    private readonly hduAdmissions: Repository<HduAdmission>,
+    @InjectRepository(Appointment)
+    private readonly appointments: Repository<Appointment>,
+    @InjectRepository(Referral)
+    private readonly referrals: Repository<Referral>,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -177,6 +207,59 @@ export class PatientsService {
       message:
         'Patient history endpoint is reserved for OPD, inpatient, lab, and radiology phases.',
     };
+  }
+
+  async timeline(id: string) {
+    const patient = await this.findOne(id);
+    const [
+      encounters,
+      admissions,
+      labResults,
+      radiologyReports,
+      surgeries,
+      pregnancies,
+      icuAdmissions,
+      hduAdmissions,
+      appointments,
+      referrals,
+    ] = await Promise.all([
+      this.encounters.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.admissions.find({ where: { patient: { id } }, relations: { ward: true, bed: true }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.labResults.find({
+        where: { requestItem: { request: { patient: { id } } } },
+        relations: { requestItem: { request: true, test: true, panel: true } },
+        order: { enteredAt: 'DESC' },
+        take: 50,
+      }),
+      this.radiologyReports.find({
+        where: { request: { patient: { id } } },
+        relations: { request: { modality: true } },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
+      this.surgeries.find({ where: { patient: { id } }, relations: { procedure: true, theatre: true }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.pregnancies.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.icuAdmissions.find({ where: { admission: { patient: { id } } }, relations: { admission: true }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.hduAdmissions.find({ where: { admission: { patient: { id } } }, relations: { admission: true }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.appointments.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.referrals.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
+    ]);
+
+    const events = [
+      { type: 'registration', occurredAt: patient.createdAt, title: 'Patient registered', summary: patient.patientNo },
+      ...encounters.map((item) => ({ type: 'visit', occurredAt: item.startedAt, title: `Encounter ${item.encounterNo}`, summary: `${item.type} - ${item.status}` })),
+      ...admissions.map((item) => ({ type: 'admission', occurredAt: item.admittedAt, title: `Admission ${item.admissionNo}`, summary: `${item.ward?.name ?? 'Ward'} / ${item.bed?.bedNo ?? 'Bed'} - ${item.status}` })),
+      ...labResults.map((item) => ({ type: 'lab_result', occurredAt: item.enteredAt, title: item.requestItem.test?.name ?? item.requestItem.panel?.name ?? 'Lab result', summary: `${item.value} ${item.unit ?? ''} (${item.flag})` })),
+      ...radiologyReports.map((item) => ({ type: 'radiology', occurredAt: item.createdAt, title: `${item.request.modality?.name ?? 'Radiology'} report`, summary: item.impression })),
+      ...surgeries.map((item) => ({ type: 'surgery', occurredAt: item.scheduledStartAt, title: item.procedure?.name ?? 'Surgery', summary: `${item.status} ${item.theatre?.name ?? ''}` })),
+      ...pregnancies.map((item) => ({ type: 'maternity', occurredAt: item.createdAt, title: `Pregnancy ${item.pregnancyNo}`, summary: `${item.status} risk: ${item.riskLevel}` })),
+      ...icuAdmissions.map((item) => ({ type: 'icu', occurredAt: item.admittedToIcuAt, title: 'ICU admission', summary: item.status })),
+      ...hduAdmissions.map((item) => ({ type: 'hdu', occurredAt: item.admittedToHduAt, title: 'HDU admission', summary: item.status })),
+      ...appointments.map((item) => ({ type: 'appointment', occurredAt: item.createdAt, title: `Appointment ${item.appointmentDate}`, summary: `${item.type} - ${item.status}` })),
+      ...referrals.map((item) => ({ type: 'referral', occurredAt: item.createdAt, title: `${item.type} referral`, summary: `${item.status} - ${item.reason}` })),
+    ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+
+    return { patient, events };
   }
 
   async qrCard(id: string) {

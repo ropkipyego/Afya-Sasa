@@ -71,6 +71,12 @@ export class RadiologyReport extends SoftDeleteClinicalEntity {
 
   @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt!: Date | null;
+
+  @Column({ name: 'reviewed_by', type: 'uuid', nullable: true })
+  reviewedBy!: string | null;
+
+  @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
+  reviewedAt!: Date | null;
 }
 
 @Entity({ name: 'radiology_attachments', schema: 'demo' })

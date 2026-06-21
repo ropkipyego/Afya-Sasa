@@ -98,3 +98,29 @@ export class UpdateSettingsDto {
   @IsString()
   triageSystem?: string;
 }
+
+export class CreateDepartmentDto {
+  @ApiProperty()
+  @IsString()
+  name!: string;
+
+  @ApiProperty()
+  @IsString()
+  code!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  type?: string;
+}
+
+export class AssignDepartmentDto {
+  @ApiProperty()
+  @IsString()
+  departmentId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
+}

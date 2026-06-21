@@ -13,6 +13,8 @@ import type { RequestContext } from '../../common/request-context';
 import { RequirePermissions } from '../auth/auth.decorators';
 import {
   AssignRolesDto,
+  AssignDepartmentDto,
+  CreateDepartmentDto,
   CreateRoleDto,
   CreateUserDto,
   UpdateRolePermissionsDto,
@@ -136,5 +138,30 @@ export class AdminController {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  @Get('departments')
+  @RequirePermissions('departments:manage')
+  listDepartments() {
+    return this.adminService.listDepartments();
+  }
+
+  @Post('departments')
+  @RequirePermissions('departments:manage')
+  createDepartment(
+    @Body() dto: CreateDepartmentDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.adminService.createDepartment(dto, request);
+  }
+
+  @Post('users/:id/departments')
+  @RequirePermissions('departments:manage')
+  assignDepartment(
+    @Param('id') id: string,
+    @Body() dto: AssignDepartmentDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.adminService.assignDepartment(id, dto, request);
   }
 }

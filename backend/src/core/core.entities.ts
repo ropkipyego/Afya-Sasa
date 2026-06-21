@@ -160,6 +160,37 @@ export class UserRole extends AuditableEntity {
   grantedBy!: string | null;
 }
 
+@Entity({ name: 'departments', schema: 'demo' })
+@Unique(['code'])
+export class Department extends AuditableEntity {
+  @Column({ type: 'varchar' })
+  name!: string;
+
+  @Column({ type: 'varchar' })
+  code!: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  type!: string | null;
+
+  @Column({ type: 'boolean', default: true })
+  active!: boolean;
+}
+
+@Entity({ name: 'user_departments', schema: 'demo' })
+@Unique(['user', 'department'])
+export class UserDepartment extends AuditableEntity {
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
+  user!: User;
+
+  @ManyToOne(() => Department, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'department_id' })
+  department!: Department;
+
+  @Column({ type: 'boolean', name: 'is_primary', default: false })
+  isPrimary!: boolean;
+}
+
 @Entity({ name: 'refresh_tokens', schema: 'demo' })
 @Index(['userId', 'revokedAt'])
 export class RefreshToken extends AuditableEntity {

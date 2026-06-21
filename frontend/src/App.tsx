@@ -52,6 +52,7 @@ const navigation = [
   { group: 'Outpatient', label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
   { group: 'Outpatient', label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
   { group: 'Outpatient', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  { group: 'Outpatient', label: 'Referrals', icon: ClipboardList, permission: 'referrals:read' },
   { group: 'Investigations', label: 'Laboratory', icon: Activity, permission: 'lab_requests:read' },
   { group: 'Investigations', label: 'Radiology', icon: Hospital, permission: 'radiology_requests:read' },
   { group: 'Investigations', label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read' },
@@ -209,6 +210,7 @@ function App() {
           {activeScreen === 'Radiology' ? <RadiologyScreen /> : null}
           {activeScreen === 'Results Inbox' ? <ResultsInbox /> : null}
           {activeScreen === 'Appointments' ? <AppointmentsScreen /> : null}
+          {activeScreen === 'Referrals' ? <ReferralsScreen /> : null}
           {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
           {activeScreen === 'Bed Dashboard' ? <BedDashboard /> : null}
           {activeScreen === 'Admissions' ? <AdmissionsScreen /> : null}
@@ -232,6 +234,7 @@ function App() {
           activeScreen !== 'Radiology' &&
           activeScreen !== 'Results Inbox' &&
           activeScreen !== 'Appointments' &&
+          activeScreen !== 'Referrals' &&
           activeScreen !== 'OPD Reports' &&
           activeScreen !== 'Bed Dashboard' &&
           activeScreen !== 'Admissions' &&
@@ -705,6 +708,18 @@ function PatientProfileDrawer({
         printableText: string
       }>(`/patients/${patientId}/qr-card`),
   })
+  const { data: timeline } = useQuery({
+    queryKey: ['patient-timeline', patientId],
+    queryFn: () =>
+      apiRequest<{
+        events: {
+          type: string
+          occurredAt: string
+          title: string
+          summary: string
+        }[]
+      }>(`/patients/${patientId}/timeline`),
+  })
   const addIdentifier = useMutation({
     mutationFn: (event: FormEvent<HTMLFormElement>) => {
       const form = new FormData(event.currentTarget)
@@ -862,6 +877,31 @@ function PatientProfileDrawer({
                 </p>
               )) || <p>None recorded</p>}
             </ProfileSection>
+          </section>
+
+          <section className="mt-6 rounded-2xl border border-slate-200 p-4">
+            <p className="text-xs font-bold uppercase text-slate-500">
+              Clinical timeline
+            </p>
+            <div className="mt-4 max-h-96 space-y-3 overflow-y-auto">
+              {(timeline?.events ?? []).map((event, index) => (
+                <div key={`${event.type}-${event.occurredAt}-${index}`} className="rounded-2xl bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold">{event.title}</p>
+                    <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold uppercase text-blue-700">
+                      {event.type}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">{event.summary}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {new Date(event.occurredAt).toLocaleString()}
+                  </p>
+                </div>
+              ))}
+              {!timeline?.events?.length ? (
+                <p className="text-sm text-slate-500">No timeline events yet.</p>
+              ) : null}
+            </div>
           </section>
 
           <section className="mt-6 rounded-2xl border border-slate-200 p-4">
@@ -1493,6 +1533,90 @@ function AppointmentsScreen() {
   )
 }
 
+function ReferralsScreen() {
+  const queryClient = useQueryClient()
+  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
+  const { data: referrals = [] } = useQuery({
+    queryKey: ['referrals'],
+    queryFn: () => apiRequest<unknown[]>('/referrals'),
+  })
+  const createReferral = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/referrals', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: selectedPatient?.id,
+          encounterId: form.get('encounterId') || undefined,
+          type: form.get('type'),
+          receivingUserId: form.get('receivingUserId') || undefined,
+          targetDepartment: form.get('targetDepartment') || undefined,
+          targetFacility: form.get('targetFacility') || undefined,
+          reason: form.get('reason'),
+          letter: form.get('letter'),
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['referrals'] }),
+  })
+  const updateReferral = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/referrals/${form.get('referralId')}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: form.get('status') }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['referrals'] }),
+  })
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+      <div className="space-y-6">
+        <QuickAddForm
+          title="Create referral"
+          pending={createReferral.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            createReferral.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <PatientLookup selectedPatient={selectedPatient} onSelect={setSelectedPatient} />
+          <input name="encounterId" className="input" placeholder="Encounter ID" />
+          <select name="type" className="input" required>
+            <option value="internal">Internal</option>
+            <option value="external">External</option>
+          </select>
+          <input name="receivingUserId" className="input" placeholder="Receiving clinician user ID" />
+          <input name="targetDepartment" className="input" placeholder="Target department" />
+          <input name="targetFacility" className="input" placeholder="Target facility" />
+          <input name="reason" className="input" placeholder="Reason" required />
+          <textarea name="letter" className="input" placeholder="Referral letter" required />
+        </QuickAddForm>
+        <QuickAddForm
+          title="Update referral status"
+          pending={updateReferral.isPending}
+          onSubmit={(event) => {
+            event.preventDefault()
+            updateReferral.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <input name="referralId" className="input" placeholder="Referral ID" required />
+          <select name="status" className="input" required>
+            <option value="sent">Sent</option>
+            <option value="accepted">Accepted</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </QuickAddForm>
+      </div>
+      <JsonPanel title="Referrals" data={referrals} />
+    </div>
+  )
+}
+
 function OpdReports() {
   const { data } = useQuery({
     queryKey: ['opd-summary'],
@@ -1703,6 +1827,19 @@ function BedDashboard() {
       await queryClient.invalidateQueries({ queryKey: ['wards'] })
     },
   })
+  const updateBedStatus = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/inpatient/beds/${form.get('bedId')}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: form.get('status') }),
+      })
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+    },
+  })
   const occupiedBeds = beds.filter((bed) => bed.status === 'occupied').length
   const availableBeds = beds.filter((bed) => bed.status === 'available').length
 
@@ -1784,6 +1921,35 @@ function BedDashboard() {
           <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
             Create bed
           </button>
+        </form>
+        <form
+          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm md:col-span-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            updateBedStatus.mutate(event)
+            event.currentTarget.reset()
+          }}
+        >
+          <h3 className="text-xl font-bold">Update bed status</h3>
+          <div className="grid gap-3 md:grid-cols-3">
+            <select name="bedId" className="input" required>
+              <option value="">Select bed</option>
+              {beds.map((bed) => (
+                <option key={bed.id} value={bed.id}>
+                  {bed.ward?.name} · {bed.bedNo} · {bed.status}
+                </option>
+              ))}
+            </select>
+            <select name="status" className="input" required>
+              <option value="available">Available</option>
+              <option value="reserved">Reserved</option>
+              <option value="cleaning">Cleaning</option>
+              <option value="maintenance">Maintenance</option>
+            </select>
+            <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
+              Update status
+            </button>
+          </div>
         </form>
       </div>
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
@@ -2868,24 +3034,70 @@ function RadiologyScreen() {
 }
 
 function ResultsInbox() {
+  const queryClient = useQueryClient()
   const { data: labResults = [] } = useQuery({
     queryKey: ['lab-results-inbox'],
-    queryFn: () => apiRequest<unknown[]>('/laboratory/results/inbox'),
+    queryFn: () => apiRequest<{ id: string; value?: string; flag?: string; reviewedAt?: string | null }[]>('/laboratory/results/inbox'),
   })
   const { data: criticalResults = [] } = useQuery({
     queryKey: ['critical-results'],
-    queryFn: () => apiRequest<unknown[]>('/laboratory/results/critical'),
+    queryFn: () => apiRequest<{ id: string; value?: string; flag?: string; reviewedAt?: string | null }[]>('/laboratory/results/critical'),
   })
   const { data: radiologyReports = [] } = useQuery({
     queryKey: ['radiology-reports-inbox'],
-    queryFn: () => apiRequest<unknown[]>('/radiology/reports/inbox'),
+    queryFn: () => apiRequest<{ id: string; impression?: string; reviewedAt?: string | null }[]>('/radiology/reports/inbox'),
+  })
+  const reviewLab = useMutation({
+    mutationFn: (id: string) => apiRequest(`/laboratory/results/${id}/review`, { method: 'POST' }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['lab-results-inbox'] })
+      await queryClient.invalidateQueries({ queryKey: ['critical-results'] })
+    },
+  })
+  const reviewRadiology = useMutation({
+    mutationFn: (id: string) => apiRequest(`/radiology/reports/${id}/review`, { method: 'POST' }),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-reports-inbox'] }),
   })
 
   return (
     <div className="grid gap-6 xl:grid-cols-3">
-      <JsonPanel title="Verified lab results" data={labResults} />
-      <JsonPanel title="Critical lab results" data={criticalResults} />
-      <JsonPanel title="Radiology reports" data={radiologyReports} />
+      <ReviewList title="Verified lab results" items={labResults} onReview={reviewLab.mutate} />
+      <ReviewList title="Critical lab results" items={criticalResults} onReview={reviewLab.mutate} />
+      <ReviewList title="Radiology reports" items={radiologyReports} onReview={reviewRadiology.mutate} />
+    </div>
+  )
+}
+
+function ReviewList({
+  title,
+  items,
+  onReview,
+}: {
+  title: string
+  items: { id: string; value?: string; flag?: string; impression?: string; reviewedAt?: string | null }[]
+  onReview: (id: string) => void
+}) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <h3 className="text-xl font-bold">{title}</h3>
+      <div className="mt-4 space-y-3">
+        {items.map((item) => (
+          <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
+            <p className="text-sm text-slate-500">{item.id}</p>
+            <p className="mt-1 font-semibold">
+              {item.impression ?? `${item.value ?? ''} ${item.flag ?? ''}`}
+            </p>
+            <button
+              className="mt-3 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-300"
+              disabled={Boolean(item.reviewedAt)}
+              onClick={() => onReview(item.id)}
+            >
+              {item.reviewedAt ? 'Reviewed' : 'Mark reviewed'}
+            </button>
+          </div>
+        ))}
+        {!items.length ? <p className="text-sm text-slate-500">No items.</p> : null}
+      </div>
     </div>
   )
 }
@@ -3615,6 +3827,7 @@ interface AdminUserItem {
   email: string
   active: boolean
   roles: RoleItem[]
+  departments?: { id: string; name: string; isPrimary?: boolean }[]
 }
 
 function AdminUsers() {
@@ -3626,6 +3839,10 @@ function AdminUsers() {
   const { data: roles = [] } = useQuery({
     queryKey: ['admin-roles'],
     queryFn: () => apiRequest<RoleItem[]>('/admin/roles'),
+  })
+  const { data: departments = [] } = useQuery({
+    queryKey: ['admin-departments'],
+    queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/admin/departments'),
   })
   const createUser = useMutation({
     mutationFn: (event: FormEvent<HTMLFormElement>) => {
@@ -3648,9 +3865,37 @@ function AdminUsers() {
       await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
     },
   })
+  const createDepartment = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest('/admin/departments', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.get('name'),
+          code: form.get('code'),
+          type: form.get('type') || undefined,
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['admin-departments'] }),
+  })
+  const assignDepartment = useMutation({
+    mutationFn: (event: FormEvent<HTMLFormElement>) => {
+      const form = new FormData(event.currentTarget)
+      return apiRequest(`/admin/users/${form.get('userId')}/departments`, {
+        method: 'POST',
+        body: JSON.stringify({
+          departmentId: form.get('departmentId'),
+          isPrimary: form.get('isPrimary') === 'on',
+        }),
+      })
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
+  })
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="space-y-6">
       <form
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
         onSubmit={(event) => {
@@ -3686,6 +3931,49 @@ function AdminUsers() {
           {createUser.isPending ? 'Creating...' : 'Create user'}
         </button>
       </form>
+      <QuickAddForm
+        title="Create department"
+        pending={createDepartment.isPending}
+        onSubmit={(event) => {
+          event.preventDefault()
+          createDepartment.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <input name="name" className="input" placeholder="Department name" required />
+        <input name="code" className="input" placeholder="Code" required />
+        <input name="type" className="input" placeholder="clinical / diagnostic / admin" />
+      </QuickAddForm>
+      <QuickAddForm
+        title="Assign user to department"
+        pending={assignDepartment.isPending}
+        onSubmit={(event) => {
+          event.preventDefault()
+          assignDepartment.mutate(event)
+          event.currentTarget.reset()
+        }}
+      >
+        <select name="userId" className="input" required>
+          <option value="">Select user</option>
+          {users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.firstName} {user.lastName}
+            </option>
+          ))}
+        </select>
+        <select name="departmentId" className="input" required>
+          <option value="">Select department</option>
+          {departments.map((department) => (
+            <option key={department.id} value={department.id}>
+              {department.name}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-2 text-sm">
+          <input name="isPrimary" type="checkbox" /> Primary department
+        </label>
+      </QuickAddForm>
+      </div>
 
       <div className="rounded-3xl bg-white p-6 shadow-sm">
         <h3 className="text-xl font-bold">Users</h3>
@@ -3701,6 +3989,10 @@ function AdminUsers() {
               </p>
               <p className="mt-1 text-sm text-blue-700">
                 {user.roles.map((role) => role.label).join(', ') || 'No roles'}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Departments:{' '}
+                {user.departments?.map((department) => department.name).join(', ') || 'none'}
               </p>
             </div>
           ))}

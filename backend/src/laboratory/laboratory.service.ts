@@ -198,6 +198,8 @@ export class LaboratoryService {
         isCritical: flag === 'critically_low' || flag === 'critically_high',
         verifiedBy: null,
         verifiedAt: null,
+        reviewedBy: null,
+        reviewedAt: null,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),
@@ -244,6 +246,15 @@ export class LaboratoryService {
       order: { enteredAt: 'DESC' },
       take: 100,
     });
+  }
+
+  async reviewResult(id: string, request: RequestContext) {
+    await this.results.update(id, {
+      reviewedBy: request.user?.sub ?? null,
+      reviewedAt: new Date(),
+      updatedBy: request.user?.sub ?? null,
+    });
+    return this.results.findOneOrFail({ where: { id } });
   }
 
   private async generateRequestNo() {

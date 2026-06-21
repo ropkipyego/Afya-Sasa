@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   AuditLog,
+  Department,
   Permission,
   Role,
   RolePermission,
   TenantSettings,
   User,
+  UserDepartment,
   UserRole,
 } from '../core.entities';
 import { AdminController } from './admin.controller';
@@ -19,6 +21,8 @@ import { AdminService } from './admin.service';
       Role,
       Permission,
       UserRole,
+      Department,
+      UserDepartment,
       RolePermission,
       AuditLog,
       TenantSettings,

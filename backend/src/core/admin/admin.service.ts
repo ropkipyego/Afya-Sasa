@@ -9,15 +9,19 @@ import { In, Repository } from 'typeorm';
 import type { RequestContext } from '../../common/request-context';
 import {
   AuditLog,
+  Department,
   Permission,
   Role,
   RolePermission,
   TenantSettings,
   User,
+  UserDepartment,
   UserRole,
 } from '../core.entities';
 import {
   AssignRolesDto,
+  AssignDepartmentDto,
+  CreateDepartmentDto,
   CreateRoleDto,
   CreateUserDto,
   UpdateRolePermissionsDto,
@@ -42,6 +46,10 @@ export class AdminService {
     private readonly auditLogs: Repository<AuditLog>,
     @InjectRepository(TenantSettings)
     private readonly settings: Repository<TenantSettings>,
+    @InjectRepository(Department)
+    private readonly departments: Repository<Department>,
+    @InjectRepository(UserDepartment)
+    private readonly userDepartments: Repository<UserDepartment>,
   ) {}
 
   async listUsers() {
@@ -200,6 +208,52 @@ export class AdminService {
     return { items, meta: { page, pageSize, total } };
   }
 
+  listDepartments() {
+    return this.departments.find({ order: { name: 'ASC' } });
+  }
+
+  createDepartment(dto: CreateDepartmentDto, request: RequestContext) {
+    return this.departments.save(
+      this.departments.create({
+        name: dto.name,
+        code: dto.code.toUpperCase().replace(/\s+/g, '_'),
+        type: dto.type ?? null,
+        active: true,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+  }
+
+  async assignDepartment(
+    userId: string,
+    dto: AssignDepartmentDto,
+    request: RequestContext,
+  ) {
+    const [user, department] = await Promise.all([
+      this.getUser(userId),
+      this.departments.findOne({ where: { id: dto.departmentId } }),
+    ]);
+    if (!department) {
+      throw new NotFoundException('Department not found');
+    }
+    if (dto.isPrimary) {
+      await this.userDepartments.update(
+        { user: { id: userId } },
+        { isPrimary: false },
+      );
+    }
+    return this.userDepartments.save(
+      this.userDepartments.create({
+        user,
+        department,
+        isPrimary: dto.isPrimary ?? false,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+  }
+
   private async replaceUserRoles(
     userId: string,
     roleIds: string[],
@@ -251,6 +305,10 @@ export class AdminService {
       where: { user: { id: user.id } },
       relations: { role: true },
     });
+    const departments = await this.userDepartments.find({
+      where: { user: { id: user.id } },
+      relations: { department: true },
+    });
     return {
       id: user.id,
       employeeNo: user.employeeNo,
@@ -262,6 +320,10 @@ export class AdminService {
       forcePasswordChange: user.forcePasswordChange,
       lockedUntil: user.lockedUntil,
       roles: assignments.map((assignment) => assignment.role),
+      departments: departments.map((assignment) => ({
+        ...assignment.department,
+        isPrimary: assignment.isPrimary,
+      })),
     };
   }
 

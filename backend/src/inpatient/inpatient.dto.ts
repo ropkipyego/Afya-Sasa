@@ -42,9 +42,9 @@ export class CreateBedDto {
 }
 
 export class UpdateBedStatusDto {
-  @ApiProperty({ enum: ['available', 'occupied', 'maintenance', 'cleaning'] })
-  @IsIn(['available', 'occupied', 'maintenance', 'cleaning'])
-  status!: 'available' | 'occupied' | 'maintenance' | 'cleaning';
+  @ApiProperty({ enum: ['available', 'reserved', 'occupied', 'maintenance', 'cleaning'] })
+  @IsIn(['available', 'reserved', 'occupied', 'maintenance', 'cleaning'])
+  status!: 'available' | 'reserved' | 'occupied' | 'maintenance' | 'cleaning';
 }
 
 export class CreateAdmissionDto {

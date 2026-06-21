@@ -104,6 +104,8 @@ export class RadiologyService {
         recommendation: dto.recommendation ?? null,
         verifiedBy: null,
         verifiedAt: null,
+        reviewedBy: null,
+        reviewedAt: null,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),
@@ -150,6 +152,15 @@ export class RadiologyService {
       order: { createdAt: 'DESC' },
       take: 100,
     });
+  }
+
+  async reviewReport(id: string, request: RequestContext) {
+    await this.reports.update(id, {
+      reviewedBy: request.user?.sub ?? null,
+      reviewedAt: new Date(),
+      updatedBy: request.user?.sub ?? null,
+    });
+    return this.reports.findOneOrFail({ where: { id } });
   }
 
   private async generateRequestNo() {

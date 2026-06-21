@@ -49,7 +49,7 @@ export class Bed extends SoftDeleteClinicalEntity {
   type!: 'standard' | 'icu' | 'isolation' | 'paediatric' | 'maternity' | 'cardiac';
 
   @Column({ type: 'varchar' })
-  status!: 'available' | 'occupied' | 'maintenance' | 'cleaning';
+  status!: 'available' | 'reserved' | 'occupied' | 'maintenance' | 'cleaning';
 
   @Column({ type: 'int',  default: 1 })
   version!: number;

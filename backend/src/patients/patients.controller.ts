@@ -74,6 +74,12 @@ export class PatientsController {
     return this.patientsService.history(id);
   }
 
+  @Get(':id/timeline')
+  @RequirePermissions('patients:history')
+  timeline(@Param('id') id: string) {
+    return this.patientsService.timeline(id);
+  }
+
   @Get(':id/qr-card')
   @RequirePermissions('patients:read')
   qrCard(@Param('id') id: string) {
