@@ -3802,14 +3802,99 @@ function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: strin
 }
 
 function JsonPanel({ title, data }: { title: string; data: unknown }) {
+  const rows = Array.isArray(data) ? data : []
+  const columns = rows.length
+    ? Object.keys(flattenForTable(rows[0] as Record<string, unknown>)).slice(0, 6)
+    : []
+
   return (
     <div className="rounded-3xl bg-white p-6 shadow-sm">
-      <h3 className="text-xl font-bold">{title}</h3>
-      <pre className="mt-4 max-h-[42rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
-        {JSON.stringify(data, null, 2)}
-      </pre>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xl font-bold">{title}</h3>
+        {Array.isArray(data) ? (
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+            {data.length} records
+          </span>
+        ) : null}
+      </div>
+      {rows.length ? (
+        <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+              <tr>
+                {columns.map((column) => (
+                  <th key={column} className="px-4 py-3">
+                    {humanize(column)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((row, index) => {
+                const flat = flattenForTable(row as Record<string, unknown>)
+                return (
+                  <tr key={index} className="hover:bg-slate-50">
+                    {columns.map((column) => (
+                      <td key={column} className="max-w-xs truncate px-4 py-3 text-slate-700">
+                        {formatCell(flat[column])}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="mt-4 rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">
+          No records yet.
+        </p>
+      )}
+      <details className="mt-4">
+        <summary className="cursor-pointer text-sm font-semibold text-blue-700">
+          Raw data
+        </summary>
+        <pre className="mt-3 max-h-96 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      </details>
     </div>
   )
+}
+
+function flattenForTable(row: Record<string, unknown>) {
+  const flattened: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const nested = value as Record<string, unknown>
+      const display =
+        nested.name ??
+        nested.label ??
+        nested.patientNo ??
+        nested.admissionNo ??
+        nested.encounterNo ??
+        nested.bedNo ??
+        nested.email ??
+        nested.id
+      flattened[key] = display
+    } else if (!Array.isArray(value)) {
+      flattened[key] = value
+    }
+  }
+  return flattened
+}
+
+function formatCell(value: unknown) {
+  if (value === null || value === undefined || value === '') return '-'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
+    return new Date(value).toLocaleString()
+  }
+  return String(value)
+}
+
+function humanize(value: string) {
+  return value.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()
 }
 
 interface RoleItem {
