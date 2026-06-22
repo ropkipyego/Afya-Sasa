@@ -41,9 +41,18 @@ body {
 }
 
 .input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 3px rgb(20 184 166 / 0.15);
   outline: none;
+}
+
+/* Shared clinical content panel */
+.panel {
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 1.5rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
 .input::placeholder {
@@ -58,4 +67,28 @@ nav::-webkit-scrollbar {
 nav::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 999px;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .patient-id-card,
+  .patient-id-card * {
+    visibility: visible;
+  }
+
+  .patient-id-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 85mm;
+    box-shadow: none;
+    border: 1px solid #0f766e;
+  }
+
+  .no-print {
+    display: none !important;
+  }
 }

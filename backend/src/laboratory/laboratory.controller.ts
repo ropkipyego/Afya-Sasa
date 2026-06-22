@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import {
+  AttachLabReportFileDto,
   CollectSampleDto,
   CreateLabPanelDto,
   CreateLabRequestDto,
@@ -76,6 +77,16 @@ export class LaboratoryController {
   @RequirePermissions('lab_results:enter')
   enterResult(@Body() dto: EnterLabResultDto, @Req() request: RequestContext) {
     return this.laboratoryService.enterResult(dto, request);
+  }
+
+  @Post('requests/:id/report-file')
+  @RequirePermissions('lab_results:enter')
+  attachReportFile(
+    @Param('id') id: string,
+    @Body() dto: AttachLabReportFileDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.laboratoryService.attachReportFile(id, dto, request);
   }
 
   @Post('requests/:id/verify')

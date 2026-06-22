@@ -129,3 +129,22 @@ export class EnterLabResultDto {
   @IsString()
   unit?: string;
 }
+
+export class AttachLabReportFileDto {
+  @ApiProperty()
+  @IsString()
+  filename!: string;
+
+  @ApiProperty()
+  @IsString()
+  mimeType!: string;
+
+  @ApiProperty()
+  @IsString()
+  storagePath!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  fileSize?: number;
+}

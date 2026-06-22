@@ -483,3 +483,222 @@ export function ClinicalForm({
     </form>
   )
 }
+
+export function MetricCard({ label, value }: { label: string; value: number }) {
+  return (
+    <Card padding="md" className="border-teal-100/80">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{value}</p>
+    </Card>
+  )
+}
+
+export function normaliseTriageColour(colour?: string | null) {
+  const key = colour?.toLowerCase().trim() ?? ''
+  if (key in triagePalette) return key
+  return 'unknown'
+}
+
+const triagePalette = {
+  red: {
+    badge: 'bg-red-100 text-red-900 ring-1 ring-red-200',
+    dot: 'bg-red-600 shadow-[0_0_0_3px_rgba(220,38,38,0.25)]',
+    card: 'border-l-red-600 bg-red-50/60 hover:bg-red-50',
+    ring: 'ring-red-300',
+  },
+  orange: {
+    badge: 'bg-orange-100 text-orange-950 ring-1 ring-orange-200',
+    dot: 'bg-orange-500 shadow-[0_0_0_3px_rgba(249,115,22,0.25)]',
+    card: 'border-l-orange-500 bg-orange-50/60 hover:bg-orange-50',
+    ring: 'ring-orange-300',
+  },
+  yellow: {
+    badge: 'bg-yellow-100 text-yellow-950 ring-1 ring-yellow-300',
+    dot: 'bg-yellow-400 shadow-[0_0_0_3px_rgba(250,204,21,0.35)]',
+    card: 'border-l-yellow-400 bg-yellow-50/70 hover:bg-yellow-50',
+    ring: 'ring-yellow-300',
+  },
+  green: {
+    badge: 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200',
+    dot: 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.25)]',
+    card: 'border-l-emerald-500 bg-emerald-50/60 hover:bg-emerald-50',
+    ring: 'ring-emerald-300',
+  },
+  blue: {
+    badge: 'bg-sky-100 text-sky-900 ring-1 ring-sky-200',
+    dot: 'bg-sky-500 shadow-[0_0_0_3px_rgba(14,165,233,0.25)]',
+    card: 'border-l-sky-500 bg-sky-50/60 hover:bg-sky-50',
+    ring: 'ring-sky-300',
+  },
+  unknown: {
+    badge: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+    dot: 'bg-slate-400',
+    card: 'border-l-slate-300 bg-white hover:bg-slate-50',
+    ring: 'ring-slate-200',
+  },
+} as const
+
+export function triageCardAccent(colour?: string | null) {
+  return triagePalette[normaliseTriageColour(colour) as keyof typeof triagePalette].card
+}
+
+export function TriageBadge({ colour }: { colour?: string | null }) {
+  const key = normaliseTriageColour(colour) as keyof typeof triagePalette
+  return (
+    <span
+      className={clsx(
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold uppercase',
+        triagePalette[key].badge,
+      )}
+    >
+      <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-full', triagePalette[key].dot)} />
+      {colour ?? 'untriaged'}
+    </span>
+  )
+}
+
+export function TriageIndicator({
+  colour,
+  label,
+  size = 'md',
+}: {
+  colour?: string | null
+  label?: string
+  size?: 'sm' | 'md' | 'lg'
+}) {
+  const key = normaliseTriageColour(colour) as keyof typeof triagePalette
+  const dotSize = size === 'lg' ? 'h-5 w-5' : size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        className={clsx('shrink-0 rounded-full', dotSize, triagePalette[key].dot)}
+        title={label ?? colour ?? 'Untriaged'}
+      />
+      <div>
+        {label ? <p className="text-[10px] font-bold uppercase text-slate-500">{label}</p> : null}
+        <p className="text-xs font-bold uppercase text-slate-800">{colour ?? 'untriaged'}</p>
+      </div>
+    </div>
+  )
+}
+
+export function PriorityBadge({ priority }: { priority?: string | null }) {
+  const styles: Record<string, string> = {
+    stat: 'bg-red-600 text-white',
+    urgent: 'bg-amber-500 text-white',
+    routine: 'bg-slate-600 text-white',
+  }
+  const key = priority?.toLowerCase() ?? 'routine'
+  return (
+    <span
+      className={clsx(
+        'inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+        styles[key] ?? styles.routine,
+      )}
+    >
+      {priority ?? 'routine'}
+    </span>
+  )
+}
+
+export function StatusPill({ status }: { status?: string | null }) {
+  return (
+    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold capitalize text-slate-700">
+      {status?.replace(/_/g, ' ') ?? 'unknown'}
+    </span>
+  )
+}
+
+export function FileUploadZone({
+  accept = '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx',
+  file,
+  onFileChange,
+  hint = 'PDF, image, or document — drag and drop or click to browse',
+}: {
+  accept?: string
+  file: File | null
+  onFileChange: (file: File | null) => void
+  hint?: string
+}) {
+  return (
+    <label className="group block cursor-pointer">
+      <input
+        type="file"
+        accept={accept}
+        className="sr-only"
+        onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+      />
+      <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/80 px-5 py-8 text-center transition group-hover:border-teal-400 group-hover:bg-teal-50/40">
+        {file ? (
+          <>
+            <p className="text-sm font-semibold text-teal-800">{file.name}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {(file.size / 1024).toFixed(1)} KB · Click to replace
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-slate-700">Upload report file</p>
+            <p className="mt-1 text-xs text-slate-500">{hint}</p>
+          </>
+        )}
+      </div>
+    </label>
+  )
+}
+
+export function DashboardHero({
+  title,
+  description,
+  metrics,
+}: {
+  title: string
+  description: string
+  metrics: { label: string; value: number | string }[]
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-teal-950 via-teal-900 to-teal-800 p-6 text-white shadow-lg">
+      <h3 className="text-xl font-bold tracking-tight">{title}</h3>
+      <p className="mt-2 max-w-2xl text-sm text-teal-100/90">{description}</p>
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        {metrics.map((metric) => (
+          <div
+            key={metric.label}
+            className="rounded-xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur-sm"
+          >
+            <p className="text-[10px] font-bold uppercase tracking-wider text-teal-200">
+              {metric.label}
+            </p>
+            <p className="mt-1 text-2xl font-bold">{metric.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function ClinicalSafetyBanner({
+  patient,
+}: {
+  patient: {
+    allergies?: { allergen: string }[]
+    chronicConditions?: { name: string }[]
+  }
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-900">
+        <p className="text-[11px] font-bold uppercase tracking-wide">Allergies</p>
+        <p className="mt-1 text-sm">
+          {patient.allergies?.map((a) => a.allergen).join(', ') || 'None recorded'}
+        </p>
+      </div>
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">
+        <p className="text-[11px] font-bold uppercase tracking-wide">Chronic conditions</p>
+        <p className="mt-1 text-sm">
+          {patient.chronicConditions?.map((c) => c.name).join(', ') || 'None recorded'}
+        </p>
+      </div>
+    </div>
+  )
+}

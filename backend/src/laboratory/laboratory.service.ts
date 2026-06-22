@@ -14,6 +14,7 @@ import {
   LabTest,
 } from './laboratory.entities';
 import {
+  AttachLabReportFileDto,
   CollectSampleDto,
   CreateLabPanelDto,
   CreateLabRequestDto,
@@ -207,6 +208,24 @@ export class LaboratoryService {
     await this.items.update(item.id, { status: 'resulted' });
     await this.requests.update(item.request.id, { status: 'resulted' });
     return result;
+  }
+
+  async attachReportFile(
+    id: string,
+    dto: AttachLabReportFileDto,
+    request: RequestContext,
+  ) {
+    const labRequest = await this.requests.findOne({
+      where: { id },
+      relations: { patient: true, encounter: true },
+    });
+    if (!labRequest) throw new NotFoundException('Lab request not found');
+    const stamp = new Date().toISOString();
+    const fileNote = `[Report uploaded ${stamp}] ${dto.filename} (${dto.mimeType}, ${dto.fileSize ?? 0} bytes) → ${dto.storagePath}`;
+    labRequest.notes = labRequest.notes ? `${labRequest.notes}\n${fileNote}` : fileNote;
+    labRequest.status = 'verified';
+    labRequest.updatedBy = request.user?.sub ?? null;
+    return this.requests.save(labRequest);
   }
 
   async verifyRequest(id: string, request: RequestContext) {
