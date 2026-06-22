@@ -60,7 +60,7 @@ export class OpdService {
       type: 'opd',
       status: 'registered',
       attendingDoctor: null,
-      presentingComplaint: dto.presentingComplaint,
+      presentingComplaint: dto.presentingComplaint?.trim() || 'Awaiting triage assessment',
       visitType: dto.visitType ?? 'new',
       referralSource: dto.referralSource ?? null,
       referralReason: dto.referralReason ?? null,
@@ -167,6 +167,46 @@ export class OpdService {
       relations: { patient: true },
       order: { startedAt: 'ASC' },
     });
+  }
+
+  async triageBoard() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const encounters = await this.encounters.find({
+      where: { type: 'opd' },
+      relations: { patient: true },
+      order: { startedAt: 'DESC' },
+      take: 80,
+    });
+    const today = encounters.filter((e) => e.startedAt >= todayStart);
+    const triages = await this.triages.find({
+      where: today.map((encounter) => ({ encounter: { id: encounter.id } })),
+      relations: { encounter: true },
+      order: { createdAt: 'DESC' },
+    });
+    const triageByEncounter = new Map(
+      triages.map((triage) => [triage.encounter?.id, triage]),
+    );
+    const countByStatus = (status: OpdEncounterStatus) =>
+      today.filter((encounter) => encounter.status === status).length;
+
+    return {
+      counts: {
+        waitingTriage: countByStatus('registered'),
+        waitingDoctor: countByStatus('triaged'),
+        inConsultation: countByStatus('in_consultation'),
+        completed: countByStatus('completed'),
+        totalToday: today.length,
+      },
+      patients: today.slice(0, 20).map((encounter) => ({
+        id: encounter.id,
+        encounterNo: encounter.encounterNo,
+        status: encounter.status,
+        patientName: `${encounter.patient.firstName} ${encounter.patient.lastName}`,
+        triageColour: triageByEncounter.get(encounter.id)?.colour ?? null,
+        startedAt: encounter.startedAt,
+      })),
+    };
   }
 
   async doctorQueue() {

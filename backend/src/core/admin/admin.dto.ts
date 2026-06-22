@@ -97,6 +97,10 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsString()
   triageSystem?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  clinicalCatalog?: Record<string, unknown>;
 }
 
 export class CreateDepartmentDto {

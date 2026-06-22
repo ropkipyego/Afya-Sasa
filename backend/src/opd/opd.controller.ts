@@ -58,6 +58,12 @@ export class OpdController {
     return this.opdService.triageQueue();
   }
 
+  @Get('triage/board')
+  @RequirePermissions('triage:read')
+  triageBoard() {
+    return this.opdService.triageBoard();
+  }
+
   @Post('encounters/:id/triage')
   @RequirePermissions('triage:create')
   triage(

@@ -16,6 +16,29 @@ import {
   Users,
   UserPlus,
 } from 'lucide-react'
+import {
+  Alert,
+  Button,
+  Card,
+  ClinicalForm,
+  Field,
+  FileUploadZone,
+  FormActions,
+  FormSection,
+  NavGroup,
+  PageHeader,
+  SelectField,
+  TextareaField,
+  TriageBadge,
+  TriageIndicator,
+  triageCardAccent,
+} from './components/ui'
+import { PatientSearchAutocomplete, PatientSearchBrowse } from './components/PatientSearchAutocomplete'
+import { TriageSummaryPanel, VitalsForm } from './components/VitalsFields'
+import { useClinicalCatalog } from './hooks/useClinicalCatalog'
+import { identifierFieldLabel, type ClinicalCatalog } from './lib/clinical-catalog'
+import { uploadClinicalFile } from './lib/clinical-upload'
+import { formDataFromElement, submitClinicalForm } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
 
@@ -70,11 +93,11 @@ function greetingForNow() {
 const navigation = [
   { group: 'Reception', label: 'Patient Search', icon: Search, permission: 'patients:read' },
   { group: 'Reception', label: 'Register Patient', icon: UserPlus, permission: 'patients:create' },
-  { group: 'Outpatient', label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
+  { group: 'Reception', label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
+  { group: 'Reception', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  { group: 'Reception', label: 'Referrals', icon: ClipboardList, permission: 'referrals:read' },
   { group: 'Outpatient', label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
   { group: 'Outpatient', label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
-  { group: 'Outpatient', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
-  { group: 'Outpatient', label: 'Referrals', icon: ClipboardList, permission: 'referrals:read' },
   { group: 'Investigations', label: 'Laboratory', icon: Activity, permission: 'lab_requests:read' },
   { group: 'Investigations', label: 'Radiology', icon: Hospital, permission: 'radiology_requests:read' },
   { group: 'Investigations', label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read' },
@@ -131,66 +154,59 @@ function App() {
   )
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
       <NotificationCenter />
-      <aside className="fixed inset-y-0 left-0 hidden w-80 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="shrink-0 p-6 pb-4">
+      <aside className="fixed inset-y-0 left-0 hidden w-72 flex-col border-r border-slate-200/80 bg-white shadow-sm lg:flex">
+        <div className="shrink-0 border-b border-slate-100 p-5">
           <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-600 p-3 text-white">
-            <Hospital size={28} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase text-blue-600">
-              AfyaSasa
-            </p>
-            <h1 className="text-lg font-bold">Clinical EMR</h1>
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">
-          <p className="font-semibold">Tenant</p>
-          <p>{tenant}</p>
-        </div>
-        </div>
-
-        <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">
-          {Object.entries(groupedNavigation).map(([group, items]) => (
-            <div key={group}>
-              <p className="mb-2 px-2 text-xs font-bold uppercase tracking-wide text-slate-400">
-                {group}
-              </p>
-              <div className="space-y-1">
-                {items.map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <button
-                      key={item.label}
-                      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold ${
-                        activeScreen === item.label
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'text-slate-600 hover:bg-slate-100'
-                      }`}
-                      onClick={() => setActiveScreen(item.label)}
-                    >
-                      <Icon size={18} />
-                      {item.label}
-                    </button>
-                  )
-                })}
-              </div>
+            <div className="rounded-xl bg-gradient-to-br from-teal-600 to-teal-700 p-2.5 text-white shadow-md">
+              <Hospital size={22} />
             </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-teal-600">AfyaSasa</p>
+              <h1 className="text-base font-bold tracking-tight">Clinical EMR</h1>
+            </div>
+          </div>
+          <div className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-800">Tenant</span> · {tenant}
+          </div>
+        </div>
+
+        <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+          {Object.entries(groupedNavigation).map(([group, items]) => (
+            <NavGroup key={group} title={group} defaultOpen={group === 'Reception' || group === 'Outpatient'}>
+              {items.map((item) => {
+                const Icon = item.icon
+                const active = activeScreen === item.label
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition duration-150 ${
+                      active
+                        ? 'bg-teal-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    onClick={() => setActiveScreen(item.label)}
+                  >
+                    <Icon size={17} />
+                    {item.label}
+                  </button>
+                )
+              })}
+            </NavGroup>
           ))}
         </nav>
       </aside>
 
-      <main className="min-h-screen lg:pl-80">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
+      <main className="min-h-screen lg:pl-72">
+        <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur-md">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="min-w-0">
+            <div className="min-w-0 animate-fade-in">
               <p className="text-sm text-slate-500">
-                {greeting} · {workflowDescriptions[activeScreen] ?? 'Clinical workflow workspace'}
+                {greeting} · {workflowDescriptions[activeScreen] ?? 'Clinical workflow'}
               </p>
-              <h2 className="text-2xl font-bold">{activeScreen}</h2>
+              <h2 className="text-xl font-bold tracking-tight">{activeScreen}</h2>
             </div>
             <select
               className="input max-w-xs lg:hidden"
@@ -509,194 +525,155 @@ function PatientSearch({
 }: {
   onSelect: (patient: PatientSummary) => void
 }) {
-  const [query, setQuery] = useState('')
-  const { data, isFetching, refetch } = useQuery({
-    queryKey: ['patients', query],
-    queryFn: () =>
-      apiRequest<PatientSearchResponse>(
-        `/patients?q=${encodeURIComponent(query)}&pageSize=8`,
-      ),
-    enabled: false,
-  })
-
-  const patients = data?.items ?? []
-
-  useEffect(() => {
-    if (query.trim().length < 2) return
-    const timeout = window.setTimeout(() => void refetch(), 300)
-    return () => window.clearTimeout(timeout)
-  }, [query, refetch])
-
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <form
-          className="flex gap-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void refetch()
-          }}
-        >
-          <input
-            className="flex-1 rounded-xl border border-slate-300 px-4 py-3"
-            placeholder="Search by name, patient number, phone, ID, SHA, or QR"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-            {isFetching ? 'Searching...' : 'Search'}
-          </button>
-        </form>
+    <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr] animate-fade-in">
+      <Card>
+        <PageHeader
+          eyebrow="Reception"
+          title="Patient search"
+          description="Search as you type. Open a profile to view allergies, timeline, and printable ID."
+        />
+        <PatientSearchBrowse onSelect={(patient) => onSelect(patient as PatientSummary)} />
+      </Card>
 
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white">
-          {patients.map((patient) => (
-            <button
-              key={patient.id}
-              className="flex w-full items-center justify-between gap-4 border-b border-slate-100 px-4 py-4 text-left last:border-b-0 hover:bg-slate-50"
-              onClick={() => onSelect(patient)}
-            >
-              <div>
-                <p className="font-bold">
-                  {patient.firstName} {patient.lastName}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {patient.patientNo} · DOB {patient.dateOfBirth} · {patient.gender} · {patient.primaryPhone}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  IDs: {patient.identifiers?.map((item) => `${item.type}: ${item.value}`).join(' · ') || 'none recorded'}
-                </p>
-              </div>
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700">
-                Open
-              </span>
-            </button>
-          ))}
-          {!patients.length ? (
-            <p className="py-10 text-center text-slate-500">
-              Search first before registering a new patient.
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      <SafetyPanel />
+      <Card className="bg-gradient-to-br from-teal-900 to-teal-800 text-white">
+        <Activity className="mb-3 text-teal-200" />
+        <h3 className="text-lg font-bold">Before you register</h3>
+        <ul className="mt-4 space-y-2.5 text-sm text-teal-100">
+          <li>Search by name, phone, patient number, or national ID.</li>
+          <li>Only register a new patient if no match appears.</li>
+          <li>Every change is audited — duplicates cause clinical risk.</li>
+          <li>Use the profile drawer to print a QR patient ID card.</li>
+        </ul>
+      </Card>
     </div>
   )
 }
 
 function PatientRegistration() {
   const [message, setMessage] = useState<string | null>(null)
+  const [identifierType, setIdentifierType] = useState('national_id')
   const mutation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
+      const kinName = form.get('kinName')?.toString().trim()
+      const payload: Record<string, unknown> = {
+        firstName: form.get('firstName'),
+        middleName: form.get('middleName') || undefined,
+        lastName: form.get('lastName')?.toString().trim() || '—',
+        dateOfBirth: form.get('dateOfBirth'),
+        gender: form.get('gender'),
+        primaryPhone: form.get('primaryPhone'),
+        secondaryPhone: form.get('secondaryPhone') || undefined,
+        email: form.get('email') || undefined,
+        bloodGroup: form.get('bloodGroup') || undefined,
+        county: form.get('county') || undefined,
+        identifiers: [
+          {
+            type: form.get('identifierType'),
+            value: form.get('identifierValue'),
+            isPrimary: true,
+          },
+        ],
+      }
+      if (kinName) {
+        payload.nextOfKin = [
+          {
+            name: kinName,
+            relationship: form.get('kinRelationship'),
+            primaryPhone: form.get('kinPhone'),
+            isEmergencyContact: true,
+          },
+        ]
+      }
       return apiRequest<PatientSummary>('/patients', {
         method: 'POST',
-        body: JSON.stringify({
-          firstName: form.get('firstName'),
-          lastName: form.get('lastName'),
-          dateOfBirth: form.get('dateOfBirth'),
-          gender: form.get('gender'),
-          primaryPhone: form.get('primaryPhone'),
-          identifiers: [
-            {
-              type: form.get('identifierType'),
-              value: form.get('identifierValue'),
-              isPrimary: true,
-            },
-          ],
-        }),
+        body: JSON.stringify(payload),
       })
     },
-    onSuccess: (patient) =>
-      setMessage(`Registered ${patient.patientNo}. SMS queued.`),
+    onSuccess: (patient) => {
+      setMessage(`Registered ${patient.patientNo}. SMS queued.`)
+      emitAppNotification({
+        title: 'Patient registered',
+        body: `${patient.firstName} ${patient.lastName} (${patient.patientNo})`,
+        severity: 'success',
+      })
+    },
   })
 
   return (
-    <form
-      className="max-w-4xl rounded-3xl bg-white p-6 shadow-sm"
-      onSubmit={(event) => {
-        event.preventDefault()
-        mutation.mutate(event)
-      }}
-    >
-      <div className="mb-6">
-        <p className="text-sm font-semibold uppercase text-blue-600">
-          Search-first registration
-        </p>
-        <h3 className="text-2xl font-bold">Register a patient</h3>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field name="firstName" label="First name" required />
-        <Field name="lastName" label="Last name" required />
-        <Field name="dateOfBirth" label="Date of birth" type="date" required />
-        <label>
-          <span className="text-sm font-semibold">Gender</span>
-          <select
-            name="gender"
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-            required
-          >
+    <Card className="max-w-4xl animate-fade-in">
+      <PageHeader
+        eyebrow="Reception"
+        title="Register a patient"
+        description="Search first to avoid duplicates. Fields marked optional can be left blank."
+      />
+      <ClinicalForm onSubmit={(event) => submitClinicalForm(mutation, event)}>
+        <FormSection title="Legal name" description="Use the name on the patient's official ID.">
+          <Field name="firstName" label="First name" required />
+          <Field name="middleName" label="Other name" hint="Optional" />
+          <Field name="lastName" label="Surname" hint="Optional if not used at this facility" />
+        </FormSection>
+        <FormSection title="Demographics">
+          <Field name="dateOfBirth" label="Date of birth" type="date" required />
+          <SelectField name="gender" label="Gender" required>
             <option value="female">Female</option>
             <option value="male">Male</option>
             <option value="intersex">Intersex</option>
             <option value="unknown">Unknown</option>
-          </select>
-        </label>
-        <Field name="primaryPhone" label="Primary phone" required />
-        <label>
-          <span className="text-sm font-semibold">Identifier type</span>
-          <select
+          </SelectField>
+          <SelectField name="bloodGroup" label="Blood group" hint="Optional">
+            <option value="">Not known</option>
+            <option value="A+">A+</option>
+            <option value="A-">A-</option>
+            <option value="B+">B+</option>
+            <option value="B-">B-</option>
+            <option value="AB+">AB+</option>
+            <option value="AB-">AB-</option>
+            <option value="O+">O+</option>
+            <option value="O-">O-</option>
+          </SelectField>
+          <Field name="county" label="County / region" placeholder="e.g. Nairobi" />
+        </FormSection>
+        <FormSection title="Contact">
+          <Field name="primaryPhone" label="Primary phone" required />
+          <Field name="secondaryPhone" label="Secondary phone" hint="Optional" />
+          <Field name="email" label="Email" type="email" hint="Optional" />
+        </FormSection>
+        <FormSection title="Primary ID document">
+          <SelectField
             name="identifierType"
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
+            label="Document type"
             required
+            value={identifierType}
+            onChange={(event) => setIdentifierType(event.target.value)}
           >
             <option value="national_id">National ID</option>
             <option value="sha">SHA</option>
             <option value="passport">Passport</option>
             <option value="birth_certificate">Birth certificate</option>
             <option value="refugee_id">Refugee ID</option>
-          </select>
-        </label>
-        <Field name="identifierValue" label="Identifier value" required />
-      </div>
-      {mutation.error ? (
-        <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-          {mutation.error.message}
-        </p>
-      ) : null}
-      {message ? (
-        <p className="mt-4 rounded-xl bg-green-50 p-3 text-sm text-green-700">
-          {message}
-        </p>
-      ) : null}
-      <button className="mt-6 rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-        {mutation.isPending ? 'Registering...' : 'Register patient'}
-      </button>
-    </form>
-  )
-}
-
-function Field({
-  name,
-  label,
-  type = 'text',
-  required = false,
-}: {
-  name: string
-  label: string
-  type?: string
-  required?: boolean
-}) {
-  return (
-    <label>
-      <span className="text-sm font-semibold">{label}</span>
-      <input
-        name={name}
-        type={type}
-        required={required}
-        className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-      />
-    </label>
+          </SelectField>
+          <Field
+            name="identifierValue"
+            label={identifierFieldLabel(identifierType)}
+            required
+          />
+        </FormSection>
+        <FormSection title="Next of kin" description="Optional — used for admissions and emergencies.">
+          <Field name="kinName" label="Contact name" />
+          <Field name="kinRelationship" label="Relationship" placeholder="Spouse, parent, sibling" />
+          <Field name="kinPhone" label="Contact phone" />
+        </FormSection>
+        {mutation.error ? <Alert tone="error">{mutation.error.message}</Alert> : null}
+        {message ? <Alert tone="success">{message}</Alert> : null}
+        <FormActions>
+          <Button type="submit" loading={mutation.isPending}>
+            Register patient
+          </Button>
+        </FormActions>
+      </ClinicalForm>
+    </Card>
   )
 }
 
@@ -1157,19 +1134,19 @@ function ProfileSection({
   )
 }
 
-function SafetyPanel() {
-  return (
-    <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
-      <Activity className="mb-4 text-blue-200" />
-      <h3 className="text-xl font-bold">Phase 1 safety rules</h3>
-      <ul className="mt-4 space-y-3 text-sm text-blue-100">
-        <li>Search before registration to avoid duplicate records.</li>
-        <li>At least one identifier and one phone number are mandatory.</li>
-        <li>Every mutating action is audited.</li>
-        <li>Clinical data uses soft delete only.</li>
-      </ul>
-    </div>
-  )
+interface TriageRecord {
+  colour: string
+  category?: string
+  chiefComplaint?: string
+  painScore?: number | null
+  temperature?: string | number | null
+  pulse?: number | null
+  respiratoryRate?: number | null
+  bpSystolic?: number | null
+  bpDiastolic?: number | null
+  spo2?: number | null
+  weight?: string | number | null
+  height?: string | number | null
 }
 
 interface EncounterItem {
@@ -1179,29 +1156,30 @@ interface EncounterItem {
   presentingComplaint: string
   startedAt: string
   patient: PatientSummary
-  triage?: { colour: string; chiefComplaint: string } | null
+  triage?: TriageRecord | null
   consultation?: { id: string; status: string } | null
 }
 
 function OpdCheckIn() {
-  const [query, setQuery] = useState('')
+  const { data: catalog = null } = useClinicalCatalog()
+  const catalogData = catalog as ClinicalCatalog
   const [selected, setSelected] = useState<PatientSummary | null>(null)
-  const { data, refetch, isFetching } = useQuery({
-    queryKey: ['opd-checkin-patients', query],
-    queryFn: () =>
-      apiRequest<PatientSearchResponse>(
-        `/patients?q=${encodeURIComponent(query)}`,
-      ),
-    enabled: false,
-  })
+  const [destination, setDestination] = useState('doctor')
+  const [referralFile, setReferralFile] = useState<File | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const isInvestigationRoute = destination === 'laboratory' || destination === 'radiology'
+
   const createEncounter = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/opd/encounters', {
+    mutationFn: async (formElement: HTMLFormElement) => {
+      if (!selected) throw new Error('Select a patient first.')
+      const form = formDataFromElement(formElement)
+      const encounter = await apiRequest<{ id: string }>('/opd/encounters', {
         method: 'POST',
         body: JSON.stringify({
-          patientId: selected?.id,
-          presentingComplaint: form.get('presentingComplaint'),
+          patientId: selected.id,
+          presentingComplaint: isInvestigationRoute
+            ? undefined
+            : form.get('presentingComplaint') || undefined,
           visitType: form.get('visitType'),
           destination: form.get('destination'),
           departmentName: form.get('departmentName') || undefined,
@@ -1209,145 +1187,200 @@ function OpdCheckIn() {
           receiptNumber: form.get('receiptNumber') || undefined,
         }),
       })
+      if (referralFile && isInvestigationRoute) {
+        const uploaded = await uploadClinicalFile(
+          referralFile,
+          destination,
+          encounter.id,
+        )
+        await apiRequest(`/opd/encounters/${encounter.id}/attachments`, {
+          method: 'POST',
+          body: JSON.stringify({
+            filename: uploaded.filename,
+            mimeType: uploaded.mimeType,
+            storagePath: uploaded.storagePath,
+            fileSize: uploaded.fileSize,
+          }),
+        })
+      }
+      return encounter
     },
     onSuccess: () => {
       emitAppNotification({
-        title: 'OPD check-in complete',
-        body: 'Patient has been sent to triage. Triage nurse should call the patient next.',
+        title: 'Check-in complete',
+        body: isInvestigationRoute
+          ? 'Patient checked in with referral document attached.'
+          : 'Patient sent to triage queue.',
         severity: 'success',
       })
       setSelected(null)
+      setReferralFile(null)
+      setFormError(null)
     },
+    onError: (error: Error) => setFormError(error.message),
   })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Search patient for OPD check-in</h3>
-        <form
-          className="mt-4 flex gap-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void refetch()
-          }}
+    <div className="grid max-w-5xl gap-6 animate-fade-in">
+      <Card>
+        <PageHeader
+          eyebrow="Reception"
+          title="OPD check-in"
+          description="Search as you type, then complete visit details. Complaint is captured at triage for doctor visits."
+        />
+        <ClinicalForm
+          onSubmit={(event) =>
+            submitClinicalForm(createEncounter, event, {
+              validate: () => {
+                if (!selected) return 'Select a patient from the suggestions.'
+                if (isInvestigationRoute && !referralFile) {
+                  return 'Upload the lab or radiology request form.'
+                }
+                return null
+              },
+              onValidationError: setFormError,
+            })
+          }
         >
-          <input
-            className="input"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Name, patient number, phone"
-          />
-          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-            {isFetching ? 'Searching...' : 'Search'}
-          </button>
-        </form>
-        <div className="mt-4 divide-y divide-slate-100">
-          {(data?.items ?? []).map((patient) => (
-            <button
-              key={patient.id}
-              className="w-full py-3 text-left hover:bg-slate-50"
-              onClick={() => setSelected(patient)}
-            >
-              <p className="font-bold">
-                {patient.firstName} {patient.lastName}
-              </p>
-              <p className="text-sm text-slate-500">
-                {patient.patientNo} · {patient.primaryPhone}
-              </p>
-            </button>
-          ))}
-        </div>
-      </div>
+          <FormSection title="Find patient" columns={1}>
+            <PatientSearchAutocomplete
+              selected={selected}
+              onSelect={(patient) => setSelected(patient as PatientSummary | null)}
+            />
+          </FormSection>
 
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createEncounter.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <h3 className="text-xl font-bold">Create OPD encounter</h3>
-        <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
-          {selected
-            ? `${selected.firstName} ${selected.lastName} (${selected.patientNo})`
-            : 'Select a patient from search results first.'}
-        </p>
-        <label>
-          <span className="text-sm font-semibold">Visit type</span>
-          <select name="visitType" className="input mt-2" required>
-            <option value="new">New</option>
-            <option value="follow_up">Follow-up</option>
-            <option value="referral">Referral</option>
-          </select>
-        </label>
-        <label>
-          <span className="text-sm font-semibold">Where is the patient going?</span>
-          <select name="destination" className="input mt-2" required>
-            <option value="doctor">See doctor / consultation</option>
-            <option value="laboratory">Direct to laboratory</option>
-            <option value="radiology">Direct to imaging/radiology</option>
-            <option value="theatre">Theatre review</option>
-            <option value="maternity">Maternity</option>
-            <option value="emergency">Emergency</option>
-          </select>
-        </label>
-        <Field name="departmentName" label="Department / clinic / doctor category" />
-        <div className="grid gap-4 md:grid-cols-2">
-          <label>
-            <span className="text-sm font-semibold">Payment reference source</span>
-            <select name="paymentMethod" className="input mt-2">
-              <option value="">Not captured</option>
-              <option value="quickbooks">QuickBooks receipt</option>
-              <option value="mpesa">M-Pesa</option>
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="insurance">Insurance</option>
-              <option value="waived">Waived</option>
-            </select>
-          </label>
-          <Field name="receiptNumber" label="Receipt / reference number" />
-        </div>
-        <label>
-          <span className="text-sm font-semibold">Presenting complaint</span>
-          <textarea name="presentingComplaint" className="input mt-2" required />
-        </label>
-        {createEncounter.error ? (
-          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {createEncounter.error.message}
-          </p>
-        ) : null}
-        {createEncounter.isSuccess ? (
-          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-            OPD encounter created. Patient is now in triage queue.
-          </p>
-        ) : null}
-        <button
-          className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white"
-          disabled={!selected || createEncounter.isPending}
-        >
-          Check in patient
-        </button>
-      </form>
+          {selected ? (
+            <>
+              <FormSection title="Visit details">
+                <SelectField name="visitType" label="Visit type" required>
+                  {(catalogData?.visitTypes ?? []).map((item: { value: string; label: string }) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField
+                  name="destination"
+                  label="Where is the patient going?"
+                  required
+                  value={destination}
+                  onChange={(event) => setDestination(event.target.value)}
+                >
+                  <option value="doctor">See doctor / consultation</option>
+                  <option value="laboratory">Direct to laboratory</option>
+                  <option value="radiology">Direct to imaging / radiology</option>
+                  <option value="theatre">Theatre review</option>
+                  <option value="maternity">Maternity</option>
+                  <option value="emergency">Emergency</option>
+                </SelectField>
+                <SelectField name="departmentName" label="Clinic / department" required>
+                  <option value="">Select clinic</option>
+                  {(catalogData?.clinics ?? []).map((clinic: string) => (
+                    <option key={clinic} value={clinic}>
+                      {clinic}
+                    </option>
+                  ))}
+                </SelectField>
+                <SelectField name="doctorCategory" label="Doctor category" hint="Optional">
+                  <option value="">Not specified</option>
+                  {(catalogData?.doctorCategories ?? []).map((category: string) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </SelectField>
+                {(catalogData?.assignableDoctors ?? []).length ? (
+                  <SelectField name="assignableDoctor" label="Preferred doctor" hint="Optional">
+                    <option value="">Any available</option>
+                    {catalogData?.assignableDoctors.map((doctor: string) => (
+                      <option key={doctor} value={doctor}>
+                        {doctor}
+                      </option>
+                    ))}
+                  </SelectField>
+                ) : null}
+              </FormSection>
+
+              <FormSection title="Payment reference">
+                <SelectField name="paymentMethod" label="Payment method">
+                  <option value="">Not captured</option>
+                  {(catalogData?.paymentMethods ?? []).map((method: { value: string; label: string }) => (
+                    <option key={method.value} value={method.value}>
+                      {method.label}
+                    </option>
+                  ))}
+                </SelectField>
+                <Field name="receiptNumber" label="Receipt / reference number" />
+              </FormSection>
+
+              {isInvestigationRoute ? (
+                <FormSection title="Referral document" description="Upload the request form — no complaint needed at reception.">
+                  <FileUploadZone
+                    file={referralFile}
+                    onFileChange={setReferralFile}
+                    hint="Lab request form, imaging request, or doctor referral letter"
+                  />
+                </FormSection>
+              ) : (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  Presenting complaint will be recorded by the triage nurse. The doctor assesses the patient during consultation.
+                </p>
+              )}
+            </>
+          ) : null}
+
+          {formError ? <Alert tone="error">{formError}</Alert> : null}
+          {createEncounter.isSuccess ? (
+            <Alert tone="success">Patient checked in successfully.</Alert>
+          ) : null}
+          <FormActions>
+            <Button type="submit" loading={createEncounter.isPending} disabled={!selected}>
+              Check in patient
+            </Button>
+          </FormActions>
+        </ClinicalForm>
+      </Card>
     </div>
   )
 }
 
 function TriageQueue() {
   const queryClient = useQueryClient()
+  const [activeId, setActiveId] = useState<string | null>(null)
   const { data: encounters = [] } = useQuery({
     queryKey: ['triage-queue'],
     queryFn: () => apiRequest<EncounterItem[]>('/opd/triage/queue'),
   })
+  const { data: board } = useQuery({
+    queryKey: ['triage-board'],
+    queryFn: () =>
+      apiRequest<{
+        counts: {
+          waitingTriage: number
+          waitingDoctor: number
+          inConsultation: number
+          completed: number
+          totalToday: number
+        }
+        patients: {
+          id: string
+          encounterNo: string
+          status: string
+          patientName: string
+          triageColour: string | null
+        }[]
+      }>('/opd/triage/board'),
+    refetchInterval: 20_000,
+  })
   const triage = useMutation({
     mutationFn: ({
-      event,
+      formElement,
       encounterId,
     }: {
-      event: FormEvent<HTMLFormElement>
+      formElement: HTMLFormElement
       encounterId: string
     }) => {
-      const form = new FormData(event.currentTarget)
+      const form = formDataFromElement(formElement)
       return apiRequest(`/opd/encounters/${encounterId}/triage`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1369,84 +1402,151 @@ function TriageQueue() {
     onSuccess: async () => {
       emitAppNotification({
         title: 'Triage saved',
-        body: 'Patient has been sent to the doctor queue. Doctor should call the patient based on urgency.',
+        body: 'Patient moved to doctor queue.',
         severity: 'success',
       })
+      setActiveId(null)
       await queryClient.invalidateQueries({ queryKey: ['triage-queue'] })
+      await queryClient.invalidateQueries({ queryKey: ['triage-board'] })
     },
   })
 
+  const activeEncounter = encounters.find((e) => e.id === activeId) ?? encounters[0] ?? null
+
+  const statusLabels: Record<string, string> = {
+    registered: 'Awaiting triage',
+    triaged: 'Waiting for doctor',
+    in_consultation: 'With doctor',
+    completed: 'Completed',
+  }
+
   return (
-    <div className="space-y-4">
-      {encounters.map((encounter) => (
-        <form
-          key={encounter.id}
-          className="grid gap-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-100 lg:grid-cols-[0.8fr_1.2fr]"
-          onSubmit={(event) => {
-            event.preventDefault()
-            triage.mutate({ event, encounterId: encounter.id })
-          }}
-        >
-          <div className="space-y-4">
-            <p className="text-sm font-semibold text-blue-600">
-              {encounter.encounterNo}
-            </p>
-            <h3 className="text-xl font-bold">
-              {encounter.patient.firstName} {encounter.patient.lastName}
+    <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr] animate-fade-in">
+      <div className="space-y-4">
+        <Card>
+          <PageHeader title="Today's OPD flow" description="Live status of patients in the clinic today." />
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              { label: 'Awaiting triage', value: board?.counts.waitingTriage ?? 0, tone: 'bg-amber-50 text-amber-900' },
+              { label: 'Doctor queue', value: board?.counts.waitingDoctor ?? 0, tone: 'bg-sky-50 text-sky-900' },
+              { label: 'In consultation', value: board?.counts.inConsultation ?? 0, tone: 'bg-teal-50 text-teal-900' },
+              { label: 'Completed', value: board?.counts.completed ?? 0, tone: 'bg-emerald-50 text-emerald-900' },
+            ].map((item) => (
+              <div key={item.label} className={`rounded-xl px-3 py-3 ${item.tone}`}>
+                <p className="text-[10px] font-bold uppercase">{item.label}</p>
+                <p className="text-2xl font-bold">{item.value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 max-h-52 space-y-1 overflow-y-auto">
+            {(board?.patients ?? []).map((patient) => (
+              <div
+                key={patient.id}
+                className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm"
+              >
+                <span className="font-medium">{patient.patientName}</span>
+                <span className="text-xs capitalize text-slate-500">
+                  {statusLabels[patient.status] ?? patient.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <PageHeader title="Waiting for triage" description={`${encounters.length} patient(s) in queue`} />
+          <div className="mt-3 space-y-2">
+            {encounters.map((encounter) => (
+              <button
+                key={encounter.id}
+                type="button"
+                onClick={() => setActiveId(encounter.id)}
+                className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                  activeEncounter?.id === encounter.id
+                    ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-200'
+                    : 'border-slate-200 hover:border-teal-200'
+                }`}
+              >
+                <p className="font-semibold">
+                  {encounter.patient.firstName} {encounter.patient.lastName}
+                </p>
+                <p className="text-xs text-slate-500">{encounter.encounterNo}</p>
+              </button>
+            ))}
+            {!encounters.length ? (
+              <p className="py-8 text-center text-sm text-slate-500">No patients waiting.</p>
+            ) : null}
+          </div>
+        </Card>
+      </div>
+
+      {activeEncounter ? (
+        <Card className="border-l-4 border-l-teal-500">
+          <div className="border-b border-slate-100 pb-5">
+            <p className="text-xs font-bold uppercase text-teal-600">{activeEncounter.encounterNo}</p>
+            <h3 className="mt-1 text-2xl font-bold">
+              {activeEncounter.patient.firstName} {activeEncounter.patient.lastName}
             </h3>
-            <p className="text-sm text-slate-500">
-              {encounter.presentingComplaint}
-            </p>
-            <PatientSafetyBanner patient={encounter.patient} />
-            <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-              <p className="font-semibold text-slate-800">After submit</p>
-              <p className="mt-1">
-                The patient moves to the doctor queue. Red/orange patients should be called first.
-              </p>
+            <p className="text-sm text-slate-500">{activeEncounter.patient.patientNo}</p>
+            <div className="mt-4">
+              <PatientSafetyBanner patient={activeEncounter.patient} />
             </div>
           </div>
-          <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
-              <label>
-                <span className="text-sm font-semibold">Severity</span>
-                <select name="colour" className="input mt-2" required>
-                  <option value="red">Emergency / Red</option>
-                  <option value="orange">Urgent / Orange</option>
-                  <option value="yellow">Priority / Yellow</option>
-                  <option value="green">Routine / Green</option>
-                  <option value="blue">Non-urgent / Blue</option>
-                </select>
-              </label>
-              <Field name="category" label="Triage category" required />
-              <Field name="painScore" label="Pain score 0-10" />
-            </div>
-            <input
+
+          <ClinicalForm
+            className="mt-6"
+            onSubmit={(event) => {
+              event.preventDefault()
+              triage.mutate({ formElement: event.currentTarget, encounterId: activeEncounter.id })
+            }}
+          >
+            <FormSection title="Triage assessment" columns={3}>
+              <SelectField name="colour" label="Triage colour" required>
+                <option value="red">Emergency — Red</option>
+                <option value="orange">Urgent — Orange</option>
+                <option value="yellow">Priority — Yellow</option>
+                <option value="green">Routine — Green</option>
+                <option value="blue">Non-urgent — Blue</option>
+              </SelectField>
+              <SelectField name="category" label="Category" required>
+                <option value="general">General</option>
+                <option value="paediatric">Paediatric</option>
+                <option value="obstetric">Obstetric</option>
+                <option value="trauma">Trauma</option>
+                <option value="mental_health">Mental health</option>
+              </SelectField>
+              <SelectField name="painScore" label="Pain score" required>
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
+                  <option key={score} value={score}>
+                    {score} — {score <= 3 ? 'Mild' : score <= 6 ? 'Moderate' : 'Severe'}
+                  </option>
+                ))}
+              </SelectField>
+            </FormSection>
+
+            <TextareaField
               name="chiefComplaint"
-              className="input md:col-span-3"
-              placeholder="Chief complaint"
+              label="Chief complaint"
+              placeholder="Patient's main concern in their own words"
               required
             />
-            <div className="grid gap-3 md:grid-cols-4">
-              <Field name="temperature" label="Temp C" />
-              <Field name="pulse" label="Pulse" />
-              <Field name="respiratoryRate" label="Resp rate" />
-              <Field name="spo2" label="SpO2 %" />
-              <Field name="bpSystolic" label="BP systolic" />
-              <Field name="bpDiastolic" label="BP diastolic" />
-              <Field name="weight" label="Weight kg" />
-              <Field name="height" label="Height cm" />
-            </div>
-            <button className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white">
-              {triage.isPending ? 'Saving triage...' : 'Submit triage and send to doctor'}
-            </button>
-          </div>
-        </form>
-      ))}
-      {!encounters.length ? (
-        <p className="rounded-3xl bg-white p-10 text-center text-slate-500">
-          No patients waiting for triage.
-        </p>
-      ) : null}
+
+            <FormSection title="Vitals" description="Tap a normal preset or enter a custom value. Abnormal readings are flagged for the doctor." columns={1}>
+              <VitalsForm />
+            </FormSection>
+
+            <FormActions>
+              <Button type="submit" loading={triage.isPending} className="w-full sm:w-auto">
+                Submit triage → doctor queue
+              </Button>
+            </FormActions>
+          </ClinicalForm>
+        </Card>
+      ) : (
+        <Card>
+          <p className="py-16 text-center text-slate-500">Select a patient from the queue to begin triage.</p>
+        </Card>
+      )}
     </div>
   )
 }
@@ -1468,8 +1568,8 @@ function DoctorQueue() {
     queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
   })
   const createConsultation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest<{ id: string }>(`/opd/encounters/${selected?.id}/consultations`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1597,55 +1697,89 @@ function DoctorQueue() {
   })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.7fr_1.3fr]">
+    <div className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr] animate-fade-in">
       <div className="space-y-3">
+        <PageHeader title="Doctor queue" description="Sorted by triage urgency. Colour shows throughout consultation." />
         {queue.map((encounter) => (
           <button
             key={encounter.id}
-            className="w-full rounded-3xl bg-white p-5 text-left shadow-sm hover:ring-2 hover:ring-blue-200"
+            type="button"
+            className={`w-full rounded-xl border-l-4 p-4 text-left shadow-sm transition duration-150 hover:shadow-md ${triageCardAccent(encounter.triage?.colour)} ${
+              selected?.id === encounter.id ? 'ring-2 ring-teal-500' : ''
+            }`}
             onClick={() => setSelected(encounter)}
           >
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase text-blue-700">
-              {encounter.triage?.colour ?? 'untriaged'}
-            </span>
+            <div className="flex items-start justify-between gap-2">
+              <TriageIndicator colour={encounter.triage?.colour} label="Triage" size="lg" />
+              <TriageBadge colour={encounter.triage?.colour} />
+            </div>
             <h3 className="mt-3 text-lg font-bold">
               {encounter.patient.firstName} {encounter.patient.lastName}
             </h3>
-            <p className="text-sm text-slate-500">
-              {encounter.presentingComplaint}
+            <p className="text-sm text-slate-600">
+              {encounter.triage?.chiefComplaint ?? encounter.presentingComplaint}
             </p>
           </button>
         ))}
+        {!queue.length ? (
+          <Card><p className="py-10 text-center text-slate-500">No patients in queue.</p></Card>
+        ) : null}
       </div>
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+
+      <Card
+        className={`border-l-4 transition-colors duration-300 ${
+          selected ? triageCardAccent(selected.triage?.colour) : ''
+        }`}
+      >
         {selected ? (
           <>
-            <h3 className="text-xl font-bold">
-              Consultation: {selected.patient.firstName}{' '}
-              {selected.patient.lastName}
-            </h3>
-            <PatientSafetyBanner patient={selected.patient} />
-            <form
-              className="mt-6 grid gap-4"
-              onSubmit={(event) => {
-                event.preventDefault()
-                createConsultation.mutate(event)
-              }}
+            <PageHeader
+              title={`${selected.patient.firstName} ${selected.patient.lastName}`}
+              description={selected.encounterNo}
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <TriageBadge colour={selected.triage?.colour} />
+              <span className="text-xs font-medium text-slate-500 capitalize">
+                {selected.triage?.category ?? 'General'} category
+              </span>
+            </div>
+
+            {selected.triage ? (
+              <div className="mt-4">
+                <TriageSummaryPanel triage={selected.triage} />
+              </div>
+            ) : null}
+
+            <div className="mt-4">
+              <PatientSafetyBanner patient={selected.patient} />
+            </div>
+
+            <ClinicalForm
+              className="mt-6"
+              onSubmit={(event) => submitClinicalForm(createConsultation, event)}
             >
-              <textarea name="subjective" className="input min-h-28" placeholder="Subjective: history, symptoms, HPI" required />
-              <textarea name="objective" className="input min-h-28" placeholder="Objective: exam findings, vitals review" required />
-              <textarea name="assessment" className="input min-h-28" placeholder="Assessment: clinical impression" required />
-              <textarea name="plan" className="input min-h-32" placeholder="Plan: treatment, prescriptions, orders, advice" required />
-              <input name="followUpDate" className="input" type="date" />
-              <input
-                name="followUpInstructions"
-                className="input"
-                placeholder="Follow-up instructions"
-              />
-              <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-                {createConsultation.isPending ? 'Saving SOAP...' : 'Save SOAP and keep patient open'}
-              </button>
-            </form>
+              <FormSection title="SOAP consultation" columns={1}>
+                <TextareaField name="subjective" label="Subjective" placeholder="History, symptoms, HPI" required />
+                <TextareaField name="objective" label="Objective" placeholder="Exam findings — review triage vitals above" required />
+                <TextareaField name="assessment" label="Assessment" placeholder="Clinical impression" required />
+                <TextareaField name="plan" label="Plan" placeholder="Treatment, prescriptions, follow-up" required />
+                <Field name="followUpDate" label="Follow-up date" type="date" />
+                <Field name="followUpInstructions" label="Follow-up instructions" />
+              </FormSection>
+              <FormActions>
+                <Button type="submit" loading={createConsultation.isPending}>
+                  Save SOAP note
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  loading={completeEncounter.isPending}
+                  onClick={() => completeEncounter.mutate()}
+                >
+                  Complete visit
+                </Button>
+              </FormActions>
+            </ClinicalForm>
             {recentSoap.length ? (
               <div className="mt-6 rounded-2xl bg-green-50 p-4 text-green-900">
                 <p className="font-bold">Recently saved consultations</p>
@@ -1757,7 +1891,7 @@ function DoctorQueue() {
         ) : (
           <p className="text-slate-500">Select a patient from the doctor queue.</p>
         )}
-      </div>
+      </Card>
     </div>
   )
 }
@@ -2322,9 +2456,10 @@ function BedDashboard() {
 
 function AdmissionsScreen() {
   const queryClient = useQueryClient()
-  const [patientQuery, setPatientQuery] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
   const [selectedAdmissionId, setSelectedAdmissionId] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+
   const { data: admissions = [] } = useQuery({
     queryKey: ['admissions'],
     queryFn: () =>
@@ -2346,25 +2481,18 @@ function AdmissionsScreen() {
         '/inpatient/beds/available',
       ),
   })
-  const {
-    data: patientResults,
-    refetch: searchPatients,
-    isFetching: searchingPatients,
-  } = useQuery({
-    queryKey: ['admission-patient-search', patientQuery],
-    queryFn: () =>
-      apiRequest<PatientSearchResponse>(
-        `/patients?q=${encodeURIComponent(patientQuery)}`,
-      ),
-    enabled: false,
-  })
+
+  const selectedAdmission = admissions.find((item) => item.id === selectedAdmissionId) ?? null
+  const activeCount = admissions.filter((item) => item.status === 'active').length
+
   const createAdmission = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      if (!selectedPatient) throw new Error('Select a patient first.')
+      const form = formDataFromElement(formElement)
       return apiRequest('/inpatient/admissions', {
         method: 'POST',
         body: JSON.stringify({
-          patientId: selectedPatient?.id,
+          patientId: selectedPatient.id,
           encounterId: form.get('encounterId') || undefined,
           bedId: form.get('bedId'),
           reason: form.get('reason'),
@@ -2374,14 +2502,18 @@ function AdmissionsScreen() {
     },
     onSuccess: async () => {
       setSelectedPatient(null)
+      setFormError(null)
+      emitAppNotification({ title: 'Patient admitted', body: 'Bed marked occupied.', severity: 'success' })
       await queryClient.invalidateQueries({ queryKey: ['admissions'] })
       await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
       await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
     },
+    onError: (error: Error) => setFormError(error.message),
   })
+
   const addProgressNote = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/progress-notes`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2392,10 +2524,13 @@ function AdmissionsScreen() {
         }),
       })
     },
+    onSuccess: () =>
+      emitAppNotification({ title: 'Progress note saved', body: 'Admission progress note recorded.', severity: 'success' }),
   })
+
   const createDischargeSummary = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/discharge-summary`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2412,23 +2547,26 @@ function AdmissionsScreen() {
       })
     },
   })
+
   const completeSummary = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/discharge-summaries/${form.get('summaryId')}/complete`, {
         method: 'POST',
       })
     },
   })
+
   const dischargeAdmission = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/discharge`, {
         method: 'POST',
         body: JSON.stringify({ conditionOnDischarge: form.get('conditionOnDischarge') }),
       })
     },
     onSuccess: async () => {
+      setSelectedAdmissionId('')
       await queryClient.invalidateQueries({ queryKey: ['admissions'] })
       await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
       await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
@@ -2436,208 +2574,188 @@ function AdmissionsScreen() {
   })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Active admissions" value={admissions.filter((item) => item.status === 'active').length} />
+        <MetricCard label="Active admissions" value={activeCount} />
         <MetricCard label="Available beds" value={beds.length} />
         <MetricCard label="All admissions" value={admissions.length} />
-        <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
-          <p className="text-sm text-blue-200">Flow</p>
-          <p className="mt-2 text-sm">
-            Search patient → choose available bed → admit → bed becomes occupied.
+        <Card className="bg-gradient-to-br from-teal-900 to-teal-800 text-white">
+          <p className="text-xs font-bold uppercase text-teal-200">Flow</p>
+          <p className="mt-2 text-sm text-teal-100">
+            Search patient → pick bed → admit → document → discharge.
           </p>
-        </div>
+        </Card>
       </div>
-      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createAdmission.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <h3 className="text-xl font-bold">Create admission</h3>
-        <div className="rounded-2xl bg-slate-50 p-4">
-          <p className="text-sm font-semibold">1. Search and select patient</p>
-          <div className="mt-3 flex gap-2">
-            <input
-              className="input"
-              placeholder="Search name, patient no, phone"
-              value={patientQuery}
-              onChange={(event) => setPatientQuery(event.target.value)}
-            />
-            <button
-              type="button"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"
-              onClick={() => void searchPatients()}
-            >
-              {searchingPatients ? 'Searching...' : 'Search'}
-            </button>
-          </div>
-          <div className="mt-3 max-h-44 overflow-y-auto divide-y divide-slate-200">
-            {(patientResults?.items ?? []).map((patient) => (
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <PageHeader
+            eyebrow="Inpatient"
+            title="Admit patient"
+            description="Search as you type, then assign an available bed."
+          />
+          <ClinicalForm
+            onSubmit={(event) =>
+              submitClinicalForm(createAdmission, event, {
+                validate: () => (!selectedPatient ? 'Select a patient first.' : null),
+                onValidationError: setFormError,
+              })
+            }
+          >
+            <FormSection title="Patient" columns={1}>
+              <PatientSearchAutocomplete
+                selected={selectedPatient}
+                onSelect={(patient) => setSelectedPatient(patient as PatientSummary | null)}
+              />
+            </FormSection>
+            <FormSection title="Bed & admission">
+              <Field name="encounterId" label="Source encounter ID" hint="Optional — link to OPD visit" />
+              <SelectField name="bedId" label="Available bed" required>
+                <option value="">Select a bed</option>
+                {beds.map((bed) => (
+                  <option key={bed.id} value={bed.id}>
+                    {bed.ward?.name} · {bed.bedNo}
+                  </option>
+                ))}
+              </SelectField>
+              <Field name="reason" label="Reason for admission" required />
+              <SelectField name="type" label="Admission type" required>
+                <option value="elective">Elective</option>
+                <option value="emergency">Emergency</option>
+                <option value="transfer">Transfer</option>
+              </SelectField>
+            </FormSection>
+            {formError ? <Alert tone="error">{formError}</Alert> : null}
+            {createAdmission.isSuccess ? (
+              <Alert tone="success">Patient admitted. Bed status updated.</Alert>
+            ) : null}
+            <FormActions>
+              <Button
+                type="submit"
+                loading={createAdmission.isPending}
+                disabled={!selectedPatient || !beds.length}
+              >
+                Admit patient
+              </Button>
+            </FormActions>
+          </ClinicalForm>
+        </Card>
+
+        <Card>
+          <PageHeader title="Admissions list" description="Select one to document progress or discharge." />
+          <div className="mt-2 max-h-[28rem] space-y-2 overflow-y-auto">
+            {admissions.map((admission) => (
               <button
+                key={admission.id}
                 type="button"
-                key={patient.id}
-                className={`w-full px-2 py-3 text-left text-sm hover:bg-white ${
-                  selectedPatient?.id === patient.id ? 'bg-white font-semibold text-blue-700' : ''
-                }`}
-                onClick={() => setSelectedPatient(patient)}
-              >
-                {patient.firstName} {patient.lastName} · {patient.patientNo} · {patient.primaryPhone}
-              </button>
-            ))}
-          </div>
-          <p className="mt-3 rounded-xl bg-white p-3 text-sm text-slate-600">
-            Selected:{' '}
-            {selectedPatient
-              ? `${selectedPatient.firstName} ${selectedPatient.lastName} (${selectedPatient.patientNo})`
-              : 'none'}
-          </p>
-        </div>
-        <Field name="encounterId" label="Source encounter ID" />
-        <label>
-          <span className="text-sm font-semibold">2. Available bed</span>
-          <select name="bedId" className="input mt-2" required>
-            <option value="">Select a bed</option>
-            {beds.map((bed) => (
-              <option key={bed.id} value={bed.id}>
-                {bed.ward?.name} · {bed.bedNo}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Field name="reason" label="3. Reason for admission" required />
-        <select name="type" className="input" required>
-          <option value="elective">Elective</option>
-          <option value="emergency">Emergency</option>
-          <option value="transfer">Transfer</option>
-        </select>
-        {createAdmission.error ? (
-          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {createAdmission.error.message}
-          </p>
-        ) : null}
-        {createAdmission.isSuccess ? (
-          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-            Patient admitted successfully. Bed status updated.
-          </p>
-        ) : null}
-        <button
-          className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-          disabled={!selectedPatient || !beds.length || createAdmission.isPending}
-        >
-          {createAdmission.isPending ? 'Admitting...' : 'Admit patient'}
-        </button>
-      </form>
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Admissions</h3>
-        <div className="mt-4 divide-y divide-slate-100">
-          {admissions.map((admission) => (
-            <div key={admission.id} className="py-4">
-              <p className="font-bold">
-                {admission.patient?.firstName} {admission.patient?.lastName}
-              </p>
-              <p className="text-sm text-slate-500">
-                {admission.admissionNo} · {admission.ward?.name} ·{' '}
-                {admission.bed?.bedNo} · {admission.status}
-              </p>
-              <button
-                className="mt-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white"
                 onClick={() => setSelectedAdmissionId(admission.id)}
+                className={`w-full rounded-xl border p-4 text-left transition ${
+                  selectedAdmissionId === admission.id
+                    ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-200'
+                    : 'border-slate-200 hover:border-teal-200'
+                }`}
               >
-                Work on this admission
+                <p className="font-semibold text-slate-900">
+                  {admission.patient?.firstName} {admission.patient?.lastName}
+                </p>
+                <p className="text-sm text-slate-500">
+                  {admission.admissionNo} · {admission.ward?.name} · Bed {admission.bed?.bedNo}
+                </p>
+                <span className="mt-2 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold capitalize">
+                  {admission.status}
+                </span>
               </button>
+            ))}
+            {!admissions.length ? (
+              <p className="py-10 text-center text-sm text-slate-500">
+                No admissions yet. Create beds on the Bed Dashboard first.
+              </p>
+            ) : null}
+          </div>
+        </Card>
+      </div>
+
+      {selectedAdmission ? (
+        <Card>
+          <PageHeader
+            title={`${selectedAdmission.patient?.firstName} ${selectedAdmission.patient?.lastName}`}
+            description={`${selectedAdmission.admissionNo} · ${selectedAdmission.ward?.name} · Bed ${selectedAdmission.bed?.bedNo}`}
+          />
+          {selectedAdmission.patient ? (
+            <div className="mb-6">
+              <PatientSafetyBanner patient={selectedAdmission.patient} />
             </div>
-          ))}
-          {!admissions.length ? (
-            <p className="py-10 text-center text-slate-500">
-              No admissions yet. Create wards and beds first, then admit a patient.
-            </p>
           ) : null}
-        </div>
-      </div>
-      </div>
-      <div className="grid gap-6 xl:grid-cols-3">
-        <div className="rounded-3xl bg-white p-6 shadow-sm xl:col-span-3">
-          <h3 className="text-xl font-bold">Admission workspace</h3>
-          <p className="mt-2 text-sm text-slate-500">
-            Selected admission: {selectedAdmissionId || 'choose an admission above'}
-          </p>
-        </div>
-        <QuickAddForm
-          title="Add daily progress note"
-          pending={addProgressNote.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            addProgressNote.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <textarea name="subjective" className="input" placeholder="Subjective" required />
-          <textarea name="objective" className="input" placeholder="Objective" required />
-          <textarea name="assessment" className="input" placeholder="Assessment" required />
-          <textarea name="plan" className="input" placeholder="Plan" required />
-          {addProgressNote.isSuccess ? <p className="text-sm text-green-700">Progress note saved.</p> : null}
-        </QuickAddForm>
-        <QuickAddForm
-          title="Create discharge summary"
-          pending={createDischargeSummary.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createDischargeSummary.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="presentingComplaint" className="input" placeholder="Presenting complaint" required />
-          <textarea name="history" className="input" placeholder="History" required />
-          <textarea name="examOnAdmission" className="input" placeholder="Exam on admission" required />
-          <textarea name="investigationsSummary" className="input" placeholder="Investigations summary" required />
-          <textarea name="finalDiagnosis" className="input" placeholder="Final diagnosis" required />
-          <textarea name="treatmentGiven" className="input" placeholder="Treatment given" required />
-          <textarea name="dischargeMeds" className="input" placeholder="Discharge medications" required />
-          <textarea name="followUpInstructions" className="input" placeholder="Follow-up instructions" required />
-          <input name="diet" className="input" placeholder="Diet advice" />
-          {createDischargeSummary.data ? (
-            <p className="rounded-xl bg-green-50 p-3 text-xs text-green-700">
-              Summary created. Copy ID to complete: {String((createDischargeSummary.data as { id?: string }).id ?? '')}
-            </p>
-          ) : null}
-        </QuickAddForm>
-        <div className="space-y-6">
-          <QuickAddForm
-            title="Complete discharge summary"
-            pending={completeSummary.isPending}
-            onSubmit={(event) => {
-              event.preventDefault()
-              completeSummary.mutate(event)
-              event.currentTarget.reset()
-            }}
-          >
-            <input name="summaryId" className="input" placeholder="Discharge summary ID" required />
-            {completeSummary.isSuccess ? <p className="text-sm text-green-700">Summary completed.</p> : null}
-          </QuickAddForm>
-          <QuickAddForm
-            title="Discharge admission"
-            pending={dischargeAdmission.isPending}
-            onSubmit={(event) => {
-              event.preventDefault()
-              dischargeAdmission.mutate(event)
-            }}
-          >
-            <select name="conditionOnDischarge" className="input" required>
-              <option value="improved">Improved</option>
-              <option value="same">Same</option>
-              <option value="deteriorated">Deteriorated</option>
-              <option value="died">Died</option>
-              <option value="absconded">Absconded</option>
-            </select>
-            {dischargeAdmission.error ? <p className="text-sm text-red-700">{dischargeAdmission.error.message}</p> : null}
-            {dischargeAdmission.isSuccess ? <p className="text-sm text-green-700">Admission discharged.</p> : null}
-          </QuickAddForm>
-        </div>
-      </div>
+
+          <div className="grid gap-6 xl:grid-cols-3">
+            <ClinicalForm onSubmit={(event) => submitClinicalForm(addProgressNote, event)}>
+              <FormSection title="Daily progress note" columns={1}>
+                <TextareaField name="subjective" label="Subjective" required />
+                <TextareaField name="objective" label="Objective" required />
+                <TextareaField name="assessment" label="Assessment" required />
+                <TextareaField name="plan" label="Plan" required />
+              </FormSection>
+              <FormActions className="border-0 pt-0">
+                <Button type="submit" loading={addProgressNote.isPending}>
+                  Save progress note
+                </Button>
+              </FormActions>
+            </ClinicalForm>
+
+            <ClinicalForm onSubmit={(event) => submitClinicalForm(createDischargeSummary, event)}>
+              <FormSection title="Discharge summary" columns={1}>
+                <Field name="presentingComplaint" label="Presenting complaint" required />
+                <TextareaField name="history" label="History" required />
+                <TextareaField name="examOnAdmission" label="Exam on admission" required />
+                <TextareaField name="investigationsSummary" label="Investigations" required />
+                <TextareaField name="finalDiagnosis" label="Final diagnosis" required />
+                <TextareaField name="treatmentGiven" label="Treatment given" required />
+                <TextareaField name="dischargeMeds" label="Discharge medications" required />
+                <TextareaField name="followUpInstructions" label="Follow-up" required />
+                <Field name="diet" label="Diet advice" />
+              </FormSection>
+              <FormActions className="border-0 pt-0">
+                <Button type="submit" loading={createDischargeSummary.isPending}>
+                  Create summary
+                </Button>
+              </FormActions>
+            </ClinicalForm>
+
+            <div className="space-y-6">
+              <ClinicalForm onSubmit={(event) => submitClinicalForm(completeSummary, event)}>
+                <FormSection title="Complete summary" columns={1}>
+                  <Field name="summaryId" label="Summary ID" required />
+                </FormSection>
+                <FormActions className="border-0 pt-0">
+                  <Button type="submit" variant="secondary" loading={completeSummary.isPending}>
+                    Mark complete
+                  </Button>
+                </FormActions>
+              </ClinicalForm>
+
+              <ClinicalForm onSubmit={(event) => submitClinicalForm(dischargeAdmission, event)}>
+                <FormSection title="Discharge patient" columns={1}>
+                  <SelectField name="conditionOnDischarge" label="Condition on discharge" required>
+                    <option value="improved">Improved</option>
+                    <option value="same">Same</option>
+                    <option value="deteriorated">Deteriorated</option>
+                    <option value="died">Died</option>
+                    <option value="absconded">Absconded</option>
+                  </SelectField>
+                </FormSection>
+                {dischargeAdmission.error ? (
+                  <Alert tone="error">{dischargeAdmission.error.message}</Alert>
+                ) : null}
+                <FormActions className="border-0 pt-0">
+                  <Button type="submit" variant="danger" loading={dischargeAdmission.isPending}>
+                    Discharge admission
+                  </Button>
+                </FormActions>
+              </ClinicalForm>
+            </div>
+          </div>
+        </Card>
+      ) : null}
     </div>
   )
 }
@@ -2741,6 +2859,7 @@ function EmergencyScreen() {
 function NursingScreen() {
   const queryClient = useQueryClient()
   const [admissionId, setAdmissionId] = useState('')
+
   const { data: admissions = [] } = useQuery({
     queryKey: ['nursing-admissions'],
     queryFn: () =>
@@ -2754,6 +2873,9 @@ function NursingScreen() {
         }[]
       >('/inpatient/admissions?status=active'),
   })
+
+  const selectedAdmission = admissions.find((item) => item.id === admissionId) ?? null
+
   const { data: vitals = [] } = useQuery({
     queryKey: ['vitals', admissionId],
     queryFn: () => apiRequest<unknown[]>(`/nursing/vitals?admissionId=${admissionId}`),
@@ -2761,21 +2883,20 @@ function NursingScreen() {
   })
   const { data: mar = [] } = useQuery({
     queryKey: ['mar', admissionId],
-    queryFn: () => apiRequest<{ id: string; medicationName: string; status: string }[]>(`/nursing/mar/${admissionId}`),
-    enabled: Boolean(admissionId),
-  })
-  const { data: observations = [] } = useQuery({
-    queryKey: ['observations', admissionId],
-    queryFn: () => apiRequest<unknown[]>(`/nursing/observations/${admissionId}`),
+    queryFn: () =>
+      apiRequest<{ id: string; medicationName: string; status: string }[]>(
+        `/nursing/mar/${admissionId}`,
+      ),
     enabled: Boolean(admissionId),
   })
   const { data: wards = [] } = useQuery({
     queryKey: ['nursing-wards'],
     queryFn: () => apiRequest<{ id: string; name: string }[]>('/inpatient/wards'),
   })
+
   const createVitals = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/vitals', {
         method: 'POST',
         body: JSON.stringify({
@@ -2786,16 +2907,20 @@ function NursingScreen() {
           bpSystolic: Number(form.get('bpSystolic') || 0),
           bpDiastolic: Number(form.get('bpDiastolic') || 0),
           spo2: Number(form.get('spo2') || 0),
+          weight: Number(form.get('weight') || 0) || undefined,
+          height: Number(form.get('height') || 0) || undefined,
         }),
       })
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['vitals'] })
+      emitAppNotification({ title: 'Vitals recorded', body: 'Nursing vitals saved to chart.', severity: 'success' })
+      await queryClient.invalidateQueries({ queryKey: ['vitals', admissionId] })
     },
   })
+
   const createMar = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/mar', {
         method: 'POST',
         body: JSON.stringify({
@@ -2811,9 +2936,10 @@ function NursingScreen() {
     },
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['mar', admissionId] }),
   })
+
   const updateMar = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/nursing/mar/${form.get('marId')}/status`, {
         method: 'PATCH',
         body: JSON.stringify({
@@ -2824,9 +2950,10 @@ function NursingScreen() {
     },
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['mar', admissionId] }),
   })
+
   const createShiftNote = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/shift-notes', {
         method: 'POST',
         body: JSON.stringify({
@@ -2839,9 +2966,10 @@ function NursingScreen() {
       })
     },
   })
+
   const createObservation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/nursing/observations', {
         method: 'POST',
         body: JSON.stringify({
@@ -2852,178 +2980,204 @@ function NursingScreen() {
         }),
       })
     },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['observations', admissionId] }),
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ['observations', admissionId] }),
   })
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Select active admission</h3>
-        <label className="mt-4 block">
-          <span className="text-sm font-semibold">Active admission</span>
-          <select
-            className="input mt-2"
-            value={admissionId}
-            onChange={(event) => setAdmissionId(event.target.value)}
-            required
-          >
-            <option value="">Select admission</option>
+    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr] animate-fade-in">
+      <div className="space-y-4">
+        <Card>
+          <PageHeader
+            eyebrow="Inpatient"
+            title="Ward patients"
+            description={`${admissions.length} active admission(s)`}
+          />
+          <div className="mt-3 space-y-2">
             {admissions.map((admission) => (
-              <option key={admission.id} value={admission.id}>
-                {admission.admissionNo} · {admission.patient?.firstName}{' '}
-                {admission.patient?.lastName} · {admission.ward?.name}{' '}
-                {admission.bed?.bedNo}
-              </option>
+              <button
+                key={admission.id}
+                type="button"
+                onClick={() => setAdmissionId(admission.id)}
+                className={`w-full rounded-xl border p-4 text-left transition ${
+                  admissionId === admission.id
+                    ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-200'
+                    : 'border-slate-200 hover:border-teal-200'
+                }`}
+              >
+                <p className="font-semibold text-slate-900">
+                  {admission.patient?.firstName} {admission.patient?.lastName}
+                </p>
+                <p className="text-sm text-slate-500">
+                  {admission.admissionNo} · {admission.ward?.name} · Bed {admission.bed?.bedNo}
+                </p>
+              </button>
             ))}
-          </select>
-        </label>
+            {!admissions.length ? (
+              <p className="py-8 text-center text-sm text-slate-500">No active admissions.</p>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card>
+          <PageHeader title="Shift note" description="Ward-level handover (not patient-specific)." />
+          <ClinicalForm onSubmit={(event) => submitClinicalForm(createShiftNote, event)}>
+            <FormSection title="Shift details" columns={1}>
+              <SelectField name="wardId" label="Ward" required>
+                <option value="">Select ward</option>
+                {wards.map((ward) => (
+                  <option key={ward.id} value={ward.id}>
+                    {ward.name}
+                  </option>
+                ))}
+              </SelectField>
+              <Field name="date" label="Date" type="date" required />
+              <SelectField name="shift" label="Shift" required>
+                <option value="morning">Morning</option>
+                <option value="afternoon">Afternoon</option>
+                <option value="night">Night</option>
+              </SelectField>
+              <SelectField name="type" label="Note type" required>
+                <option value="handover">Handover</option>
+                <option value="incident">Incident</option>
+                <option value="general">General</option>
+              </SelectField>
+              <TextareaField name="body" label="Note" required />
+            </FormSection>
+            <FormActions className="border-0 pt-0">
+              <Button type="submit" loading={createShiftNote.isPending}>
+                Save shift note
+              </Button>
+            </FormActions>
+          </ClinicalForm>
+        </Card>
       </div>
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createVitals.mutate(event)
-        }}
-      >
-        <h3 className="text-xl font-bold">Record vitals</h3>
-        <Field name="temperature" label="Temperature" />
-        <Field name="pulse" label="Pulse" />
-        <Field name="respiratoryRate" label="Respiratory rate" />
-        <Field name="bpSystolic" label="BP systolic" />
-        <Field name="bpDiastolic" label="BP diastolic" />
-        <Field name="spo2" label="SpO2" />
-        {createVitals.error ? (
-          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {createVitals.error.message}
+
+      {selectedAdmission ? (
+        <div className="space-y-6">
+          <Card>
+            <PageHeader
+              title={`${selectedAdmission.patient?.firstName} ${selectedAdmission.patient?.lastName}`}
+              description={`${selectedAdmission.admissionNo} · ${selectedAdmission.ward?.name} · Bed ${selectedAdmission.bed?.bedNo}`}
+            />
+            {selectedAdmission.patient ? (
+              <PatientSafetyBanner patient={selectedAdmission.patient} />
+            ) : null}
+
+            <ClinicalForm
+              className="mt-6"
+              onSubmit={(event) => submitClinicalForm(createVitals, event)}
+            >
+              <FormSection
+                title="Record vitals"
+                description="Tap a normal preset or adjust. Abnormal values are highlighted."
+                columns={1}
+              >
+                <VitalsForm />
+              </FormSection>
+              <FormActions className="border-0 pt-0">
+                <Button type="submit" loading={createVitals.isPending}>
+                  Save vitals
+                </Button>
+              </FormActions>
+            </ClinicalForm>
+          </Card>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card>
+              <PageHeader title="Medication (MAR)" />
+              <ClinicalForm onSubmit={(event) => submitClinicalForm(createMar, event)}>
+                <FormSection title="Schedule dose" columns={1}>
+                  <Field name="medicationName" label="Medication" required />
+                  <Field name="genericName" label="Generic name" />
+                  <Field name="dosage" label="Dosage" required />
+                  <SelectField name="route" label="Route" required>
+                    <option value="oral">Oral</option>
+                    <option value="iv">IV</option>
+                    <option value="im">IM</option>
+                    <option value="sc">SC</option>
+                    <option value="topical">Topical</option>
+                    <option value="inhaled">Inhaled</option>
+                  </SelectField>
+                  <Field name="frequency" label="Frequency" required />
+                  <Field name="scheduledTime" label="Scheduled time" type="datetime-local" required />
+                </FormSection>
+                <FormActions className="border-0 pt-0">
+                  <Button type="submit" loading={createMar.isPending}>
+                    Schedule dose
+                  </Button>
+                </FormActions>
+              </ClinicalForm>
+
+              <ClinicalForm
+                className="mt-6 border-t border-slate-100 pt-6"
+                onSubmit={(event) => submitClinicalForm(updateMar, event)}
+              >
+                <FormSection title="Update dose status" columns={1}>
+                  <SelectField name="marId" label="MAR entry" required>
+                    <option value="">Select entry</option>
+                    {mar.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.medicationName} · {item.status}
+                      </option>
+                    ))}
+                  </SelectField>
+                  <SelectField name="status" label="Status" required>
+                    <option value="given">Given</option>
+                    <option value="withheld">Withheld</option>
+                    <option value="refused">Refused</option>
+                    <option value="not_available">Not available</option>
+                  </SelectField>
+                  <Field name="withholdReason" label="Reason if not given" />
+                </FormSection>
+                <FormActions className="border-0 pt-0">
+                  <Button type="submit" variant="secondary" loading={updateMar.isPending}>
+                    Update MAR
+                  </Button>
+                </FormActions>
+              </ClinicalForm>
+            </Card>
+
+            <Card>
+              <PageHeader title="Observations" />
+              <ClinicalForm onSubmit={(event) => submitClinicalForm(createObservation, event)}>
+                <FormSection title="Record observation" columns={1}>
+                  <SelectField name="type" label="Observation type" required>
+                    <option value="fluid_intake">Fluid intake</option>
+                    <option value="fluid_output">Fluid output</option>
+                    <option value="wound">Wound</option>
+                    <option value="bowel">Bowel</option>
+                    <option value="urine_output">Urine output</option>
+                    <option value="pain">Pain</option>
+                    <option value="neuro">Neuro</option>
+                    <option value="skin">Skin</option>
+                  </SelectField>
+                  <Field name="value" label="Value" required />
+                  <Field name="unit" label="Unit" />
+                </FormSection>
+                <FormActions className="border-0 pt-0">
+                  <Button type="submit" loading={createObservation.isPending}>
+                    Record observation
+                  </Button>
+                </FormActions>
+              </ClinicalForm>
+
+              <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase text-slate-500">Recent vitals</p>
+                <pre className="mt-2 max-h-40 overflow-auto text-xs text-slate-700">
+                  {vitals.length ? JSON.stringify(vitals.slice(0, 3), null, 2) : 'No vitals yet.'}
+                </pre>
+              </div>
+            </Card>
+          </div>
+        </div>
+      ) : (
+        <Card>
+          <p className="py-20 text-center text-slate-500">
+            Select a ward patient from the list to record vitals and nursing care.
           </p>
-        ) : null}
-        {createVitals.isSuccess ? (
-          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-            Vitals saved.
-          </p>
-        ) : null}
-        <button
-          className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-          disabled={!admissionId || createVitals.isPending}
-        >
-          {createVitals.isPending ? 'Saving...' : 'Save vitals'}
-        </button>
-      </form>
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Recent vitals</h3>
-        <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-white">
-          {JSON.stringify(vitals, null, 2)}
-        </pre>
-      </div>
-    </div>
-    <div className="grid gap-6 xl:grid-cols-3">
-      <QuickAddForm
-        title="Schedule medication (MAR)"
-        pending={createMar.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createMar.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <input name="medicationName" className="input" placeholder="Medication" required />
-        <input name="genericName" className="input" placeholder="Generic name" />
-        <input name="dosage" className="input" placeholder="Dosage" required />
-        <select name="route" className="input" required>
-          <option value="oral">Oral</option>
-          <option value="iv">IV</option>
-          <option value="im">IM</option>
-          <option value="sc">SC</option>
-          <option value="sl">SL</option>
-          <option value="topical">Topical</option>
-          <option value="inhaled">Inhaled</option>
-          <option value="rectal">Rectal</option>
-          <option value="nasal">Nasal</option>
-        </select>
-        <input name="frequency" className="input" placeholder="Frequency" required />
-        <input name="scheduledTime" className="input" type="datetime-local" required />
-      </QuickAddForm>
-      <QuickAddForm
-        title="Update MAR status"
-        pending={updateMar.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          updateMar.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <select name="marId" className="input" required>
-          <option value="">Select MAR item</option>
-          {mar.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.medicationName} · {item.status}
-            </option>
-          ))}
-        </select>
-        <select name="status" className="input" required>
-          <option value="given">Given</option>
-          <option value="withheld">Withheld</option>
-          <option value="refused">Refused</option>
-          <option value="not_available">Not available</option>
-        </select>
-        <input name="withholdReason" className="input" placeholder="Reason if not given" />
-      </QuickAddForm>
-      <QuickAddForm
-        title="Nursing observation"
-        pending={createObservation.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createObservation.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <select name="type" className="input" required>
-          <option value="fluid_intake">Fluid intake</option>
-          <option value="fluid_output">Fluid output</option>
-          <option value="wound">Wound</option>
-          <option value="bowel">Bowel</option>
-          <option value="urine_output">Urine output</option>
-          <option value="pain">Pain</option>
-          <option value="neuro">Neuro</option>
-          <option value="skin">Skin</option>
-        </select>
-        <input name="value" className="input" placeholder="Value" required />
-        <input name="unit" className="input" placeholder="Unit" />
-      </QuickAddForm>
-      <QuickAddForm
-        title="Shift note"
-        pending={createShiftNote.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createShiftNote.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <select name="wardId" className="input" required>
-          <option value="">Select ward</option>
-          {wards.map((ward) => (
-            <option key={ward.id} value={ward.id}>
-              {ward.name}
-            </option>
-          ))}
-        </select>
-        <input name="date" className="input" type="date" required />
-        <select name="shift" className="input" required>
-          <option value="morning">Morning</option>
-          <option value="afternoon">Afternoon</option>
-          <option value="night">Night</option>
-        </select>
-        <select name="type" className="input" required>
-          <option value="handover">Handover</option>
-          <option value="incident">Incident</option>
-          <option value="general">General</option>
-        </select>
-        <textarea name="body" className="input" placeholder="Shift note" required />
-      </QuickAddForm>
-      <JsonPanel title="MAR" data={mar} />
-      <JsonPanel title="Observations" data={observations} />
-    </div>
+        </Card>
+      )}
     </div>
   )
 }
@@ -4535,86 +4689,111 @@ function AdminSettings() {
         smsSenderName: string
         patientIdPrefix: string
         triageSystem: string
+        clinicalCatalog?: {
+          clinics?: string[]
+          doctorCategories?: string[]
+          assignableDoctors?: string[]
+        }
       }>('/admin/settings'),
   })
+  const [clinicsText, setClinicsText] = useState('')
+  const [doctorCategoriesText, setDoctorCategoriesText] = useState('')
+  const [doctorsText, setDoctorsText] = useState('')
+
+  useEffect(() => {
+    if (!data?.clinicalCatalog) return
+    setClinicsText((data.clinicalCatalog.clinics ?? []).join('\n'))
+    setDoctorCategoriesText((data.clinicalCatalog.doctorCategories ?? []).join('\n'))
+    setDoctorsText((data.clinicalCatalog.assignableDoctors ?? []).join('\n'))
+  }, [data])
+
   const update = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
+      const splitLines = (value: string) =>
+        value.split('\n').map((line) => line.trim()).filter(Boolean)
       return apiRequest('/admin/settings', {
         method: 'PATCH',
         body: JSON.stringify({
           smsSenderName: form.get('smsSenderName'),
           patientIdPrefix: form.get('patientIdPrefix'),
           triageSystem: form.get('triageSystem'),
+          clinicalCatalog: {
+            ...(data?.clinicalCatalog ?? {}),
+            clinics: splitLines(clinicsText),
+            doctorCategories: splitLines(doctorCategoriesText),
+            assignableDoctors: splitLines(doctorsText),
+          },
         }),
       })
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
+      await queryClient.invalidateQueries({ queryKey: ['clinical-catalog'] })
     },
   })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.7fr_0.3fr]">
-      <form
-        key={data ? `${data.smsSenderName}-${data.patientIdPrefix}-${data.triageSystem}` : 'loading'}
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          update.mutate(event)
-        }}
-      >
-        <div>
-          <p className="text-sm font-semibold uppercase text-blue-600">Administration</p>
-          <h3 className="text-xl font-bold">Hospital settings</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            These values control patient numbers, messaging identity, and triage defaults for the active tenant.
-          </p>
-        </div>
-        <label>
-          <span className="text-sm font-semibold">SMS sender name</span>
-          <input
-            name="smsSenderName"
-            className="input mt-2"
-            defaultValue={data?.smsSenderName ?? ''}
-          />
-        </label>
-        <label>
-          <span className="text-sm font-semibold">Patient ID prefix</span>
-          <input
-            name="patientIdPrefix"
-            className="input mt-2"
-            defaultValue={data?.patientIdPrefix ?? ''}
-          />
-        </label>
-        <label>
-          <span className="text-sm font-semibold">Triage system</span>
-          <input
-            name="triageSystem"
-            className="input mt-2"
-            defaultValue={data?.triageSystem ?? ''}
-          />
-        </label>
-        {update.error ? (
-          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {update.error.message}
-          </p>
-        ) : null}
-        {update.isSuccess ? (
-          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-            Settings saved.
-          </p>
-        ) : null}
-        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-          {update.isPending ? 'Saving...' : 'Save settings'}
-        </button>
-      </form>
-      <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
-        <h3 className="text-lg font-bold">Tip</h3>
-        <p className="mt-3 text-sm text-blue-100">
-          If settings do not appear, confirm you are logged in as Administrator and using tenant <strong>demo</strong>.
+    <div className="grid gap-6 xl:grid-cols-[1fr_0.4fr] animate-fade-in">
+      <Card>
+        <PageHeader
+          eyebrow="Administration"
+          title="Hospital settings"
+          description="Configure dropdown lists used at reception check-in."
+        />
+        <ClinicalForm
+          key={data ? `${data.smsSenderName}-${data.patientIdPrefix}` : 'loading'}
+          onSubmit={(event) => submitClinicalForm(update, event, { resetOnSuccess: false })}
+        >
+          <FormSection title="General">
+            <Field name="smsSenderName" label="SMS sender name" defaultValue={data?.smsSenderName ?? ''} />
+            <Field name="patientIdPrefix" label="Patient ID prefix" defaultValue={data?.patientIdPrefix ?? ''} />
+            <Field name="triageSystem" label="Triage system" defaultValue={data?.triageSystem ?? ''} />
+          </FormSection>
+          <FormSection title="Check-in dropdowns" description="One item per line." columns={1}>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Clinics / departments</span>
+              <textarea
+                className="input min-h-28"
+                value={clinicsText}
+                onChange={(event) => setClinicsText(event.target.value)}
+                placeholder="General OPD&#10;Cardiology&#10;Paediatrics"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Doctor categories</span>
+              <textarea
+                className="input min-h-24"
+                value={doctorCategoriesText}
+                onChange={(event) => setDoctorCategoriesText(event.target.value)}
+                placeholder="Consultant&#10;Medical Officer"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">Assignable doctors (optional)</span>
+              <textarea
+                className="input min-h-24"
+                value={doctorsText}
+                onChange={(event) => setDoctorsText(event.target.value)}
+                placeholder="Dr. Kamau&#10;Dr. Wanjiku"
+              />
+            </label>
+          </FormSection>
+          {update.error ? <Alert tone="error">{update.error.message}</Alert> : null}
+          {update.isSuccess ? <Alert tone="success">Settings saved.</Alert> : null}
+          <FormActions>
+            <Button type="submit" loading={update.isPending}>
+              Save settings
+            </Button>
+          </FormActions>
+        </ClinicalForm>
+      </Card>
+      <Card className="bg-gradient-to-br from-teal-900 to-teal-800 text-white">
+        <h3 className="font-bold">Dropdown tip</h3>
+        <p className="mt-2 text-sm text-teal-100">
+          Clinics and doctor lists appear on the OPD check-in screen. Changes apply immediately for all reception staff.
         </p>
-      </div>
+      </Card>
     </div>
   )
 }

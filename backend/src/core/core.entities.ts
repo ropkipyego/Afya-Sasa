@@ -52,6 +52,9 @@ export class TenantSettings extends AuditableEntity {
 
   @Column({ type: 'varchar',  name: 'triage_system', default: 'manchester_ke' })
   triageSystem!: string;
+
+  @Column({ type: 'jsonb', name: 'clinical_catalog', default: () => `'{}'` })
+  clinicalCatalog!: Record<string, unknown>;
 }
 
 @Entity({ name: 'roles', schema: 'demo' })

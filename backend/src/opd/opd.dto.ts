@@ -16,9 +16,10 @@ export class CreateEncounterDto {
   @IsString()
   patientId!: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  presentingComplaint!: string;
+  presentingComplaint?: string;
 
   @ApiPropertyOptional({ enum: ['new', 'follow_up', 'referral'] })
   @IsOptional()

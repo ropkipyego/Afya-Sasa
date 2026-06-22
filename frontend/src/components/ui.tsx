@@ -1,4 +1,5 @@
 import type { FormEvent, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 import { AlertTriangle, CheckCircle2, Info, Loader2, XCircle } from 'lucide-react'
 
@@ -481,5 +482,160 @@ export function ClinicalForm({
     >
       {children}
     </form>
+  )
+}
+
+/* ── Triage & status ─────────────────────────────────────── */
+
+export function normaliseTriageColour(colour?: string | null) {
+  const key = colour?.toLowerCase().trim() ?? ''
+  if (key in triagePalette) return key
+  return 'unknown'
+}
+
+const triagePalette = {
+  red: {
+    badge: 'bg-red-100 text-red-900 ring-1 ring-red-200',
+    dot: 'bg-red-600 shadow-[0_0_0_4px_rgba(220,38,38,0.2)]',
+    card: 'border-l-red-600 bg-red-50/70',
+    panel: 'bg-red-50/40 ring-red-200/60',
+  },
+  orange: {
+    badge: 'bg-orange-100 text-orange-950 ring-1 ring-orange-200',
+    dot: 'bg-orange-500 shadow-[0_0_0_4px_rgba(249,115,22,0.2)]',
+    card: 'border-l-orange-500 bg-orange-50/70',
+    panel: 'bg-orange-50/40 ring-orange-200/60',
+  },
+  yellow: {
+    badge: 'bg-yellow-100 text-yellow-950 ring-1 ring-yellow-300',
+    dot: 'bg-yellow-400 shadow-[0_0_0_4px_rgba(250,204,21,0.35)]',
+    card: 'border-l-yellow-400 bg-yellow-50/80',
+    panel: 'bg-yellow-50/50 ring-yellow-200/60',
+  },
+  green: {
+    badge: 'bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200',
+    dot: 'bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.2)]',
+    card: 'border-l-emerald-500 bg-emerald-50/70',
+    panel: 'bg-emerald-50/40 ring-emerald-200/60',
+  },
+  blue: {
+    badge: 'bg-sky-100 text-sky-900 ring-1 ring-sky-200',
+    dot: 'bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.2)]',
+    card: 'border-l-sky-500 bg-sky-50/70',
+    panel: 'bg-sky-50/40 ring-sky-200/60',
+  },
+  unknown: {
+    badge: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200',
+    dot: 'bg-slate-400',
+    card: 'border-l-slate-300 bg-white',
+    panel: 'bg-white ring-slate-200',
+  },
+} as const
+
+export function triageCardAccent(colour?: string | null) {
+  return triagePalette[normaliseTriageColour(colour) as keyof typeof triagePalette].card
+}
+
+export function triagePanelAccent(colour?: string | null) {
+  return triagePalette[normaliseTriageColour(colour) as keyof typeof triagePalette].panel
+}
+
+export function TriageBadge({ colour }: { colour?: string | null }) {
+  const key = normaliseTriageColour(colour) as keyof typeof triagePalette
+  return (
+    <span
+      className={clsx(
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold uppercase',
+        triagePalette[key].badge,
+      )}
+    >
+      <span className={clsx('h-2.5 w-2.5 rounded-full', triagePalette[key].dot)} />
+      {colour ?? 'untriaged'}
+    </span>
+  )
+}
+
+export function TriageIndicator({
+  colour,
+  label,
+  size = 'md',
+}: {
+  colour?: string | null
+  label?: string
+  size?: 'sm' | 'md' | 'lg'
+}) {
+  const key = normaliseTriageColour(colour) as keyof typeof triagePalette
+  const dotSize = size === 'lg' ? 'h-5 w-5' : size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className={clsx('shrink-0 rounded-full', dotSize, triagePalette[key].dot)} />
+      <div>
+        {label ? <p className="text-[10px] font-bold uppercase text-slate-500">{label}</p> : null}
+        <p className="text-xs font-bold uppercase text-slate-800">{colour ?? 'untriaged'}</p>
+      </div>
+    </div>
+  )
+}
+
+export function FileUploadZone({
+  accept = '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx',
+  file,
+  onFileChange,
+  hint = 'PDF or image — drag and drop or click to browse',
+}: {
+  accept?: string
+  file: File | null
+  onFileChange: (file: File | null) => void
+  hint?: string
+}) {
+  return (
+    <label className="group block cursor-pointer">
+      <input
+        type="file"
+        accept={accept}
+        className="sr-only"
+        onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+      />
+      <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/80 px-5 py-8 text-center transition duration-200 group-hover:border-teal-400 group-hover:bg-teal-50/40">
+        {file ? (
+          <>
+            <p className="text-sm font-semibold text-teal-800">{file.name}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {(file.size / 1024).toFixed(1)} KB · Click to replace
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-slate-700">Upload document</p>
+            <p className="mt-1 text-xs text-slate-500">{hint}</p>
+          </>
+        )}
+      </div>
+    </label>
+  )
+}
+
+export function NavGroup({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div>
+      <button
+        type="button"
+        className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-400 transition hover:text-slate-600"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {title}
+        <span className="text-[10px]">{open ? '▾' : '▸'}</span>
+      </button>
+      {open ? <div className="space-y-0.5">{children}</div> : null}
+    </div>
   )
 }

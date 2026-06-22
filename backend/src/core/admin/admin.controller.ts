@@ -113,6 +113,12 @@ export class AdminController {
     return this.adminService.getSettings(request);
   }
 
+  @Get('clinical-catalog')
+  @RequirePermissions('encounters:create')
+  getClinicalCatalog(@Req() request: RequestContext) {
+    return this.adminService.getClinicalCatalog(request);
+  }
+
   @Patch('settings')
   @RequirePermissions('settings:manage')
   updateSettings(

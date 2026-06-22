@@ -174,12 +174,20 @@ export class AdminService {
     });
   }
 
+  async getClinicalCatalog(request: RequestContext) {
+    const settings = await this.getSettings(request);
+    return settings.clinicalCatalog ?? {};
+  }
+
   async updateSettings(dto: UpdateSettingsDto, request: RequestContext) {
     const current = await this.getSettings(request);
     await this.settings.update(current.id, {
       smsSenderName: dto.smsSenderName,
       patientIdPrefix: dto.patientIdPrefix,
       triageSystem: dto.triageSystem,
+      ...(dto.clinicalCatalog
+        ? { clinicalCatalog: dto.clinicalCatalog as never }
+        : {}),
       updatedBy: request.user?.sub ?? null,
     });
     return this.getSettings(request);
