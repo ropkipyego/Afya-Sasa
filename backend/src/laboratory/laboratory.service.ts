@@ -1,8 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { ClinicalOrderContextService } from '../clinical-order/clinical-order-context.service';
 import { Admission } from '../inpatient/inpatient.entities';
+import { NotificationsService } from '../notifications/notifications.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
 import {
@@ -35,6 +38,9 @@ export class LaboratoryService {
     @InjectRepository(Patient) private readonly patients: Repository<Patient>,
     @InjectRepository(Encounter) private readonly encounters: Repository<Encounter>,
     @InjectRepository(Admission) private readonly admissions: Repository<Admission>,
+    private readonly orderContext: ClinicalOrderContextService,
+    private readonly notifications: NotificationsService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   createPanel(dto: CreateLabPanelDto, request: RequestContext) {
@@ -76,15 +82,27 @@ export class LaboratoryService {
   }
 
   async createRequest(dto: CreateLabRequestDto, request: RequestContext) {
-    const [patient, encounter, admission, tests, panels] = await Promise.all([
-      this.patients.findOne({ where: { id: dto.patientId } }),
-      this.encounters.findOne({ where: { id: dto.encounterId } }),
-      dto.admissionId ? this.admissions.findOne({ where: { id: dto.admissionId } }) : null,
+    if (!dto.testIds?.length && !dto.panelIds?.length) {
+      throw new BadRequestException('Select at least one laboratory test or panel.');
+    }
+
+    const { encounter, admission } = await this.orderContext.resolveEncounter(
+      {
+        patientId: dto.patientId,
+        encounterId: dto.encounterId,
+        admissionId: dto.admissionId,
+      },
+      request,
+    );
+
+    const [tests, panels] = await Promise.all([
       dto.testIds?.length ? this.tests.findBy({ id: In(dto.testIds) }) : Promise.resolve([]),
       dto.panelIds?.length ? this.panels.findBy({ id: In(dto.panelIds) }) : Promise.resolve([]),
     ]);
+
+    const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
-    if (!encounter) throw new NotFoundException('Encounter not found');
+
     const labRequest = await this.requests.save(
       this.requests.create({
         patient,
@@ -125,8 +143,10 @@ export class LaboratoryService {
   }
 
   listRequests(status?: string) {
+    const where: { status?: LabRequest['status'] } = {};
+    if (status) where.status = status as LabRequest['status'];
     return this.requests.find({
-      where: { status: status as never },
+      where,
       relations: { patient: true, encounter: true },
       order: { createdAt: 'DESC' },
     });
@@ -206,11 +226,46 @@ export class LaboratoryService {
     );
     await this.items.update(item.id, { status: 'resulted' });
     await this.requests.update(item.request.id, { status: 'resulted' });
+
+    if (result.isCritical) {
+      const labRequest = await this.requests.findOne({
+        where: { id: item.request.id },
+        relations: {
+          patient: true,
+          encounter: { attendingDoctor: true },
+          admission: { admittingDoctor: true },
+        },
+      });
+      if (labRequest) {
+        await this.notifications.notifyInvestigationStakeholders(
+          this.notifications.investigationRecipients({
+            createdBy: labRequest.createdBy,
+            attendingDoctorId: labRequest.encounter?.attendingDoctor?.id,
+            admittingDoctorId: labRequest.admission?.admittingDoctor?.id,
+          }),
+          {
+            title: 'Critical lab result',
+            body: `${labRequest.patient.firstName} ${labRequest.patient.lastName} — ${item.test?.name ?? 'Lab test'}: ${dto.value} ${dto.unit ?? ''}`.trim(),
+            severity: 'critical',
+            link: `/laboratory`,
+            actorId: request.user?.sub ?? null,
+          },
+        );
+      }
+    }
+
     return result;
   }
 
   async verifyRequest(id: string, request: RequestContext) {
-    const labRequest = await this.requests.findOne({ where: { id } });
+    const labRequest = await this.requests.findOne({
+      where: { id },
+      relations: {
+        patient: true,
+        encounter: { attendingDoctor: true },
+        admission: { admittingDoctor: true },
+      },
+    });
     if (!labRequest) throw new NotFoundException('Lab request not found');
     const items = await this.items.find({ where: { request: { id } } });
     const results = await this.results.find({
@@ -227,6 +282,24 @@ export class LaboratoryService {
     );
     await this.items.update({ request: { id } }, { status: 'verified' });
     await this.requests.update(id, { status: 'verified' });
+
+    const hasCritical = results.some((result) => result.isCritical);
+    await this.notifications.notifyInvestigationStakeholders(
+      this.notifications.investigationRecipients({
+        createdBy: labRequest.createdBy,
+        attendingDoctorId: labRequest.encounter?.attendingDoctor?.id,
+        admittingDoctorId: labRequest.admission?.admittingDoctor?.id,
+      }),
+      {
+        title: hasCritical ? 'Critical lab result verified' : 'Lab result ready',
+        body: `${labRequest.requestNo} for ${labRequest.patient.firstName} ${labRequest.patient.lastName} is ready for review.`,
+        severity: hasCritical ? 'critical' : 'info',
+        link: '/laboratory',
+        actorId: request.user?.sub ?? null,
+      },
+    );
+    this.realtime.publish(request.tenant?.code ?? 'demo', 'lab.updated', { requestId: id });
+
     return this.resultsInbox();
   }
 

@@ -1,8 +1,19 @@
 import type { FormEvent } from 'react'
 import type { UseMutationResult } from '@tanstack/react-query'
 
-export function formDataFromElement(form: HTMLFormElement): FormData {
-  return new FormData(form)
+/** Form element or submit event — mutations may receive either depending on call site. */
+export type FormSubmitTarget = HTMLFormElement | FormEvent<HTMLFormElement>
+
+export function formElementFromSubmit(target: FormSubmitTarget): HTMLFormElement {
+  const element = target instanceof Event ? target.currentTarget : target
+  if (!(element instanceof HTMLFormElement)) {
+    throw new Error('Form submission must originate from an HTML form element.')
+  }
+  return element
+}
+
+export function formDataFromElement(target: FormSubmitTarget): FormData {
+  return new FormData(formElementFromSubmit(target))
 }
 
 export function submitClinicalForm<TData>(
@@ -26,6 +37,23 @@ export function submitClinicalForm<TData>(
     return
   }
 
+  mutation.mutate(form, {
+    onSuccess: () => {
+      if (options?.resetOnSuccess !== false) {
+        form.reset()
+      }
+    },
+  })
+}
+
+/** Preferred onSubmit handler when mutation expects HTMLFormElement. */
+export function submitFormMutation<TData>(
+  mutation: Pick<UseMutationResult<TData, Error, HTMLFormElement>, 'mutate'>,
+  event: FormEvent<HTMLFormElement>,
+  options?: { resetOnSuccess?: boolean },
+) {
+  event.preventDefault()
+  const form = event.currentTarget
   mutation.mutate(form, {
     onSuccess: () => {
       if (options?.resetOnSuccess !== false) {

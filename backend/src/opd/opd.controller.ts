@@ -8,6 +8,7 @@ import {
   CreateConsultationDto,
   CreateDiagnosisDto,
   CreateEncounterDto,
+  CreateSickSheetDto,
   CreateTriageDto,
   UpdateConsultationDto,
   UpdateEncounterStatusDto,
@@ -140,5 +141,17 @@ export class OpdController {
   @RequirePermissions('reports:read')
   opdSummary() {
     return this.opdService.opdSummary();
+  }
+
+  @Get('sick-sheets')
+  @RequirePermissions('sick_sheets:read')
+  listSickSheets(@Query('patientId') patientId?: string) {
+    return this.opdService.listSickSheets(patientId);
+  }
+
+  @Post('sick-sheets')
+  @RequirePermissions('sick_sheets:create')
+  createSickSheet(@Body() dto: CreateSickSheetDto, @Req() request: RequestContext) {
+    return this.opdService.createSickSheet(dto, request);
   }
 }

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Search, User } from 'lucide-react'
+import { QrCode, Search, User } from 'lucide-react'
 import { apiRequest } from '../lib/api'
-import { Input } from './ui'
+import { Input, Button } from './ui'
 
 export type PatientSearchItem = {
   id: string
@@ -148,6 +148,51 @@ export function PatientSearchAutocomplete({
   )
 }
 
+export function PatientQrLookup({
+  onSelect,
+}: {
+  onSelect: (patient: PatientSearchItem) => void
+}) {
+  const [code, setCode] = useState('')
+  const lookup = useMutation({
+    mutationFn: (qrCode: string) =>
+      apiRequest<PatientSearchItem>(`/patients/qr/${encodeURIComponent(qrCode)}`),
+    onSuccess: (patient) => {
+      onSelect(patient)
+      setCode('')
+    },
+  })
+
+  return (
+    <div className="rounded-xl border border-dashed border-teal-300 bg-teal-50/50 p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-teal-800">
+        <QrCode className="h-4 w-4" />
+        Scan patient QR code
+      </div>
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (code.trim()) lookup.mutate(code.trim())
+        }}
+      >
+        <Input
+          className="min-w-[200px] flex-1 font-mono text-sm"
+          value={code}
+          placeholder="afyasasa:patient:MRN or scan result"
+          onChange={(e) => setCode(e.target.value)}
+        />
+        <Button type="submit" loading={lookup.isPending} disabled={!code.trim()}>
+          Look up
+        </Button>
+      </form>
+      {lookup.isError ? (
+        <p className="mt-2 text-xs text-red-600">{(lookup.error as Error).message}</p>
+      ) : null}
+    </div>
+  )
+}
+
 export function PatientSearchBrowse({
   onSelect,
   placeholder = 'Search by name, patient number, phone, or ID…',
@@ -170,6 +215,7 @@ export function PatientSearchBrowse({
 
   return (
     <div className="space-y-4">
+      <PatientQrLookup onSelect={onSelect} />
       <div className="relative">
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <Input

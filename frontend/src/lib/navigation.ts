@@ -1,0 +1,91 @@
+import type { LucideIcon } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  Baby,
+  BedDouble,
+  Bell,
+  CalendarDays,
+  ClipboardList,
+  FileText,
+  FlaskConical,
+  HeartPulse,
+  Hospital,
+  LayoutDashboard,
+  Printer,
+  ScanLine,
+  Search,
+  Settings,
+  Stethoscope,
+  UserPlus,
+  Users,
+} from 'lucide-react'
+
+export type NavItem = {
+  group: string
+  label: string
+  icon: LucideIcon
+  permission: string
+  shortLabel?: string
+}
+
+export const navigation: NavItem[] = [
+  { group: 'Reception', label: 'Patient Search', icon: Search, permission: 'patients:read', shortLabel: 'Search' },
+  { group: 'Reception', label: 'Register Patient', icon: UserPlus, permission: 'patients:create', shortLabel: 'Register' },
+  { group: 'Reception', label: 'Patient Timeline', icon: ClipboardList, permission: 'patients:history', shortLabel: 'Timeline' },
+  { group: 'Reception', label: 'OPD Check-In', icon: Hospital, permission: 'encounters:create', shortLabel: 'Check-in' },
+  { group: 'Reception', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  { group: 'Reception', label: 'Referrals', icon: FileText, permission: 'referrals:read' },
+  { group: 'Reception', label: 'Medical Documents', icon: FileText, permission: 'patients:history', shortLabel: 'Documents' },
+  { group: 'Reception', label: 'Sick Sheets', icon: Printer, permission: 'sick_sheets:read' },
+  { group: 'Outpatient', label: 'Triage Queue', icon: HeartPulse, permission: 'triage:read', shortLabel: 'Triage' },
+  { group: 'Outpatient', label: 'Doctor Queue', icon: Stethoscope, permission: 'consultations:read', shortLabel: 'Doctor' },
+  { group: 'Investigations', label: 'Laboratory', icon: FlaskConical, permission: 'lab_requests:read' },
+  { group: 'Investigations', label: 'Radiology', icon: ScanLine, permission: 'radiology_requests:read' },
+  { group: 'Investigations', label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read', shortLabel: 'Results' },
+  { group: 'Inpatient', label: 'Inpatient (IPD)', icon: BedDouble, permission: 'admissions:read', shortLabel: 'IPD' },
+  { group: 'Inpatient', label: 'ICU', icon: Activity, permission: 'icu_admissions:read' },
+  { group: 'Inpatient', label: 'HDU', icon: HeartPulse, permission: 'hdu_admissions:read' },
+  { group: 'Emergency', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read', shortLabel: 'ED' },
+  { group: 'Specialty', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
+  { group: 'Specialty', label: 'Maternity', icon: Baby, permission: 'pregnancies:read' },
+  { group: 'Reports', label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
+  { group: 'Reports', label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read', shortLabel: 'Clinical' },
+  { group: 'Reports', label: 'Operations Center', icon: LayoutDashboard, permission: 'reports:read', shortLabel: 'Ops' },
+  { group: 'Administration', label: 'Notifications', icon: Bell, permission: 'notifications:read' },
+  { group: 'Administration', label: 'Hospital Control Center', icon: Settings, permission: 'settings:manage', shortLabel: 'Admin' },
+]
+
+export const groupIcons: Record<string, LucideIcon> = {
+  Reception: Users,
+  Outpatient: Stethoscope,
+  Investigations: FlaskConical,
+  Inpatient: BedDouble,
+  Emergency: AlertTriangle,
+  Specialty: Baby,
+  Reports: LayoutDashboard,
+  Administration: Settings,
+}
+
+export const workflowDescriptions: Record<string, string> = {
+  'Patient Search': 'Find existing patients first, then open their safety banner and profile.',
+  'Register Patient': 'Search first, then register with progressive optional sections.',
+  'Patient Timeline': 'Full chronological journey with filters and workflow status.',
+  'OPD Check-In': 'Step-by-step check-in — patient, clinic, visit type, then confirm.',
+  'Triage Queue': 'Nurse workspace with vitals, alerts, and previous visits.',
+  'Doctor Queue': 'Prioritised queue with SOAP notes, diagnosis entry, and completion.',
+  'Appointments': 'Appointment center with status workflow and calendar views.',
+  'Referrals': 'Referral workspace with letter generation and status tracking.',
+  'Medical Documents': 'Unified document repository linked to patient timeline.',
+  'Sick Sheets': 'Issue, print, and store sick leave certificates.',
+  'Laboratory': 'Lab operations center — card worklist from request to verified.',
+  'Radiology': 'Imaging worklist with text report and PDF attach.',
+  'Emergency': 'ED command center — triage, bays, observation, disposition.',
+  'Maternity': 'Full maternity service line — ANC, labour, delivery, nursery, NICU.',
+  'Operations Center': 'Executive hospital command dashboard.',
+  'Notifications': 'Internal inbox for results, referrals, and tasks.',
+  'Inpatient (IPD)': 'Visual ward board → patient workspace. ICU and HDU live here.',
+  ICU: 'Intensive care unit — critical patients under IPD.',
+  HDU: 'High dependency unit — step-down critical care under IPD.',
+  'Hospital Control Center': 'Hospital operating system — organization, catalogs, facilities, security.',
+}

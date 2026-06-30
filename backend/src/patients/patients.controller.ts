@@ -74,6 +74,12 @@ export class PatientsController {
     return this.patientsService.history(id);
   }
 
+  @Get(':id/journey')
+  @RequirePermissions('patients:read')
+  journey(@Param('id') id: string) {
+    return this.patientsService.getJourneyStatus(id);
+  }
+
   @Get(':id/timeline')
   @RequirePermissions('patients:history')
   timeline(@Param('id') id: string) {

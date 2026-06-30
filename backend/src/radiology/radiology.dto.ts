@@ -16,9 +16,10 @@ export class CreateRadiologyRequestDto {
   @IsString()
   patientId!: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  encounterId!: string;
+  encounterId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

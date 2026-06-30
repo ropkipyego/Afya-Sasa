@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LabRequest } from '../laboratory/laboratory.entities';
 import { Encounter } from '../opd/opd.entities';
+import { RadiologyRequest } from '../radiology/radiology.entities';
 import { Patient } from '../patients/patient.entities';
 import {
   Admission,
@@ -24,6 +26,8 @@ import { InpatientService } from './inpatient.service';
       BedTransferLog,
       DailyProgressNote,
       DischargeSummary,
+      LabRequest,
+      RadiologyRequest,
     ]),
   ],
   controllers: [InpatientController],

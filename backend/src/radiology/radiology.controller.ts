@@ -35,6 +35,12 @@ export class RadiologyController {
     return this.radiologyService.listRequests(status);
   }
 
+  @Get('requests/:id')
+  @RequirePermissions('radiology_requests:read')
+  detail(@Param('id') id: string) {
+    return this.radiologyService.detail(id);
+  }
+
   @Post('requests')
   @RequirePermissions('radiology_requests:create')
   createRequest(@Body() dto: CreateRadiologyRequestDto, @Req() request: RequestContext) {
@@ -51,6 +57,12 @@ export class RadiologyController {
   @RequirePermissions('radiology_reports:create')
   createReport(@Param('id') id: string, @Body() dto: CreateRadiologyReportDto, @Req() request: RequestContext) {
     return this.radiologyService.createReport(id, dto, request);
+  }
+
+  @Post('requests/:id/verify')
+  @RequirePermissions('radiology_reports:verify')
+  verifyRequest(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.radiologyService.verifyRequest(id, request);
   }
 
   @Post('reports/:id/verify')

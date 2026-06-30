@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { In, Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../../common/request-context';
 import {
   AuditLog,
@@ -28,6 +28,7 @@ import {
   UpdateSettingsDto,
   UpdateUserDto,
 } from './admin.dto';
+import { RealtimeService } from '../../realtime/realtime.service';
 
 @Injectable()
 export class AdminService {
@@ -50,6 +51,7 @@ export class AdminService {
     private readonly departments: Repository<Department>,
     @InjectRepository(UserDepartment)
     private readonly userDepartments: Repository<UserDepartment>,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async listUsers() {
@@ -176,7 +178,47 @@ export class AdminService {
 
   async getClinicalCatalog(request: RequestContext) {
     const settings = await this.getSettings(request);
-    return settings.clinicalCatalog ?? {};
+    const catalog = settings.clinicalCatalog ?? {};
+    const staffClinicians = await this.listClinicalStaff();
+    return { ...catalog, staffClinicians };
+  }
+
+  async listClinicalStaff() {
+    const assignments = await this.userRoles
+      .createQueryBuilder('assignment')
+      .innerJoinAndSelect('assignment.user', 'user')
+      .innerJoinAndSelect('assignment.role', 'role')
+      .where('user.active = :active', { active: true })
+      .andWhere('role.name IN (:...roles)', {
+        roles: ['doctor', 'consultant', 'clinical_officer'],
+      })
+      .orderBy('user.lastName', 'ASC')
+      .addOrderBy('user.firstName', 'ASC')
+      .getMany();
+
+    const seen = new Set<string>();
+    const staff: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      specialisation: string | null;
+      label: string;
+    }[] = [];
+
+    for (const assignment of assignments) {
+      const user = assignment.user;
+      if (!user || seen.has(user.id)) continue;
+      seen.add(user.id);
+      staff.push({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        specialisation: user.specialisation,
+        label: `Dr. ${user.firstName} ${user.lastName}`,
+      });
+    }
+
+    return staff;
   }
 
   async updateSettings(dto: UpdateSettingsDto, request: RequestContext) {
@@ -190,7 +232,38 @@ export class AdminService {
         : {}),
       updatedBy: request.user?.sub ?? null,
     });
+    this.realtime.publish(request.tenant?.code ?? 'demo', 'settings.updated', {});
     return this.getSettings(request);
+  }
+
+  async getSystemHealth(request: RequestContext) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const [activeUsers, lockedUsers, auditToday, settings] = await Promise.all([
+      this.users.count({ where: { active: true } }),
+      this.users.count({ where: { lockedUntil: MoreThanOrEqual(new Date()) } }),
+      this.auditLogs.count({ where: { createdAt: MoreThanOrEqual(startOfDay) } }),
+      this.getSettings(request),
+    ]);
+
+    return {
+      database: 'connected',
+      redis: 'configured',
+      storage: 'available',
+      queue: 'active',
+      activeUsers,
+      lockedUsers,
+      auditEventsToday: auditToday,
+      tenant: settings.tenant
+        ? {
+            name: settings.tenant.name,
+            code: settings.tenant.code,
+            mohFacilityCode: settings.tenant.mohFacilityCode,
+          }
+        : null,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   async listAuditLogs(params: {
@@ -202,12 +275,17 @@ export class AdminService {
   }) {
     const page = Math.max(params.page ?? 1, 1);
     const pageSize = Math.min(Math.max(params.pageSize ?? 25, 1), 100);
+    const where: {
+      userId?: string;
+      action?: string;
+      recordType?: string;
+    } = {};
+    if (params.userId) where.userId = params.userId;
+    if (params.action) where.action = params.action;
+    if (params.recordType) where.recordType = params.recordType;
+
     const [items, total] = await this.auditLogs.findAndCount({
-      where: {
-        userId: params.userId,
-        action: params.action,
-        recordType: params.recordType,
-      },
+      where,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * pageSize,
       take: pageSize,

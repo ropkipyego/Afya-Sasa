@@ -1,0 +1,39 @@
+━━━ 1. Login ━━━
+✓ Authenticated
+━━━ 2. Patient search (reception) ━━━
+✓ Patient 5fbdb13c-e760-4942-8a1c-8140389beceb
+━━━ 3. OPD check-in (create encounter) ━━━
+✓ Encounter d29de881-8a35-42ea-9bbe-1d73ad61167f
+━━━ 4. Triage board & queue ━━━
+✓ Triage board + queue (1408 bytes)
+━━━ 5. Record triage ━━━
+✓ Triage saved
+━━━ 6. Doctor queue ━━━
+✓ Doctor queue loaded
+━━━ 7. SOAP consultation ━━━
+✓ Consultation 29116bf7-5f7f-4dca-90da-c82c5b9e8e92
+━━━ 8. Add diagnosis ━━━
+✓ Diagnosis added
+━━━ 9. Referral (reception module) ━━━
+✓ Referral 1a6d82b3-1c81-4cdc-b892-04a410f2f122
+━━━ 10. Sick sheet (document) ━━━
+✓ Sick sheet d179af69-89d9-4080-8f1c-d3ec2a4fd874
+━━━ 11. List sick sheets (was 500 without patientId filter fix) ━━━
+✓ Sick sheets list OK
+━━━ 12. Appointments ━━━
+✓ Appointment booked
+✓ Appointments list OK
+━━━ 13. Patient timeline (documents center) ━━━
+  Timeline events: 34
+✓ Timeline loaded
+━━━ 14. Complete visit ━━━
+✓ Encounter completed
+━━━ 15. Referrals list ━━━
+  Total referrals: 5
+✓ Referrals list OK
+
+══════════════════════════════════════
+OPD + Reception workflow: ALL PASSED
+Log:     ops/onboarding-tests/results/opd-api-20260630T041118Z.log
+Summary: ops/onboarding-tests/results/opd-api-summary-20260630T041118Z.json
+══════════════════════════════════════

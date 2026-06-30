@@ -5,6 +5,7 @@ import type { RequestContext } from '../common/request-context';
 import { Patient } from '../patients/patient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { OpdService } from '../opd/opd.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Appointment, AppointmentSlot } from './appointment.entities';
 import {
   CreateAppointmentDto,
@@ -25,6 +26,7 @@ export class AppointmentsService {
     @InjectRepository(Encounter)
     private readonly encounters: Repository<Encounter>,
     private readonly opdService: OpdService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   createSlot(dto: CreateSlotDto, request: RequestContext) {
@@ -44,8 +46,11 @@ export class AppointmentsService {
   }
 
   listSlots(doctorId?: string, date?: string) {
+    const where: { doctorId?: string; date?: string; available: boolean } = { available: true };
+    if (doctorId) where.doctorId = doctorId;
+    if (date) where.date = date;
     return this.slots.find({
-      where: { doctorId, date, available: true },
+      where,
       order: { date: 'ASC', startTime: 'ASC' },
     });
   }
@@ -86,12 +91,23 @@ export class AppointmentsService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
+    await this.notifications.notifyUsers([dto.doctorId], {
+      title: 'Appointment booked',
+      body: `${patient.firstName} ${patient.lastName} on ${dto.appointmentDate} at ${dto.appointmentTime}`,
+      severity: 'info',
+      link: '/appointments',
+      createdBy: request.user?.sub ?? null,
+      tenantCode: request.tenant?.code ?? 'demo',
+    });
     return appointment;
   }
 
   listAppointments(status?: string, date?: string) {
+    const where: { status?: Appointment['status']; appointmentDate?: string } = {};
+    if (status) where.status = status as Appointment['status'];
+    if (date) where.appointmentDate = date;
     return this.appointments.find({
-      where: { status: status as never, appointmentDate: date },
+      where,
       relations: { patient: true, doctor: true, slot: true },
       order: { appointmentDate: 'ASC', appointmentTime: 'ASC' },
       take: 100,

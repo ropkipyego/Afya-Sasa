@@ -70,6 +70,24 @@ export class AncVisit extends SoftDeleteClinicalEntity {
 
   @Column({ type: 'text' })
   plan!: string;
+
+  @Column({ type: 'numeric', name: 'weight_kg', nullable: true })
+  weightKg!: string | null;
+
+  @Column({ type: 'int', name: 'bp_systolic', nullable: true })
+  bpSystolic!: number | null;
+
+  @Column({ type: 'int', name: 'bp_diastolic', nullable: true })
+  bpDiastolic!: number | null;
+
+  @Column({ type: 'int', name: 'fetal_heart_rate', nullable: true })
+  fetalHeartRate!: number | null;
+
+  @Column({ type: 'numeric', name: 'fundal_height_cm', nullable: true })
+  fundalHeightCm!: string | null;
+
+  @Column({ name: 'ultrasound_summary', type: 'text', nullable: true })
+  ultrasoundSummary!: string | null;
 }
 
 @Entity({ name: 'labour_records', schema: 'demo' })
@@ -164,6 +182,153 @@ export class Newborn extends SoftDeleteClinicalEntity {
 
   @Column({ type: 'varchar' })
   status!: 'alive' | 'stillborn' | 'referred' | 'deceased';
+
+  @Column({ name: 'temp_name', type: 'varchar', nullable: true })
+  tempName!: string | null;
+
+  @Column({ name: 'baby_name', type: 'varchar', nullable: true })
+  babyName!: string | null;
+
+  @Column({ type: 'int', name: 'birth_order', default: 1 })
+  birthOrder!: number;
+
+  @Column({ type: 'varchar', name: 'multiple_birth', default: 'singleton' })
+  multipleBirth!: 'singleton' | 'twin' | 'triplet' | 'higher_order';
+
+  @Column({ name: 'renamed_at', type: 'timestamptz', nullable: true })
+  renamedAt!: Date | null;
+}
+
+@Entity({ name: 'partograph_entries', schema: 'demo' })
+export class PartographEntry extends SoftDeleteClinicalEntity {
+  @ManyToOne(() => Pregnancy)
+  @JoinColumn({ name: 'pregnancy_id' })
+  pregnancy!: Pregnancy;
+
+  @Column({ name: 'recorded_at', type: 'timestamptz', default: () => 'now()' })
+  recordedAt!: Date;
+
+  @Column({ name: 'cervical_dilation_cm', type: 'numeric', nullable: true })
+  cervicalDilationCm!: string | null;
+
+  @Column({ type: 'int', name: 'contractions_per_10min', nullable: true })
+  contractionsPer10Min!: number | null;
+
+  @Column({ type: 'int', name: 'contraction_duration_sec', nullable: true })
+  contractionDurationSec!: number | null;
+
+  @Column({ type: 'int', name: 'fetal_heart_rate', nullable: true })
+  fetalHeartRate!: number | null;
+
+  @Column({ type: 'int', name: 'maternal_pulse', nullable: true })
+  maternalPulse!: number | null;
+
+  @Column({ type: 'int', name: 'bp_systolic', nullable: true })
+  bpSystolic!: number | null;
+
+  @Column({ type: 'int', name: 'bp_diastolic', nullable: true })
+  bpDiastolic!: number | null;
+
+  @Column({ type: 'numeric', name: 'temperature_c', nullable: true })
+  temperatureC!: string | null;
+
+  @Column({ name: 'liquor_status', type: 'varchar', nullable: true })
+  liquorStatus!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  moulding!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  descent!: string | null;
+
+  @Column({ type: 'boolean', name: 'alert_flag', default: false })
+  alertFlag!: boolean;
+
+  @Column({ name: 'alert_message', type: 'text', nullable: true })
+  alertMessage!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes!: string | null;
+}
+
+@Entity({ name: 'mother_baby_links', schema: 'demo' })
+@Index(['motherPatient', 'babyPatient'], { unique: true })
+export class MotherBabyLink extends SoftDeleteClinicalEntity {
+  @ManyToOne(() => Patient)
+  @JoinColumn({ name: 'mother_patient_id' })
+  motherPatient!: Patient;
+
+  @ManyToOne(() => Patient)
+  @JoinColumn({ name: 'baby_patient_id' })
+  babyPatient!: Patient;
+
+  @ManyToOne(() => Newborn, { nullable: true })
+  @JoinColumn({ name: 'newborn_id' })
+  newborn!: Newborn | null;
+
+  @ManyToOne(() => Delivery, { nullable: true })
+  @JoinColumn({ name: 'delivery_id' })
+  delivery!: Delivery | null;
+
+  @Column({ name: 'birth_date', type: 'date' })
+  birthDate!: string;
+
+  @Column({ name: 'delivery_type', type: 'varchar' })
+  deliveryType!: string;
+
+  @Column({ type: 'int', name: 'birth_order', default: 1 })
+  birthOrder!: number;
+
+  @Column({ type: 'varchar', name: 'multiple_birth', default: 'singleton' })
+  multipleBirth!: 'singleton' | 'twin' | 'triplet' | 'higher_order';
+
+  @Column({ type: 'varchar', default: 'active' })
+  status!: 'active' | 'separated' | 'deceased';
+}
+
+@Entity({ name: 'maternity_unit_admissions', schema: 'demo' })
+export class MaternityUnitAdmission extends SoftDeleteClinicalEntity {
+  @ManyToOne(() => Patient)
+  @JoinColumn({ name: 'patient_id' })
+  patient!: Patient;
+
+  @Column({ type: 'varchar' })
+  unit!: 'anc' | 'labour' | 'postnatal' | 'nursery' | 'nicu';
+
+  @ManyToOne(() => Pregnancy, { nullable: true })
+  @JoinColumn({ name: 'pregnancy_id' })
+  pregnancy!: Pregnancy | null;
+
+  @ManyToOne(() => Newborn, { nullable: true })
+  @JoinColumn({ name: 'newborn_id' })
+  newborn!: Newborn | null;
+
+  @Column({ name: 'admitted_at', type: 'timestamptz', default: () => 'now()' })
+  admittedAt!: Date;
+
+  @Column({ name: 'discharged_at', type: 'timestamptz', nullable: true })
+  dischargedAt!: Date | null;
+
+  @Column({ type: 'varchar', default: 'active' })
+  status!: 'active' | 'transferred' | 'discharged';
+
+  @Column({ name: 'clinical_summary', type: 'text', nullable: true })
+  clinicalSummary!: string | null;
+
+  @Column({ name: 'feeding_status', type: 'varchar', nullable: true })
+  feedingStatus!: string | null;
+
+  @Column({ name: 'oxygen_support', type: 'varchar', nullable: true })
+  oxygenSupport!: string | null;
+
+  @Column({ name: 'incubator_status', type: 'varchar', nullable: true })
+  incubatorStatus!: string | null;
+
+  @Column({ type: 'int', name: 'weight_grams', nullable: true })
+  weightGrams!: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes!: string | null;
 }
 
 @Entity({ name: 'postnatal_visits', schema: 'demo' })

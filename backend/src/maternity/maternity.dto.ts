@@ -65,6 +65,34 @@ export class CreateAncVisitDto {
   @ApiProperty()
   @IsString()
   plan!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  weightKg?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  bpSystolic?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  bpDiastolic?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  fetalHeartRate?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  fundalHeightCm?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  ultrasoundSummary?: string;
 }
 
 export class CreateLabourRecordDto {
@@ -165,6 +193,178 @@ export class CreateNewbornDto {
   @ApiProperty({ enum: ['alive', 'stillborn', 'referred', 'deceased'] })
   @IsIn(['alive', 'stillborn', 'referred', 'deceased'])
   status!: 'alive' | 'stillborn' | 'referred' | 'deceased';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  babyName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  birthOrder?: number;
+
+  @ApiPropertyOptional({ enum: ['singleton', 'twin', 'triplet', 'higher_order'] })
+  @IsOptional()
+  @IsIn(['singleton', 'twin', 'triplet', 'higher_order'])
+  multipleBirth?: 'singleton' | 'twin' | 'triplet' | 'higher_order';
+}
+
+export class RegisterNewbornPatientDto {
+  @ApiProperty({ enum: ['female', 'male', 'unknown'] })
+  @IsIn(['female', 'male', 'unknown'])
+  sex!: 'female' | 'male' | 'unknown';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  birthWeightGrams?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  apgar1Min?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  apgar5Min?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  babyName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  birthOrder?: number;
+
+  @ApiPropertyOptional({ enum: ['singleton', 'twin', 'triplet', 'higher_order'] })
+  @IsOptional()
+  @IsIn(['singleton', 'twin', 'triplet', 'higher_order'])
+  multipleBirth?: 'singleton' | 'twin' | 'triplet' | 'higher_order';
+
+  @ApiPropertyOptional({ enum: ['alive', 'stillborn', 'referred', 'deceased'] })
+  @IsOptional()
+  @IsIn(['alive', 'stillborn', 'referred', 'deceased'])
+  status?: 'alive' | 'stillborn' | 'referred' | 'deceased';
+}
+
+export class CreatePartographEntryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  cervicalDilationCm?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  contractionsPer10Min?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  contractionDurationSec?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  fetalHeartRate?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  maternalPulse?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  bpSystolic?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  bpDiastolic?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  temperatureC?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  liquorStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  moulding?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  descent?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class RenameNewbornDto {
+  @ApiProperty()
+  @IsString()
+  babyName!: string;
+}
+
+export class CreateMaternityUnitAdmissionDto {
+  @ApiProperty()
+  @IsString()
+  patientId!: string;
+
+  @ApiProperty({ enum: ['anc', 'labour', 'postnatal', 'nursery', 'nicu'] })
+  @IsIn(['anc', 'labour', 'postnatal', 'nursery', 'nicu'])
+  unit!: 'anc' | 'labour' | 'postnatal' | 'nursery' | 'nicu';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  pregnancyId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  newbornId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  clinicalSummary?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  feedingStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  oxygenSupport?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  incubatorStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  weightGrams?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class CreatePostnatalVisitDto {

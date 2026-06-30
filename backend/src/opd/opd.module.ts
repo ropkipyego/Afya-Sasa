@@ -7,6 +7,7 @@ import {
   Encounter,
   EncounterAttachment,
   EncounterDiagnosis,
+  SickSheet,
   TriageAssessment,
 } from './opd.entities';
 import { OpdController } from './opd.controller';
@@ -22,6 +23,7 @@ import { OpdService } from './opd.service';
       EncounterDiagnosis,
       ClinicalNote,
       EncounterAttachment,
+      SickSheet,
     ]),
   ],
   controllers: [OpdController],

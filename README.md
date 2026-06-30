@@ -98,5 +98,6 @@ The demo migration seeds:
 - Production hardening notes: `docs/production-hardening-notes.md`
 - SMS and object storage integrations: `docs/integrations.md`
 - Local testing guide: `docs/local-testing-guide.md`
+- **Free test hosting guide:** `docs/free-test-hosting-guide.md`
 - Go-live checklist: `docs/go-live-checklist.md`
 - Role manuals: `docs/user-manuals/`

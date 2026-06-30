@@ -7,6 +7,7 @@ import {
   NotificationTemplate,
   SmsLog,
 } from './notification.entities';
+import { NotificationsController } from './notifications.controller';
 import { NotificationsProcessor } from './notifications.processor';
 import { NotificationsService } from './notifications.service';
 import { ConfigurableSmsGateway, SMS_GATEWAY } from './sms.gateway';
@@ -29,6 +30,7 @@ import { ConfigurableSmsGateway, SMS_GATEWAY } from './sms.gateway';
     ConfigurableSmsGateway,
     { provide: SMS_GATEWAY, useExisting: ConfigurableSmsGateway },
   ],
+  controllers: [NotificationsController],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

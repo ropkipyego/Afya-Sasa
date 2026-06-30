@@ -41,3 +41,26 @@ export async function uploadClinicalFile(
     fileSize: file.size,
   }
 }
+
+export async function downloadClinicalFile(
+  storagePath: string,
+  filename?: string,
+): Promise<void> {
+  const presigned = await apiRequest<{ url: string }>('/storage/presign-download', {
+    method: 'POST',
+    body: JSON.stringify({ key: storagePath }),
+  })
+
+  const response = await fetch(presigned.url)
+  if (!response.ok) {
+    throw new Error('Unable to download file. Please try again.')
+  }
+
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename ?? storagePath.split('/').pop() ?? 'download'
+  anchor.click()
+  URL.revokeObjectURL(url)
+}

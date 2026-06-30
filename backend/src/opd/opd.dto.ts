@@ -240,3 +240,50 @@ export class CreateAttachmentDto {
   @IsString()
   storagePath!: string;
 }
+
+export class CreateSickSheetDto {
+  @ApiProperty()
+  @IsString()
+  patientId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  encounterId?: string;
+
+  @ApiProperty()
+  @IsString()
+  diagnosis!: string;
+
+  @ApiProperty()
+  @IsInt()
+  @Min(1)
+  daysOff!: number;
+
+  @ApiProperty()
+  @IsDateString()
+  startDate!: string;
+
+  @ApiProperty()
+  @IsDateString()
+  endDate!: string;
+
+  @ApiProperty()
+  @IsString()
+  doctorName!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  licenseNumber?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  storagePath?: string;
+}

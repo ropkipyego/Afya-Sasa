@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
 import { Referral } from './referral.entities';
@@ -7,7 +8,10 @@ import { ReferralsController } from './referrals.controller';
 import { ReferralsService } from './referrals.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Referral, Patient, Encounter])],
+  imports: [
+    TypeOrmModule.forFeature([Referral, Patient, Encounter]),
+    NotificationsModule,
+  ],
   controllers: [ReferralsController],
   providers: [ReferralsService],
 })

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { AlertTriangle } from 'lucide-react'
+import { getClinicalVitalLabel } from '../lib/vital-clinical-labels'
+import type { VitalAssessment } from '../lib/vital-types'
 import { Input } from './ui'
-
-type VitalAssessment = 'normal' | 'low' | 'high' | 'critical'
 
 type VitalConfig = {
   name: string
@@ -124,10 +124,18 @@ const assessmentStyles: Record<VitalAssessment, string> = {
   critical: 'border-red-400 bg-red-50 text-red-900',
 }
 
+const assessmentBadgeStyles: Record<VitalAssessment, string> = {
+  normal: 'text-emerald-700',
+  low: 'text-amber-800',
+  high: 'text-orange-800',
+  critical: 'text-red-800',
+}
+
 function VitalPicker({ config }: { config: VitalConfig }) {
   const [value, setValue] = useState(String(config.presets[0].value))
   const numeric = Number(value) || 0
   const assessment = assessVital(config, numeric)
+  const clinicalLabel = getClinicalVitalLabel(config.name, numeric, assessment)
 
   return (
     <div
@@ -137,11 +145,21 @@ function VitalPicker({ config }: { config: VitalConfig }) {
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold">{config.label}</p>
+        <div>
+          <p className="text-sm font-semibold">{config.label}</p>
+          <p className="text-[10px] text-slate-500">
+            Normal: {config.normalMin}–{config.normalMax} {config.unit}
+          </p>
+        </div>
         {assessment !== 'normal' ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase">
+          <span
+            className={clsx(
+              'inline-flex items-center gap-1 text-[10px] font-bold uppercase',
+              assessmentBadgeStyles[assessment],
+            )}
+          >
             <AlertTriangle className="h-3 w-3" />
-            {assessment === 'critical' ? 'Critical' : assessment === 'high' ? 'High' : 'Low'}
+            {clinicalLabel ?? (assessment === 'critical' ? 'Critical' : 'Abnormal')}
           </span>
         ) : (
           <span className="text-[10px] font-bold uppercase text-emerald-700">Normal</span>

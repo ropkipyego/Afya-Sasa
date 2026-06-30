@@ -24,6 +24,8 @@ import { LaboratoryModule } from './laboratory/laboratory.module';
 import { RadiologyModule } from './radiology/radiology.module';
 import { StorageModule } from './storage/storage.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { DocumentsModule } from './documents/documents.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -67,6 +69,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
       },
     ]),
     CoreModule,
+    RealtimeModule,
     PatientsModule,
     NotificationsModule,
     OpdModule,
@@ -83,6 +86,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     RadiologyModule,
     StorageModule,
     ReferralsModule,
+    DocumentsModule,
     HealthModule,
   ],
   controllers: [AppController],

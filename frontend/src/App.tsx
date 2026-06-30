@@ -1,46 +1,55 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
   AlertTriangle,
-  CalendarDays,
+  Bell,
   ClipboardList,
   Hospital,
   KeyRound,
   LogOut,
   Printer,
-  Settings,
-  Search,
-  ShieldCheck,
-  Users,
-  UserPlus,
 } from 'lucide-react'
 import {
-  Alert,
-  Button,
   Card,
-  ClinicalForm,
   Field,
-  FileUploadZone,
-  FormActions,
-  FormSection,
   NavGroup,
   PageHeader,
-  SelectField,
-  TextareaField,
   TriageBadge,
   TriageIndicator,
   triageCardAccent,
 } from './components/ui'
 import { PatientSearchAutocomplete, PatientSearchBrowse } from './components/PatientSearchAutocomplete'
-import { TriageSummaryPanel, VitalsForm } from './components/VitalsFields'
-import { useClinicalCatalog } from './hooks/useClinicalCatalog'
-import { identifierFieldLabel, type ClinicalCatalog } from './lib/clinical-catalog'
-import { uploadClinicalFile } from './lib/clinical-upload'
-import { formDataFromElement, submitClinicalForm } from './lib/form-utils'
+import { PatientContextHeader } from './components/PatientContextHeader'
+import { PatientRegistrationForm } from './components/PatientRegistrationForm'
+import { DoctorConsultationWorkspace } from './components/DoctorConsultationWorkspace'
+import { PatientTimeline } from './components/PatientTimeline'
+import type { WorkflowStep } from './lib/workflow-status'
+import { IpdModule } from './components/ipd/IpdModule'
+import { HospitalControlCenter } from './components/admin/HospitalControlCenter'
+import { OpdCheckInWorkspace } from './components/opd/OpdCheckInWorkspace'
+import { TriageWorkspace } from './components/opd/TriageWorkspace'
+import { AppointmentCenter } from './components/appointments/AppointmentCenter'
+import { ReferralWorkspace } from './components/referrals/ReferralWorkspace'
+import { LabWorklist } from './components/investigations/LabWorklist'
+import { RadiologyWorklist } from './components/investigations/RadiologyWorklist'
+import { MedicalDocumentsCenter } from './components/documents/MedicalDocumentsCenter'
+import { SickSheetWorkspace } from './components/documents/SickSheetWorkspace'
+import { MaternityServiceLine } from './components/maternity/MaternityServiceLine'
+import { EmergencyCommandCenter } from './components/emergency/EmergencyCommandCenter'
+import { NotificationInbox } from './components/notifications/NotificationInbox'
+import { OperationsCommandCenter } from './components/operations/OperationsCommandCenter'
+import { ClinicalReportsDashboard } from './components/reports/ClinicalReportsDashboard'
+import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
+import { PatientCardPrint } from './components/patients/PatientCardPrint'
+import { useHospitalSync } from './hooks/useHospitalSync'
+import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
+
+import { navigation, workflowDescriptions } from './lib/navigation'
+import { AppMobileNav } from './components/layout/AppMobileNav'
 
 interface PatientSummary {
   id: string
@@ -61,11 +70,6 @@ interface PatientSummary {
   }[]
   allergies?: { allergen: string; severity: string }[]
   chronicConditions?: { name: string; status: string }[]
-}
-
-interface PatientSearchResponse {
-  items: PatientSummary[]
-  meta: { page: number; pageSize: number; total: number }
 }
 
 interface AppNotification {
@@ -90,49 +94,20 @@ function greetingForNow() {
   return 'Good evening'
 }
 
-const navigation = [
-  { group: 'Reception', label: 'Patient Search', icon: Search, permission: 'patients:read' },
-  { group: 'Reception', label: 'Register Patient', icon: UserPlus, permission: 'patients:create' },
-  { group: 'Reception', label: 'OPD Check-In', icon: ClipboardList, permission: 'encounters:create' },
-  { group: 'Reception', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
-  { group: 'Reception', label: 'Referrals', icon: ClipboardList, permission: 'referrals:read' },
-  { group: 'Outpatient', label: 'Triage Queue', icon: Activity, permission: 'triage:read' },
-  { group: 'Outpatient', label: 'Doctor Queue', icon: Hospital, permission: 'consultations:read' },
-  { group: 'Investigations', label: 'Laboratory', icon: Activity, permission: 'lab_requests:read' },
-  { group: 'Investigations', label: 'Radiology', icon: Hospital, permission: 'radiology_requests:read' },
-  { group: 'Investigations', label: 'Results Inbox', icon: ClipboardList, permission: 'lab_results:read' },
-  { group: 'Inpatient', label: 'Bed Dashboard', icon: Hospital, permission: 'beds:read' },
-  { group: 'Inpatient', label: 'Admissions', icon: ClipboardList, permission: 'admissions:read' },
-  { group: 'Inpatient', label: 'Nursing', icon: Activity, permission: 'vitals:read' },
-  { group: 'Emergency & Critical Care', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read' },
-  { group: 'Emergency & Critical Care', label: 'ICU', icon: AlertTriangle, permission: 'icu_admissions:read' },
-  { group: 'Emergency & Critical Care', label: 'HDU', icon: Activity, permission: 'hdu_admissions:read' },
-  { group: 'Specialty', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
-  { group: 'Specialty', label: 'Maternity', icon: Activity, permission: 'pregnancies:read' },
-  { group: 'Reports', label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
-  { group: 'Reports', label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read' },
-  { group: 'Administration', label: 'User Management', icon: Users, permission: 'users:manage' },
-  { group: 'Administration', label: 'Role Permissions', icon: ShieldCheck, permission: 'roles:manage' },
-  { group: 'Administration', label: 'Settings', icon: Settings, permission: 'settings:manage' },
-  { group: 'Administration', label: 'Audit', icon: ShieldCheck, permission: 'audit_logs:read' },
-]
-
-const workflowDescriptions: Record<string, string> = {
-  'Patient Search': 'Find existing patients first, then open their safety banner and profile.',
-  'Register Patient': 'Create a new patient only after search-first duplicate checks.',
-  'OPD Check-In': 'Select a patient and create today’s outpatient encounter.',
-  'Triage Queue': 'Record vitals and triage colour before doctor review.',
-  'Doctor Queue': 'Prioritised queue with SOAP notes, diagnosis entry, and completion.',
-  'Bed Dashboard': 'Ward and bed map with live-style status cards.',
-  Admissions: 'Admit selected patients into available beds and review current admissions.',
-  Settings: 'Hospital-level configuration for patient numbers, triage, and messaging.',
-}
-
 function App() {
   const { user, accessToken, tenant, setTenant, clearSession } = useAuthStore()
   const [activeScreen, setActiveScreen] = useState('Patient Search')
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
+
+  const { data: notificationSummary } = useQuery({
+    queryKey: ['notification-summary'],
+    queryFn: () => apiRequest<{ unread: number }>('/notifications/inbox/summary'),
+    enabled: Boolean(accessToken),
+    refetchInterval: 30_000,
+  })
+
+  useHospitalSync()
 
   if (!accessToken || !user) {
     return <LoginScreen tenant={tenant} setTenant={setTenant} />
@@ -200,27 +175,35 @@ function App() {
       </aside>
 
       <main className="min-h-screen lg:pl-72">
-        <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur-md">
+        <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-md md:px-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="min-w-0 animate-fade-in">
+            <AppMobileNav
+              items={allowedNavigation}
+              activeScreen={activeScreen}
+              onNavigate={setActiveScreen}
+              tenant={tenant}
+            />
+            <div className="hidden min-w-0 flex-1 animate-fade-in lg:block">
               <p className="text-sm text-slate-500">
                 {greeting} · {workflowDescriptions[activeScreen] ?? 'Clinical workflow'}
               </p>
               <h2 className="text-xl font-bold tracking-tight">{activeScreen}</h2>
             </div>
-            <select
-              className="input max-w-xs lg:hidden"
-              value={activeScreen}
-              onChange={(event) => setActiveScreen(event.target.value)}
-            >
-              {allowedNavigation.map((item) => (
-                <option key={item.label} value={item.label}>
-                  {item.group} / {item.label}
-                </option>
-              ))}
-            </select>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
               {user.forcePasswordChange ? <ForcedPasswordNotice /> : null}
+              <button
+                type="button"
+                className="relative rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
+                onClick={() => setActiveScreen('Notifications')}
+                aria-label="Notifications"
+              >
+                <Bell size={18} />
+                {(notificationSummary?.unread ?? 0) > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                    {notificationSummary!.unread > 9 ? '9+' : notificationSummary!.unread}
+                  </span>
+                ) : null}
+              </button>
               <div className="text-right text-sm">
                 <p className="font-semibold">
                   {user.firstName} {user.lastName}
@@ -242,29 +225,43 @@ function App() {
           {activeScreen === 'Patient Search' ? (
             <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
           ) : null}
-          {activeScreen === 'Register Patient' ? <PatientRegistration /> : null}
-          {activeScreen === 'OPD Check-In' ? <OpdCheckIn /> : null}
-          {activeScreen === 'Triage Queue' ? <TriageQueue /> : null}
+          {activeScreen === 'Register Patient' ? <PatientRegistrationForm /> : null}
+          {activeScreen === 'Patient Timeline' ? (
+            <PatientTimelineScreen
+              onOpenProfile={(id) => {
+                setSelectedPatientId(id)
+              }}
+            />
+          ) : null}
+          {activeScreen === 'OPD Check-In' ? <OpdCheckInWorkspace /> : null}
+          {activeScreen === 'Triage Queue' ? <TriageWorkspace /> : null}
           {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
-          {activeScreen === 'Laboratory' ? <LaboratoryScreen /> : null}
-          {activeScreen === 'Radiology' ? <RadiologyScreen /> : null}
+          {activeScreen === 'Laboratory' ? <LabWorklist /> : null}
+          {activeScreen === 'Radiology' ? <RadiologyWorklist /> : null}
           {activeScreen === 'Results Inbox' ? <ResultsInbox /> : null}
-          {activeScreen === 'Appointments' ? <AppointmentsScreen /> : null}
-          {activeScreen === 'Referrals' ? <ReferralsScreen /> : null}
+          {activeScreen === 'Appointments' ? <AppointmentCenter /> : null}
+          {activeScreen === 'Referrals' ? <ReferralWorkspace /> : null}
+          {activeScreen === 'Medical Documents' ? <MedicalDocumentsCenter /> : null}
+          {activeScreen === 'Sick Sheets' ? <SickSheetWorkspace /> : null}
           {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
-          {activeScreen === 'Bed Dashboard' ? <BedDashboard /> : null}
-          {activeScreen === 'Admissions' ? <AdmissionsScreen /> : null}
-          {activeScreen === 'Emergency' ? <EmergencyScreen /> : null}
-          {activeScreen === 'Nursing' ? <NursingScreen /> : null}
-          {activeScreen === 'Clinical Reports' ? <ClinicalReports /> : null}
-          {activeScreen === 'Theatre' ? <TheatreScreen /> : null}
-          {activeScreen === 'Maternity' ? <MaternityScreen /> : null}
-          {activeScreen === 'ICU' ? <IcuScreen /> : null}
-          {activeScreen === 'HDU' ? <HduScreen /> : null}
-          {activeScreen === 'User Management' ? <AdminUsers /> : null}
-          {activeScreen === 'Role Permissions' ? <AdminRoles /> : null}
-          {activeScreen === 'Settings' ? <AdminSettings /> : null}
-          {activeScreen === 'Audit' ? <AuditLogViewer /> : null}
+          {activeScreen === 'Inpatient (IPD)' ? <IpdModule /> : null}
+          {activeScreen === 'Emergency' ? <EmergencyCommandCenter /> : null}
+          {activeScreen === 'Clinical Reports' ? <ClinicalReportsDashboard /> : null}
+          {activeScreen === 'Theatre' ? <TheatreWorkspace /> : null}
+          {activeScreen === 'Maternity' ? <MaternityServiceLine /> : null}
+          {activeScreen === 'ICU' ? <IpdModule initialWardType="icu" /> : null}
+          {activeScreen === 'HDU' ? <IpdModule initialWardType="hdu" /> : null}
+          {activeScreen === 'Operations Center' ? <OperationsCommandCenter /> : null}
+          {activeScreen === 'Notifications' ? (
+            <NotificationInbox onNavigate={setActiveScreen} />
+          ) : null}
+          {activeScreen === 'Hospital Control Center' ? (
+            <HospitalControlCenter
+              usersPanel={<AdminUsers />}
+              rolesPanel={<AdminRoles />}
+              auditPanel={<AuditLogViewer />}
+            />
+          ) : null}
           {activeScreen !== 'Patient Search' &&
           activeScreen !== 'Register Patient' &&
           activeScreen !== 'OPD Check-In' &&
@@ -275,20 +272,19 @@ function App() {
           activeScreen !== 'Results Inbox' &&
           activeScreen !== 'Appointments' &&
           activeScreen !== 'Referrals' &&
+          activeScreen !== 'Medical Documents' &&
+          activeScreen !== 'Sick Sheets' &&
           activeScreen !== 'OPD Reports' &&
-          activeScreen !== 'Bed Dashboard' &&
-          activeScreen !== 'Admissions' &&
+          activeScreen !== 'Operations Center' &&
+          activeScreen !== 'Notifications' &&
+          activeScreen !== 'Inpatient (IPD)' &&
           activeScreen !== 'Emergency' &&
-          activeScreen !== 'Nursing' &&
           activeScreen !== 'Clinical Reports' &&
           activeScreen !== 'Theatre' &&
           activeScreen !== 'Maternity' &&
           activeScreen !== 'ICU' &&
           activeScreen !== 'HDU' &&
-          activeScreen !== 'User Management' &&
-          activeScreen !== 'Role Permissions' &&
-          activeScreen !== 'Settings' &&
-          activeScreen !== 'Audit' ? (
+          activeScreen !== 'Hospital Control Center' ? (
             <Placeholder screen={activeScreen} />
           ) : null}
           {selectedPatientId ? (
@@ -308,7 +304,7 @@ function LoginScreen(props: {
   tenant: string
   setTenant: (tenant: string) => void
 }) {
-  const [email, setEmail] = useState('admin@demo.afyasasa.local')
+  const [email, setEmail] = useState(import.meta.env.DEV ? 'admin@demo.afyasasa.local' : '')
   const [password, setPassword] = useState('')
   const setSession = useAuthStore((state) => state.setSession)
   const mutation = useMutation({
@@ -400,8 +396,8 @@ function ForcedPasswordChangeScreen() {
   const clearSession = useAuthStore((state) => state.clearSession)
   const [message, setMessage] = useState<string | null>(null)
   const mutation = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest<{ changed: boolean }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({
@@ -422,7 +418,7 @@ function ForcedPasswordChangeScreen() {
         className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
         onSubmit={(event) => {
           event.preventDefault()
-          mutation.mutate(event)
+          mutation.mutate(event.currentTarget)
         }}
       >
         <div className="mb-8 flex items-center gap-3">
@@ -550,213 +546,56 @@ function PatientSearch({
   )
 }
 
-function PatientRegistration() {
-  const [message, setMessage] = useState<string | null>(null)
-  const [identifierType, setIdentifierType] = useState('national_id')
-  const mutation = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      const kinName = form.get('kinName')?.toString().trim()
-      const payload: Record<string, unknown> = {
-        firstName: form.get('firstName'),
-        middleName: form.get('middleName') || undefined,
-        lastName: form.get('lastName')?.toString().trim() || '—',
-        dateOfBirth: form.get('dateOfBirth'),
-        gender: form.get('gender'),
-        primaryPhone: form.get('primaryPhone'),
-        secondaryPhone: form.get('secondaryPhone') || undefined,
-        email: form.get('email') || undefined,
-        bloodGroup: form.get('bloodGroup') || undefined,
-        county: form.get('county') || undefined,
-        identifiers: [
-          {
-            type: form.get('identifierType'),
-            value: form.get('identifierValue'),
-            isPrimary: true,
-          },
-        ],
-      }
-      if (kinName) {
-        payload.nextOfKin = [
-          {
-            name: kinName,
-            relationship: form.get('kinRelationship'),
-            primaryPhone: form.get('kinPhone'),
-            isEmergencyContact: true,
-          },
-        ]
-      }
-      return apiRequest<PatientSummary>('/patients', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-    },
-    onSuccess: (patient) => {
-      setMessage(`Registered ${patient.patientNo}. SMS queued.`)
-      emitAppNotification({
-        title: 'Patient registered',
-        body: `${patient.firstName} ${patient.lastName} (${patient.patientNo})`,
-        severity: 'success',
-      })
-    },
-  })
-
-  return (
-    <Card className="max-w-4xl animate-fade-in">
-      <PageHeader
-        eyebrow="Reception"
-        title="Register a patient"
-        description="Search first to avoid duplicates. Fields marked optional can be left blank."
-      />
-      <ClinicalForm onSubmit={(event) => submitClinicalForm(mutation, event)}>
-        <FormSection title="Legal name" description="Use the name on the patient's official ID.">
-          <Field name="firstName" label="First name" required />
-          <Field name="middleName" label="Other name" hint="Optional" />
-          <Field name="lastName" label="Surname" hint="Optional if not used at this facility" />
-        </FormSection>
-        <FormSection title="Demographics">
-          <Field name="dateOfBirth" label="Date of birth" type="date" required />
-          <SelectField name="gender" label="Gender" required>
-            <option value="female">Female</option>
-            <option value="male">Male</option>
-            <option value="intersex">Intersex</option>
-            <option value="unknown">Unknown</option>
-          </SelectField>
-          <SelectField name="bloodGroup" label="Blood group" hint="Optional">
-            <option value="">Not known</option>
-            <option value="A+">A+</option>
-            <option value="A-">A-</option>
-            <option value="B+">B+</option>
-            <option value="B-">B-</option>
-            <option value="AB+">AB+</option>
-            <option value="AB-">AB-</option>
-            <option value="O+">O+</option>
-            <option value="O-">O-</option>
-          </SelectField>
-          <Field name="county" label="County / region" placeholder="e.g. Nairobi" />
-        </FormSection>
-        <FormSection title="Contact">
-          <Field name="primaryPhone" label="Primary phone" required />
-          <Field name="secondaryPhone" label="Secondary phone" hint="Optional" />
-          <Field name="email" label="Email" type="email" hint="Optional" />
-        </FormSection>
-        <FormSection title="Primary ID document">
-          <SelectField
-            name="identifierType"
-            label="Document type"
-            required
-            value={identifierType}
-            onChange={(event) => setIdentifierType(event.target.value)}
-          >
-            <option value="national_id">National ID</option>
-            <option value="sha">SHA</option>
-            <option value="passport">Passport</option>
-            <option value="birth_certificate">Birth certificate</option>
-            <option value="refugee_id">Refugee ID</option>
-          </SelectField>
-          <Field
-            name="identifierValue"
-            label={identifierFieldLabel(identifierType)}
-            required
-          />
-        </FormSection>
-        <FormSection title="Next of kin" description="Optional — used for admissions and emergencies.">
-          <Field name="kinName" label="Contact name" />
-          <Field name="kinRelationship" label="Relationship" placeholder="Spouse, parent, sibling" />
-          <Field name="kinPhone" label="Contact phone" />
-        </FormSection>
-        {mutation.error ? <Alert tone="error">{mutation.error.message}</Alert> : null}
-        {message ? <Alert tone="success">{message}</Alert> : null}
-        <FormActions>
-          <Button type="submit" loading={mutation.isPending}>
-            Register patient
-          </Button>
-        </FormActions>
-      </ClinicalForm>
-    </Card>
-  )
-}
-
-function PatientLookup({
-  selectedPatient,
-  onSelect,
+function PatientTimelineScreen({
+  onOpenProfile,
 }: {
-  selectedPatient: PatientSummary | null
-  onSelect: (patient: PatientSummary | null) => void
+  onOpenProfile: (patientId: string) => void
 }) {
-  const [query, setQuery] = useState('')
-  const { data, refetch, isFetching } = useQuery({
-    queryKey: ['patient-lookup', query],
+  const [selected, setSelected] = useState<PatientSummary | null>(null)
+  const { data: timeline } = useQuery({
+    queryKey: ['full-patient-timeline', selected?.id],
     queryFn: () =>
-      apiRequest<PatientSearchResponse>(
-        `/patients?q=${encodeURIComponent(query)}&pageSize=8`,
+      apiRequest<{
+        events: { id?: string; type: string; occurredAt: string; title: string; summary: string }[]
+      }>(`/patients/${selected!.id}/timeline`),
+    enabled: Boolean(selected?.id),
+  })
+  const { data: journey } = useQuery({
+    queryKey: ['timeline-journey', selected?.id],
+    queryFn: () =>
+      apiRequest<{ step: WorkflowStep; pregnancyAlert: boolean; criticalLabAlert: boolean }>(
+        `/patients/${selected!.id}/journey`,
       ),
-    enabled: false,
+    enabled: Boolean(selected?.id),
   })
 
-  useEffect(() => {
-    if (query.trim().length < 2) return
-    const timeout = window.setTimeout(() => void refetch(), 300)
-    return () => window.clearTimeout(timeout)
-  }, [query, refetch])
-
   return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-sm font-semibold">Patient</p>
-      <div className="mt-3 flex gap-2">
-        <input
-          className="input"
-          placeholder="Name, patient no, National ID/SHA, phone"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
+    <div className="grid max-w-6xl gap-6 animate-fade-in">
+      <Card>
+        <PageHeader
+          eyebrow="Clinical record"
+          title="Patient timeline"
+          description="Search a patient to view their full chronological journey."
         />
-        <button
-          type="button"
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"
-          onClick={() => void refetch()}
-        >
-          {isFetching ? 'Searching...' : 'Search'}
-        </button>
-      </div>
-      <div className="mt-3 max-h-40 overflow-y-auto divide-y divide-slate-200">
-        {(data?.items ?? []).map((patient) => (
-          <button
-            type="button"
-            key={patient.id}
-            className={`w-full px-2 py-3 text-left text-sm hover:bg-white ${
-              selectedPatient?.id === patient.id
-                ? 'bg-white font-semibold text-blue-700'
-                : ''
-            }`}
-            onClick={() => onSelect(patient)}
-          >
-            <span className="font-semibold">{patient.firstName} {patient.lastName}</span>
-            <span className="block text-slate-500">
-              {patient.patientNo} · DOB {patient.dateOfBirth} · {patient.primaryPhone}
-            </span>
-            <span className="block text-xs text-slate-400">
-              {patient.identifiers?.map((item) => `${item.type}: ${item.value}`).join(' · ') || 'No identifier'}
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3 text-sm">
-        <span>
-          Selected:{' '}
-          {selectedPatient
-            ? `${selectedPatient.firstName} ${selectedPatient.lastName} (${selectedPatient.patientNo})`
-            : 'none'}
-        </span>
-        {selectedPatient ? (
-          <button
-            type="button"
-            className="font-semibold text-red-600"
-            onClick={() => onSelect(null)}
-          >
-            Clear
-          </button>
-        ) : null}
-      </div>
+        <PatientSearchAutocomplete
+          selected={selected}
+          onSelect={(patient) => setSelected(patient as PatientSummary | null)}
+        />
+      </Card>
+      {selected ? (
+        <>
+          <PatientContextHeader
+            patient={selected}
+            workflowStep={journey?.step}
+            pregnancyAlert={journey?.pregnancyAlert}
+            criticalLabAlert={journey?.criticalLabAlert}
+          />
+          <PatientTimeline
+            events={timeline?.events ?? []}
+            onSelect={() => onOpenProfile(selected.id)}
+          />
+        </>
+      ) : null}
     </div>
   )
 }
@@ -796,8 +635,8 @@ function PatientProfileDrawer({
       }>(`/patients/${patientId}/timeline`),
   })
   const addIdentifier = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/identifiers`, {
         method: 'POST',
         body: JSON.stringify({
@@ -812,8 +651,8 @@ function PatientProfileDrawer({
     },
   })
   const addNok = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/next-of-kin`, {
         method: 'POST',
         body: JSON.stringify({
@@ -829,8 +668,8 @@ function PatientProfileDrawer({
     },
   })
   const addAllergy = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/allergies`, {
         method: 'POST',
         body: JSON.stringify({
@@ -846,8 +685,8 @@ function PatientProfileDrawer({
     },
   })
   const addCondition = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/patients/${patientId}/chronic-conditions`, {
         method: 'POST',
         body: JSON.stringify({
@@ -861,14 +700,6 @@ function PatientProfileDrawer({
       await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
     },
   })
-
-  const allergyText = useMemo(
-    () =>
-      patient?.allergies?.length
-        ? patient.allergies.map((allergy) => allergy.allergen).join(', ')
-        : 'No allergies recorded',
-    [patient?.allergies],
-  )
 
   return (
     <div className="fixed inset-y-0 right-0 z-20 w-full max-w-2xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl">
@@ -897,44 +728,45 @@ function PatientProfileDrawer({
             </button>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            <div className="rounded-2xl bg-red-50 p-4 text-red-800">
-              <p className="text-xs font-bold uppercase">Allergies</p>
-              <p className="text-sm">{allergyText}</p>
-            </div>
-            <div className="rounded-2xl bg-amber-50 p-4 text-amber-900">
-              <p className="text-xs font-bold uppercase">Chronic conditions</p>
-              <p className="text-sm">
-                {patient.chronicConditions
-                  ?.map((condition) => condition.name)
-                  .join(', ') || 'None recorded'}
-              </p>
-            </div>
+          <div className="mt-6">
+            <PatientContextHeader patient={patient} sticky={false} showWorkflow={false} />
           </div>
 
-          <section className="mt-6 rounded-2xl border border-slate-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase text-slate-500">
-                  Printable QR card
-                </p>
-                <p className="font-semibold">{qrCard?.printableText}</p>
-              </div>
-              <Printer className="text-blue-600" />
+          <section className="mt-6">
+            <PatientTimeline events={timeline?.events ?? []} title="Clinical timeline" />
+          </section>
+
+          <section className="patient-card-print-area mt-6">
+            <div className="flex items-center justify-between print:hidden">
+              <p className="text-xs font-bold uppercase text-slate-500">Patient card</p>
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white"
+                onClick={() => window.print()}
+              >
+                <Printer className="h-4 w-4" />
+                Print card
+              </button>
             </div>
-            {qrCard?.qrDataUrl ? (
-              <img
-                src={qrCard.qrDataUrl}
-                alt={`QR code for ${patient.patientNo}`}
-                className="mt-4 h-32 w-32 rounded-xl border border-slate-200"
-              />
+            {qrCard && patient ? (
+              <div className="mt-4 max-w-md">
+                <PatientCardPrint
+                  patient={{
+                    patientNo: patient.patientNo,
+                    firstName: patient.firstName,
+                    lastName: patient.lastName,
+                    dateOfBirth: patient.dateOfBirth,
+                    gender: patient.gender,
+                    bloodGroup: patient.bloodGroup,
+                    primaryPhone: patient.primaryPhone,
+                    qrDataUrl: qrCard.qrDataUrl,
+                    qrCode: qrCard.qrCode,
+                    nextOfKin: patient.nextOfKin?.find((k) => k.isEmergencyContact) ?? patient.nextOfKin?.[0] ?? null,
+                  }}
+                  qr={{ qrDataUrl: qrCard.qrDataUrl, qrCode: qrCard.qrCode }}
+                />
+              </div>
             ) : null}
-            <button
-              className="mt-4 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white"
-              onClick={() => window.print()}
-            >
-              Print card
-            </button>
           </section>
 
           <section className="mt-6 grid gap-4 md:grid-cols-2">
@@ -956,31 +788,6 @@ function PatientProfileDrawer({
 
           <section className="mt-6 rounded-2xl border border-slate-200 p-4">
             <p className="text-xs font-bold uppercase text-slate-500">
-              Clinical timeline
-            </p>
-            <div className="mt-4 max-h-96 space-y-3 overflow-y-auto">
-              {(timeline?.events ?? []).map((event, index) => (
-                <div key={`${event.type}-${event.occurredAt}-${index}`} className="rounded-2xl bg-slate-50 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold">{event.title}</p>
-                    <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold uppercase text-blue-700">
-                      {event.type}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-slate-600">{event.summary}</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {new Date(event.occurredAt).toLocaleString()}
-                  </p>
-                </div>
-              ))}
-              {!timeline?.events?.length ? (
-                <p className="text-sm text-slate-500">No timeline events yet.</p>
-              ) : null}
-            </div>
-          </section>
-
-          <section className="mt-6 rounded-2xl border border-slate-200 p-4">
-            <p className="text-xs font-bold uppercase text-slate-500">
               Contact
             </p>
             <p className="mt-2 text-sm">
@@ -995,7 +802,7 @@ function PatientProfileDrawer({
               pending={addIdentifier.isPending}
               onSubmit={(event) => {
                 event.preventDefault()
-                addIdentifier.mutate(event)
+                addIdentifier.mutate(event.currentTarget)
                 event.currentTarget.reset()
               }}
             >
@@ -1013,7 +820,7 @@ function PatientProfileDrawer({
               pending={addNok.isPending}
               onSubmit={(event) => {
                 event.preventDefault()
-                addNok.mutate(event)
+                addNok.mutate(event.currentTarget)
                 event.currentTarget.reset()
               }}
             >
@@ -1036,7 +843,7 @@ function PatientProfileDrawer({
               pending={addAllergy.isPending}
               onSubmit={(event) => {
                 event.preventDefault()
-                addAllergy.mutate(event)
+                addAllergy.mutate(event.currentTarget)
                 event.currentTarget.reset()
               }}
             >
@@ -1071,7 +878,7 @@ function PatientProfileDrawer({
               pending={addCondition.isPending}
               onSubmit={(event) => {
                 event.preventDefault()
-                addCondition.mutate(event)
+                addCondition.mutate(event.currentTarget)
                 event.currentTarget.reset()
               }}
             >
@@ -1160,409 +967,10 @@ interface EncounterItem {
   consultation?: { id: string; status: string } | null
 }
 
-function OpdCheckIn() {
-  const { data: catalog = null } = useClinicalCatalog()
-  const catalogData = catalog as ClinicalCatalog
-  const [selected, setSelected] = useState<PatientSummary | null>(null)
-  const [destination, setDestination] = useState('doctor')
-  const [referralFile, setReferralFile] = useState<File | null>(null)
-  const [formError, setFormError] = useState<string | null>(null)
-  const isInvestigationRoute = destination === 'laboratory' || destination === 'radiology'
-
-  const createEncounter = useMutation({
-    mutationFn: async (formElement: HTMLFormElement) => {
-      if (!selected) throw new Error('Select a patient first.')
-      const form = formDataFromElement(formElement)
-      const encounter = await apiRequest<{ id: string }>('/opd/encounters', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selected.id,
-          presentingComplaint: isInvestigationRoute
-            ? undefined
-            : form.get('presentingComplaint') || undefined,
-          visitType: form.get('visitType'),
-          destination: form.get('destination'),
-          departmentName: form.get('departmentName') || undefined,
-          paymentMethod: form.get('paymentMethod') || undefined,
-          receiptNumber: form.get('receiptNumber') || undefined,
-        }),
-      })
-      if (referralFile && isInvestigationRoute) {
-        const uploaded = await uploadClinicalFile(
-          referralFile,
-          destination,
-          encounter.id,
-        )
-        await apiRequest(`/opd/encounters/${encounter.id}/attachments`, {
-          method: 'POST',
-          body: JSON.stringify({
-            filename: uploaded.filename,
-            mimeType: uploaded.mimeType,
-            storagePath: uploaded.storagePath,
-            fileSize: uploaded.fileSize,
-          }),
-        })
-      }
-      return encounter
-    },
-    onSuccess: () => {
-      emitAppNotification({
-        title: 'Check-in complete',
-        body: isInvestigationRoute
-          ? 'Patient checked in with referral document attached.'
-          : 'Patient sent to triage queue.',
-        severity: 'success',
-      })
-      setSelected(null)
-      setReferralFile(null)
-      setFormError(null)
-    },
-    onError: (error: Error) => setFormError(error.message),
-  })
-
-  return (
-    <div className="grid max-w-5xl gap-6 animate-fade-in">
-      <Card>
-        <PageHeader
-          eyebrow="Reception"
-          title="OPD check-in"
-          description="Search as you type, then complete visit details. Complaint is captured at triage for doctor visits."
-        />
-        <ClinicalForm
-          onSubmit={(event) =>
-            submitClinicalForm(createEncounter, event, {
-              validate: () => {
-                if (!selected) return 'Select a patient from the suggestions.'
-                if (isInvestigationRoute && !referralFile) {
-                  return 'Upload the lab or radiology request form.'
-                }
-                return null
-              },
-              onValidationError: setFormError,
-            })
-          }
-        >
-          <FormSection title="Find patient" columns={1}>
-            <PatientSearchAutocomplete
-              selected={selected}
-              onSelect={(patient) => setSelected(patient as PatientSummary | null)}
-            />
-          </FormSection>
-
-          {selected ? (
-            <>
-              <FormSection title="Visit details">
-                <SelectField name="visitType" label="Visit type" required>
-                  {(catalogData?.visitTypes ?? []).map((item: { value: string; label: string }) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </SelectField>
-                <SelectField
-                  name="destination"
-                  label="Where is the patient going?"
-                  required
-                  value={destination}
-                  onChange={(event) => setDestination(event.target.value)}
-                >
-                  <option value="doctor">See doctor / consultation</option>
-                  <option value="laboratory">Direct to laboratory</option>
-                  <option value="radiology">Direct to imaging / radiology</option>
-                  <option value="theatre">Theatre review</option>
-                  <option value="maternity">Maternity</option>
-                  <option value="emergency">Emergency</option>
-                </SelectField>
-                <SelectField name="departmentName" label="Clinic / department" required>
-                  <option value="">Select clinic</option>
-                  {(catalogData?.clinics ?? []).map((clinic: string) => (
-                    <option key={clinic} value={clinic}>
-                      {clinic}
-                    </option>
-                  ))}
-                </SelectField>
-                <SelectField name="doctorCategory" label="Doctor category" hint="Optional">
-                  <option value="">Not specified</option>
-                  {(catalogData?.doctorCategories ?? []).map((category: string) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </SelectField>
-                {(catalogData?.assignableDoctors ?? []).length ? (
-                  <SelectField name="assignableDoctor" label="Preferred doctor" hint="Optional">
-                    <option value="">Any available</option>
-                    {catalogData?.assignableDoctors.map((doctor: string) => (
-                      <option key={doctor} value={doctor}>
-                        {doctor}
-                      </option>
-                    ))}
-                  </SelectField>
-                ) : null}
-              </FormSection>
-
-              <FormSection title="Payment reference">
-                <SelectField name="paymentMethod" label="Payment method">
-                  <option value="">Not captured</option>
-                  {(catalogData?.paymentMethods ?? []).map((method: { value: string; label: string }) => (
-                    <option key={method.value} value={method.value}>
-                      {method.label}
-                    </option>
-                  ))}
-                </SelectField>
-                <Field name="receiptNumber" label="Receipt / reference number" />
-              </FormSection>
-
-              {isInvestigationRoute ? (
-                <FormSection title="Referral document" description="Upload the request form — no complaint needed at reception.">
-                  <FileUploadZone
-                    file={referralFile}
-                    onFileChange={setReferralFile}
-                    hint="Lab request form, imaging request, or doctor referral letter"
-                  />
-                </FormSection>
-              ) : (
-                <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  Presenting complaint will be recorded by the triage nurse. The doctor assesses the patient during consultation.
-                </p>
-              )}
-            </>
-          ) : null}
-
-          {formError ? <Alert tone="error">{formError}</Alert> : null}
-          {createEncounter.isSuccess ? (
-            <Alert tone="success">Patient checked in successfully.</Alert>
-          ) : null}
-          <FormActions>
-            <Button type="submit" loading={createEncounter.isPending} disabled={!selected}>
-              Check in patient
-            </Button>
-          </FormActions>
-        </ClinicalForm>
-      </Card>
-    </div>
-  )
-}
-
-function TriageQueue() {
-  const queryClient = useQueryClient()
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const { data: encounters = [] } = useQuery({
-    queryKey: ['triage-queue'],
-    queryFn: () => apiRequest<EncounterItem[]>('/opd/triage/queue'),
-  })
-  const { data: board } = useQuery({
-    queryKey: ['triage-board'],
-    queryFn: () =>
-      apiRequest<{
-        counts: {
-          waitingTriage: number
-          waitingDoctor: number
-          inConsultation: number
-          completed: number
-          totalToday: number
-        }
-        patients: {
-          id: string
-          encounterNo: string
-          status: string
-          patientName: string
-          triageColour: string | null
-        }[]
-      }>('/opd/triage/board'),
-    refetchInterval: 20_000,
-  })
-  const triage = useMutation({
-    mutationFn: ({
-      formElement,
-      encounterId,
-    }: {
-      formElement: HTMLFormElement
-      encounterId: string
-    }) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/opd/encounters/${encounterId}/triage`, {
-        method: 'POST',
-        body: JSON.stringify({
-          category: form.get('category'),
-          colour: form.get('colour'),
-          chiefComplaint: form.get('chiefComplaint'),
-          painScore: Number(form.get('painScore') || 0),
-          temperature: Number(form.get('temperature') || 0),
-          pulse: Number(form.get('pulse') || 0),
-          respiratoryRate: Number(form.get('respiratoryRate') || 0),
-          bpSystolic: Number(form.get('bpSystolic') || 0),
-          bpDiastolic: Number(form.get('bpDiastolic') || 0),
-          spo2: Number(form.get('spo2') || 0),
-          weight: Number(form.get('weight') || 0),
-          height: Number(form.get('height') || 0),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      emitAppNotification({
-        title: 'Triage saved',
-        body: 'Patient moved to doctor queue.',
-        severity: 'success',
-      })
-      setActiveId(null)
-      await queryClient.invalidateQueries({ queryKey: ['triage-queue'] })
-      await queryClient.invalidateQueries({ queryKey: ['triage-board'] })
-    },
-  })
-
-  const activeEncounter = encounters.find((e) => e.id === activeId) ?? encounters[0] ?? null
-
-  const statusLabels: Record<string, string> = {
-    registered: 'Awaiting triage',
-    triaged: 'Waiting for doctor',
-    in_consultation: 'With doctor',
-    completed: 'Completed',
-  }
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr] animate-fade-in">
-      <div className="space-y-4">
-        <Card>
-          <PageHeader title="Today's OPD flow" description="Live status of patients in the clinic today." />
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              { label: 'Awaiting triage', value: board?.counts.waitingTriage ?? 0, tone: 'bg-amber-50 text-amber-900' },
-              { label: 'Doctor queue', value: board?.counts.waitingDoctor ?? 0, tone: 'bg-sky-50 text-sky-900' },
-              { label: 'In consultation', value: board?.counts.inConsultation ?? 0, tone: 'bg-teal-50 text-teal-900' },
-              { label: 'Completed', value: board?.counts.completed ?? 0, tone: 'bg-emerald-50 text-emerald-900' },
-            ].map((item) => (
-              <div key={item.label} className={`rounded-xl px-3 py-3 ${item.tone}`}>
-                <p className="text-[10px] font-bold uppercase">{item.label}</p>
-                <p className="text-2xl font-bold">{item.value}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 max-h-52 space-y-1 overflow-y-auto">
-            {(board?.patients ?? []).map((patient) => (
-              <div
-                key={patient.id}
-                className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm"
-              >
-                <span className="font-medium">{patient.patientName}</span>
-                <span className="text-xs capitalize text-slate-500">
-                  {statusLabels[patient.status] ?? patient.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card>
-          <PageHeader title="Waiting for triage" description={`${encounters.length} patient(s) in queue`} />
-          <div className="mt-3 space-y-2">
-            {encounters.map((encounter) => (
-              <button
-                key={encounter.id}
-                type="button"
-                onClick={() => setActiveId(encounter.id)}
-                className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                  activeEncounter?.id === encounter.id
-                    ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-200'
-                    : 'border-slate-200 hover:border-teal-200'
-                }`}
-              >
-                <p className="font-semibold">
-                  {encounter.patient.firstName} {encounter.patient.lastName}
-                </p>
-                <p className="text-xs text-slate-500">{encounter.encounterNo}</p>
-              </button>
-            ))}
-            {!encounters.length ? (
-              <p className="py-8 text-center text-sm text-slate-500">No patients waiting.</p>
-            ) : null}
-          </div>
-        </Card>
-      </div>
-
-      {activeEncounter ? (
-        <Card className="border-l-4 border-l-teal-500">
-          <div className="border-b border-slate-100 pb-5">
-            <p className="text-xs font-bold uppercase text-teal-600">{activeEncounter.encounterNo}</p>
-            <h3 className="mt-1 text-2xl font-bold">
-              {activeEncounter.patient.firstName} {activeEncounter.patient.lastName}
-            </h3>
-            <p className="text-sm text-slate-500">{activeEncounter.patient.patientNo}</p>
-            <div className="mt-4">
-              <PatientSafetyBanner patient={activeEncounter.patient} />
-            </div>
-          </div>
-
-          <ClinicalForm
-            className="mt-6"
-            onSubmit={(event) => {
-              event.preventDefault()
-              triage.mutate({ formElement: event.currentTarget, encounterId: activeEncounter.id })
-            }}
-          >
-            <FormSection title="Triage assessment" columns={3}>
-              <SelectField name="colour" label="Triage colour" required>
-                <option value="red">Emergency — Red</option>
-                <option value="orange">Urgent — Orange</option>
-                <option value="yellow">Priority — Yellow</option>
-                <option value="green">Routine — Green</option>
-                <option value="blue">Non-urgent — Blue</option>
-              </SelectField>
-              <SelectField name="category" label="Category" required>
-                <option value="general">General</option>
-                <option value="paediatric">Paediatric</option>
-                <option value="obstetric">Obstetric</option>
-                <option value="trauma">Trauma</option>
-                <option value="mental_health">Mental health</option>
-              </SelectField>
-              <SelectField name="painScore" label="Pain score" required>
-                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
-                  <option key={score} value={score}>
-                    {score} — {score <= 3 ? 'Mild' : score <= 6 ? 'Moderate' : 'Severe'}
-                  </option>
-                ))}
-              </SelectField>
-            </FormSection>
-
-            <TextareaField
-              name="chiefComplaint"
-              label="Chief complaint"
-              placeholder="Patient's main concern in their own words"
-              required
-            />
-
-            <FormSection title="Vitals" description="Tap a normal preset or enter a custom value. Abnormal readings are flagged for the doctor." columns={1}>
-              <VitalsForm />
-            </FormSection>
-
-            <FormActions>
-              <Button type="submit" loading={triage.isPending} className="w-full sm:w-auto">
-                Submit triage → doctor queue
-              </Button>
-            </FormActions>
-          </ClinicalForm>
-        </Card>
-      ) : (
-        <Card>
-          <p className="py-16 text-center text-slate-500">Select a patient from the queue to begin triage.</p>
-        </Card>
-      )}
-    </div>
-  )
-}
-
 function DoctorQueue() {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<EncounterItem | null>(null)
   const [recentSoap, setRecentSoap] = useState<Array<{ id: string; patient: string; savedAt: string }>>([])
-  const { data: labTests = [] } = useQuery({
-    queryKey: ['doctor-lab-tests'],
-    queryFn: () => apiRequest<{ id: string; name: string }[]>('/laboratory/tests'),
-  })
-  const { data: radiologyModalities = [] } = useQuery({
-    queryKey: ['doctor-radiology-modalities'],
-    queryFn: () => apiRequest<{ id: string; name: string }[]>('/radiology/modalities'),
-  })
   const { data: queue = [] } = useQuery({
     queryKey: ['doctor-queue'],
     queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
@@ -1604,8 +1012,8 @@ function DoctorQueue() {
     },
   })
   const addDiagnosis = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/opd/encounters/${selected?.id}/diagnoses`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1628,53 +1036,9 @@ function DoctorQueue() {
       await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
     },
   })
-  const orderLab = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      const testId = form.get('testId')?.toString()
-      return apiRequest('/laboratory/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selected?.patient.id,
-          encounterId: selected?.id,
-          priority: form.get('priority'),
-          notes: form.get('notes') || undefined,
-          testIds: testId ? [testId] : [],
-        }),
-      })
-    },
-    onSuccess: () =>
-      emitAppNotification({
-        title: 'Lab request sent',
-        body: 'Laboratory queue will receive this request.',
-        severity: 'success',
-      }),
-  })
-  const orderRadiology = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/radiology/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selected?.patient.id,
-          encounterId: selected?.id,
-          modalityId: form.get('modalityId'),
-          bodyPart: form.get('bodyPart'),
-          clinicalIndication: form.get('clinicalIndication'),
-          priority: form.get('priority'),
-        }),
-      })
-    },
-    onSuccess: () =>
-      emitAppNotification({
-        title: 'Radiology request sent',
-        body: 'Radiology queue will receive this request.',
-        severity: 'success',
-      }),
-  })
   const createReferral = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/referrals', {
         method: 'POST',
         body: JSON.stringify({
@@ -1697,7 +1061,7 @@ function DoctorQueue() {
   })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr] animate-fade-in">
+    <div className="grid gap-6 xl:grid-cols-[0.75fr_1.75fr] animate-fade-in">
       <div className="space-y-3">
         <PageHeader title="Doctor queue" description="Sorted by triage urgency. Colour shows throughout consultation." />
         {queue.map((encounter) => (
@@ -1726,363 +1090,29 @@ function DoctorQueue() {
         ) : null}
       </div>
 
-      <Card
-        className={`border-l-4 transition-colors duration-300 ${
-          selected ? triageCardAccent(selected.triage?.colour) : ''
-        }`}
-      >
+      <div className="min-w-0 xl:col-span-2">
         {selected ? (
-          <>
-            <PageHeader
-              title={`${selected.patient.firstName} ${selected.patient.lastName}`}
-              description={selected.encounterNo}
-            />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <TriageBadge colour={selected.triage?.colour} />
-              <span className="text-xs font-medium text-slate-500 capitalize">
-                {selected.triage?.category ?? 'General'} category
-              </span>
-            </div>
-
-            {selected.triage ? (
-              <div className="mt-4">
-                <TriageSummaryPanel triage={selected.triage} />
-              </div>
-            ) : null}
-
-            <div className="mt-4">
-              <PatientSafetyBanner patient={selected.patient} />
-            </div>
-
-            <ClinicalForm
-              className="mt-6"
-              onSubmit={(event) => submitClinicalForm(createConsultation, event)}
-            >
-              <FormSection title="SOAP consultation" columns={1}>
-                <TextareaField name="subjective" label="Subjective" placeholder="History, symptoms, HPI" required />
-                <TextareaField name="objective" label="Objective" placeholder="Exam findings — review triage vitals above" required />
-                <TextareaField name="assessment" label="Assessment" placeholder="Clinical impression" required />
-                <TextareaField name="plan" label="Plan" placeholder="Treatment, prescriptions, follow-up" required />
-                <Field name="followUpDate" label="Follow-up date" type="date" />
-                <Field name="followUpInstructions" label="Follow-up instructions" />
-              </FormSection>
-              <FormActions>
-                <Button type="submit" loading={createConsultation.isPending}>
-                  Save SOAP note
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  loading={completeEncounter.isPending}
-                  onClick={() => completeEncounter.mutate()}
-                >
-                  Complete visit
-                </Button>
-              </FormActions>
-            </ClinicalForm>
-            {recentSoap.length ? (
-              <div className="mt-6 rounded-2xl bg-green-50 p-4 text-green-900">
-                <p className="font-bold">Recently saved consultations</p>
-                <div className="mt-2 space-y-2 text-sm">
-                  {recentSoap.map((item) => (
-                    <p key={item.id}>
-                      {item.patient} · {item.savedAt} · {item.id}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <form
-              className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4"
-              onSubmit={(event) => {
-                event.preventDefault()
-                addDiagnosis.mutate(event)
-                event.currentTarget.reset()
-              }}
-            >
-              <p className="font-bold">Add diagnosis</p>
-              <input name="icd10Code" className="input" placeholder="ICD-10" />
-              <input name="description" className="input" placeholder="Diagnosis" required />
-              <select name="type" className="input" required>
-                <option value="primary">Primary</option>
-                <option value="secondary">Secondary</option>
-                <option value="differential">Differential</option>
-              </select>
-              <button className="rounded-xl bg-slate-900 px-4 py-2 font-bold text-white">
-                Add diagnosis
-              </button>
-            </form>
-            <div className="mt-6 grid gap-4 xl:grid-cols-3">
-              <QuickAddForm
-                title="Send to lab"
-                pending={orderLab.isPending}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  orderLab.mutate(event)
-                  event.currentTarget.reset()
-                }}
-              >
-                <select name="testId" className="input" required>
-                  <option value="">Select test</option>
-                  {labTests.map((test) => (
-                    <option key={test.id} value={test.id}>
-                      {test.name}
-                    </option>
-                  ))}
-                </select>
-                <select name="priority" className="input" required>
-                  <option value="routine">Routine</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="stat">STAT</option>
-                </select>
-                <input name="notes" className="input" placeholder="Clinical notes" />
-              </QuickAddForm>
-              <QuickAddForm
-                title="Send to radiology"
-                pending={orderRadiology.isPending}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  orderRadiology.mutate(event)
-                  event.currentTarget.reset()
-                }}
-              >
-                <select name="modalityId" className="input" required>
-                  <option value="">Select modality</option>
-                  {radiologyModalities.map((modality) => (
-                    <option key={modality.id} value={modality.id}>
-                      {modality.name}
-                    </option>
-                  ))}
-                </select>
-                <input name="bodyPart" className="input" placeholder="Body part" required />
-                <input name="clinicalIndication" className="input" placeholder="Clinical indication" required />
-                <select name="priority" className="input" required>
-                  <option value="routine">Routine</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="stat">STAT</option>
-                </select>
-              </QuickAddForm>
-              <QuickAddForm
-                title="Create referral"
-                pending={createReferral.isPending}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  createReferral.mutate(event)
-                  event.currentTarget.reset()
-                }}
-              >
-                <select name="type" className="input" required>
-                  <option value="internal">Internal</option>
-                  <option value="external">External</option>
-                </select>
-                <input name="targetDepartment" className="input" placeholder="Department" />
-                <input name="targetFacility" className="input" placeholder="External facility" />
-                <input name="reason" className="input" placeholder="Reason" required />
-                <textarea name="letter" className="input" placeholder="Referral letter" required />
-              </QuickAddForm>
-            </div>
-            <button
-              className="mt-6 rounded-xl bg-green-600 px-4 py-2 font-bold text-white"
-              onClick={() => completeEncounter.mutate()}
-            >
-              Complete encounter
-            </button>
-          </>
+          <DoctorConsultationWorkspace
+            selected={selected}
+            createConsultation={{
+              mutate: (form) => createConsultation.mutate(form),
+              isPending: createConsultation.isPending,
+            }}
+            addDiagnosis={addDiagnosis}
+            completeEncounter={completeEncounter}
+            createReferral={createReferral}
+            recentSoap={recentSoap}
+          />
         ) : (
-          <p className="text-slate-500">Select a patient from the doctor queue.</p>
+          <Card>
+            <p className="py-16 text-center text-slate-500">Select a patient from the doctor queue.</p>
+          </Card>
         )}
-      </Card>
-    </div>
-  )
-}
-
-function PatientSafetyBanner({ patient }: { patient: PatientSummary }) {
-  return (
-    <div className="mt-4 grid gap-3 md:grid-cols-2">
-      <div className="rounded-2xl bg-red-50 p-3 text-red-800">
-        <p className="text-xs font-bold uppercase">Allergies</p>
-        <p className="text-sm">
-          {patient.allergies?.map((allergy) => allergy.allergen).join(', ') ||
-            'None recorded'}
-        </p>
-      </div>
-      <div className="rounded-2xl bg-amber-50 p-3 text-amber-900">
-        <p className="text-xs font-bold uppercase">Chronic conditions</p>
-        <p className="text-sm">
-          {patient.chronicConditions?.map((condition) => condition.name).join(', ') ||
-            'None recorded'}
-        </p>
       </div>
     </div>
   )
 }
 
-function AppointmentsScreen() {
-  const queryClient = useQueryClient()
-  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
-  const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments'],
-    queryFn: () => apiRequest<unknown[]>('/appointments'),
-  })
-  const createAppointment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/appointments', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selectedPatient?.id,
-          doctorId: form.get('doctorId'),
-          appointmentDate: form.get('appointmentDate'),
-          appointmentTime: form.get('appointmentTime'),
-          type: form.get('type'),
-          reason: form.get('reason'),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['appointments'] })
-    },
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createAppointment.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <h3 className="text-xl font-bold">Book appointment</h3>
-        <PatientLookup
-          selectedPatient={selectedPatient}
-          onSelect={setSelectedPatient}
-        />
-        <Field name="doctorId" label="Doctor user ID" required />
-        <Field name="appointmentDate" label="Date" type="date" required />
-        <Field name="appointmentTime" label="Time" required />
-        <label>
-          <span className="text-sm font-semibold">Type</span>
-          <select name="type" className="input mt-2" required>
-            <option value="new">New</option>
-            <option value="follow_up">Follow-up</option>
-            <option value="procedure">Procedure</option>
-            <option value="review">Review</option>
-            <option value="antenatal">Antenatal</option>
-          </select>
-        </label>
-        <Field name="reason" label="Reason" required />
-        {createAppointment.error ? (
-          <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {createAppointment.error.message}
-          </p>
-        ) : null}
-        {createAppointment.isSuccess ? (
-          <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-            Appointment booked.
-          </p>
-        ) : null}
-        <button
-          className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-          disabled={!selectedPatient || createAppointment.isPending}
-        >
-          {createAppointment.isPending ? 'Booking...' : 'Book appointment'}
-        </button>
-      </form>
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Appointments</h3>
-        <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
-          {JSON.stringify(appointments, null, 2)}
-        </pre>
-      </div>
-    </div>
-  )
-}
-
-function ReferralsScreen() {
-  const queryClient = useQueryClient()
-  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
-  const { data: referrals = [] } = useQuery({
-    queryKey: ['referrals'],
-    queryFn: () => apiRequest<unknown[]>('/referrals'),
-  })
-  const createReferral = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/referrals', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selectedPatient?.id,
-          encounterId: form.get('encounterId') || undefined,
-          type: form.get('type'),
-          receivingUserId: form.get('receivingUserId') || undefined,
-          targetDepartment: form.get('targetDepartment') || undefined,
-          targetFacility: form.get('targetFacility') || undefined,
-          reason: form.get('reason'),
-          letter: form.get('letter'),
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['referrals'] }),
-  })
-  const updateReferral = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/referrals/${form.get('referralId')}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: form.get('status') }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['referrals'] }),
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-      <div className="space-y-6">
-        <QuickAddForm
-          title="Create referral"
-          pending={createReferral.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createReferral.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <PatientLookup selectedPatient={selectedPatient} onSelect={setSelectedPatient} />
-          <input name="encounterId" className="input" placeholder="Encounter ID" />
-          <select name="type" className="input" required>
-            <option value="internal">Internal</option>
-            <option value="external">External</option>
-          </select>
-          <input name="receivingUserId" className="input" placeholder="Receiving clinician user ID" />
-          <input name="targetDepartment" className="input" placeholder="Target department" />
-          <input name="targetFacility" className="input" placeholder="Target facility" />
-          <input name="reason" className="input" placeholder="Reason" required />
-          <textarea name="letter" className="input" placeholder="Referral letter" required />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Update referral status"
-          pending={updateReferral.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateReferral.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="referralId" className="input" placeholder="Referral ID" required />
-          <select name="status" className="input" required>
-            <option value="sent">Sent</option>
-            <option value="accepted">Accepted</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </QuickAddForm>
-      </div>
-      <JsonPanel title="Referrals" data={referrals} />
-    </div>
-  )
-}
 
 function OpdReports() {
   const { data } = useQuery({
@@ -2125,1440 +1155,19 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   )
 }
 
-interface ReportPayload {
-  generatedAt: string
-  data: unknown
-  csv: string
-}
-
-const reportDefinitions = [
-  { key: 'opd-summary', title: 'OPD Summary' },
-  { key: 'admissions', title: 'Admissions' },
-  { key: 'discharges', title: 'Discharges' },
-  { key: 'bed-occupancy', title: 'Bed Occupancy' },
-  { key: 'emergency-stats', title: 'Emergency Stats' },
-  { key: 'disease-register', title: 'Disease Register' },
-  { key: 'moh-705', title: 'MOH 705 Draft' },
-]
-
-function ClinicalReports() {
-  const [selectedReport, setSelectedReport] = useState('opd-summary')
-  const { data: dashboard } = useQuery({
-    queryKey: ['reports-dashboard'],
-    queryFn: () =>
-      apiRequest<{
-        totalPatients: number
-        activeOpd: number
-        activeAdmissions: number
-        occupiedBeds: number
-        activeEmergency: number
-        activeAlerts: number
-        todayAppointments: number
-      }>('/reports/dashboard'),
-  })
-  const { data: report, isFetching } = useQuery({
-    queryKey: ['clinical-report', selectedReport],
-    queryFn: () => apiRequest<ReportPayload>(`/reports/${selectedReport}`),
-  })
-
-  function downloadCsv() {
-    if (!report?.csv) return
-    const blob = new Blob([report.csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${selectedReport}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Patients" value={dashboard?.totalPatients ?? 0} />
-        <MetricCard label="Active OPD" value={dashboard?.activeOpd ?? 0} />
-        <MetricCard
-          label="Admissions"
-          value={dashboard?.activeAdmissions ?? 0}
-        />
-        <MetricCard label="Occupied beds" value={dashboard?.occupiedBeds ?? 0} />
-        <MetricCard
-          label="Emergency"
-          value={dashboard?.activeEmergency ?? 0}
-        />
-        <MetricCard label="Alerts" value={dashboard?.activeAlerts ?? 0} />
-        <MetricCard
-          label="Appointments today"
-          value={dashboard?.todayAppointments ?? 0}
-        />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[0.35fr_0.65fr]">
-        <div className="rounded-3xl bg-white p-6 shadow-sm">
-          <h3 className="text-xl font-bold">Report library</h3>
-          <div className="mt-4 space-y-2">
-            {reportDefinitions.map((definition) => (
-              <button
-                key={definition.key}
-                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-semibold ${
-                  selectedReport === definition.key
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-                }`}
-                onClick={() => setSelectedReport(definition.key)}
-              >
-                {definition.title}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-3xl bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">
-                Generated {report?.generatedAt ?? '-'}
-              </p>
-              <h3 className="text-xl font-bold">
-                {reportDefinitions.find((item) => item.key === selectedReport)
-                  ?.title ?? selectedReport}
-              </h3>
-            </div>
-            <button
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white"
-              onClick={downloadCsv}
-            >
-              Download CSV
-            </button>
-          </div>
-          <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
-            {isFetching ? 'Loading...' : JSON.stringify(report?.data, null, 2)}
-          </pre>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function BedDashboard() {
-  const queryClient = useQueryClient()
-  const { data: beds = [] } = useQuery({
-    queryKey: ['bed-dashboard'],
-    queryFn: () =>
-      apiRequest<
-        {
-          id: string
-          bedNo: string
-          status: string
-          type: string
-          ward: { name: string }
-          patient?: PatientSummary | null
-        }[]
-      >('/inpatient/beds/dashboard'),
-  })
-  const { data: wards = [] } = useQuery({
-    queryKey: ['wards'],
-    queryFn: () => apiRequest<{ id: string; name: string }[]>('/inpatient/wards'),
-  })
-  const createWard = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/inpatient/wards', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          code: form.get('code'),
-          type: form.get('type'),
-          floor: form.get('floor'),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['wards'] })
-    },
-  })
-  const createBed = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/inpatient/beds', {
-        method: 'POST',
-        body: JSON.stringify({
-          wardId: form.get('wardId'),
-          bedNo: form.get('bedNo'),
-          type: form.get('type'),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
-      await queryClient.invalidateQueries({ queryKey: ['wards'] })
-    },
-  })
-  const updateBedStatus = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/inpatient/beds/${form.get('bedId')}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: form.get('status') }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
-      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
-    },
-  })
-  const occupiedBeds = beds.filter((bed) => bed.status === 'occupied').length
-  const availableBeds = beds.filter((bed) => bed.status === 'available').length
-
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Total beds" value={beds.length} />
-        <MetricCard label="Available" value={availableBeds} />
-        <MetricCard label="Occupied" value={occupiedBeds} />
-        <MetricCard
-          label="Occupancy %"
-          value={beds.length ? Math.round((occupiedBeds / beds.length) * 100) : 0}
-        />
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <form
-          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
-          onSubmit={(event) => {
-            event.preventDefault()
-            createWard.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <h3 className="text-xl font-bold">Create ward</h3>
-          <p className="text-sm text-slate-500">
-            Start inpatient setup here. Wards can be General, Maternity, ICU, HDU, or specialty wards.
-          </p>
-          <Field name="name" label="Ward name" required />
-          <Field name="code" label="Ward code" required />
-          <label>
-            <span className="text-sm font-semibold">Type</span>
-            <select name="type" className="input mt-2" required>
-              <option value="general">General</option>
-              <option value="icu">ICU</option>
-              <option value="hdu">HDU</option>
-              <option value="maternity">Maternity</option>
-              <option value="paediatric">Paediatric</option>
-              <option value="surgical">Surgical</option>
-              <option value="medical">Medical</option>
-              <option value="isolation">Isolation</option>
-            </select>
-          </label>
-          <Field name="floor" label="Floor" />
-          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-            Create ward
-          </button>
-        </form>
-        <form
-          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm"
-          onSubmit={(event) => {
-            event.preventDefault()
-            createBed.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <h3 className="text-xl font-bold">Create bed</h3>
-          <p className="text-sm text-slate-500">
-            Beds created here become selectable in the Admissions screen.
-          </p>
-          <label>
-            <span className="text-sm font-semibold">Ward</span>
-            <select name="wardId" className="input mt-2" required>
-              {wards.map((ward) => (
-                <option key={ward.id} value={ward.id}>
-                  {ward.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Field name="bedNo" label="Bed no." required />
-          <select name="type" className="input" required>
-            <option value="standard">Standard</option>
-            <option value="icu">ICU</option>
-            <option value="isolation">Isolation</option>
-            <option value="paediatric">Paediatric</option>
-            <option value="maternity">Maternity</option>
-            <option value="cardiac">Cardiac</option>
-          </select>
-          <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-            Create bed
-          </button>
-        </form>
-        <form
-          className="space-y-3 rounded-3xl bg-white p-6 shadow-sm md:col-span-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateBedStatus.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <h3 className="text-xl font-bold">Update bed status</h3>
-          <div className="grid gap-3 md:grid-cols-3">
-            <select name="bedId" className="input" required>
-              <option value="">Select bed</option>
-              {beds.map((bed) => (
-                <option key={bed.id} value={bed.id}>
-                  {bed.ward?.name} · {bed.bedNo} · {bed.status}
-                </option>
-              ))}
-            </select>
-            <select name="status" className="input" required>
-              <option value="available">Available</option>
-              <option value="reserved">Reserved</option>
-              <option value="cleaning">Cleaning</option>
-              <option value="maintenance">Maintenance</option>
-            </select>
-            <button className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">
-              Update status
-            </button>
-          </div>
-        </form>
-      </div>
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
-        {beds.map((bed) => (
-          <div key={bed.id} className="rounded-3xl bg-white p-5 shadow-sm">
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
-                bed.status === 'available'
-                  ? 'bg-green-50 text-green-700'
-                  : bed.status === 'occupied'
-                    ? 'bg-red-50 text-red-700'
-                    : 'bg-amber-50 text-amber-700'
-              }`}
-            >
-              {bed.status}
-            </span>
-            <h3 className="mt-3 text-xl font-bold">{bed.bedNo}</h3>
-            <p className="text-sm text-slate-500">
-              {bed.ward?.name} · {bed.type}
-            </p>
-            {bed.patient ? (
-              <p className="mt-2 text-sm font-semibold">
-                {bed.patient.firstName} {bed.patient.lastName}
-              </p>
-            ) : null}
-          </div>
-        ))}
-        {!beds.length ? (
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500 md:col-span-3 xl:col-span-4">
-            No beds yet. Create a ward, then create beds for that ward.
-          </div>
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
-function AdmissionsScreen() {
-  const queryClient = useQueryClient()
-  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
-  const [selectedAdmissionId, setSelectedAdmissionId] = useState('')
-  const [formError, setFormError] = useState<string | null>(null)
-
-  const { data: admissions = [] } = useQuery({
-    queryKey: ['admissions'],
-    queryFn: () =>
-      apiRequest<
-        {
-          id: string
-          admissionNo: string
-          status: string
-          patient: PatientSummary
-          bed: { bedNo: string }
-          ward: { name: string }
-        }[]
-      >('/inpatient/admissions'),
-  })
-  const { data: beds = [] } = useQuery({
-    queryKey: ['available-beds'],
-    queryFn: () =>
-      apiRequest<{ id: string; bedNo: string; ward: { name: string } }[]>(
-        '/inpatient/beds/available',
-      ),
-  })
-
-  const selectedAdmission = admissions.find((item) => item.id === selectedAdmissionId) ?? null
-  const activeCount = admissions.filter((item) => item.status === 'active').length
-
-  const createAdmission = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      if (!selectedPatient) throw new Error('Select a patient first.')
-      const form = formDataFromElement(formElement)
-      return apiRequest('/inpatient/admissions', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selectedPatient.id,
-          encounterId: form.get('encounterId') || undefined,
-          bedId: form.get('bedId'),
-          reason: form.get('reason'),
-          type: form.get('type'),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      setSelectedPatient(null)
-      setFormError(null)
-      emitAppNotification({ title: 'Patient admitted', body: 'Bed marked occupied.', severity: 'success' })
-      await queryClient.invalidateQueries({ queryKey: ['admissions'] })
-      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
-      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
-    },
-    onError: (error: Error) => setFormError(error.message),
-  })
-
-  const addProgressNote = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/progress-notes`, {
-        method: 'POST',
-        body: JSON.stringify({
-          subjective: form.get('subjective'),
-          objective: form.get('objective'),
-          assessment: form.get('assessment'),
-          plan: form.get('plan'),
-        }),
-      })
-    },
-    onSuccess: () =>
-      emitAppNotification({ title: 'Progress note saved', body: 'Admission progress note recorded.', severity: 'success' }),
-  })
-
-  const createDischargeSummary = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/discharge-summary`, {
-        method: 'POST',
-        body: JSON.stringify({
-          presentingComplaint: form.get('presentingComplaint'),
-          history: form.get('history'),
-          examOnAdmission: form.get('examOnAdmission'),
-          investigationsSummary: form.get('investigationsSummary'),
-          finalDiagnosis: form.get('finalDiagnosis'),
-          treatmentGiven: form.get('treatmentGiven'),
-          dischargeMeds: form.get('dischargeMeds'),
-          followUpInstructions: form.get('followUpInstructions'),
-          diet: form.get('diet') || undefined,
-        }),
-      })
-    },
-  })
-
-  const completeSummary = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/inpatient/discharge-summaries/${form.get('summaryId')}/complete`, {
-        method: 'POST',
-      })
-    },
-  })
-
-  const dischargeAdmission = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/inpatient/admissions/${selectedAdmissionId}/discharge`, {
-        method: 'POST',
-        body: JSON.stringify({ conditionOnDischarge: form.get('conditionOnDischarge') }),
-      })
-    },
-    onSuccess: async () => {
-      setSelectedAdmissionId('')
-      await queryClient.invalidateQueries({ queryKey: ['admissions'] })
-      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
-      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
-    },
-  })
-
-  return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Active admissions" value={activeCount} />
-        <MetricCard label="Available beds" value={beds.length} />
-        <MetricCard label="All admissions" value={admissions.length} />
-        <Card className="bg-gradient-to-br from-teal-900 to-teal-800 text-white">
-          <p className="text-xs font-bold uppercase text-teal-200">Flow</p>
-          <p className="mt-2 text-sm text-teal-100">
-            Search patient → pick bed → admit → document → discharge.
-          </p>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <Card>
-          <PageHeader
-            eyebrow="Inpatient"
-            title="Admit patient"
-            description="Search as you type, then assign an available bed."
-          />
-          <ClinicalForm
-            onSubmit={(event) =>
-              submitClinicalForm(createAdmission, event, {
-                validate: () => (!selectedPatient ? 'Select a patient first.' : null),
-                onValidationError: setFormError,
-              })
-            }
-          >
-            <FormSection title="Patient" columns={1}>
-              <PatientSearchAutocomplete
-                selected={selectedPatient}
-                onSelect={(patient) => setSelectedPatient(patient as PatientSummary | null)}
-              />
-            </FormSection>
-            <FormSection title="Bed & admission">
-              <Field name="encounterId" label="Source encounter ID" hint="Optional — link to OPD visit" />
-              <SelectField name="bedId" label="Available bed" required>
-                <option value="">Select a bed</option>
-                {beds.map((bed) => (
-                  <option key={bed.id} value={bed.id}>
-                    {bed.ward?.name} · {bed.bedNo}
-                  </option>
-                ))}
-              </SelectField>
-              <Field name="reason" label="Reason for admission" required />
-              <SelectField name="type" label="Admission type" required>
-                <option value="elective">Elective</option>
-                <option value="emergency">Emergency</option>
-                <option value="transfer">Transfer</option>
-              </SelectField>
-            </FormSection>
-            {formError ? <Alert tone="error">{formError}</Alert> : null}
-            {createAdmission.isSuccess ? (
-              <Alert tone="success">Patient admitted. Bed status updated.</Alert>
-            ) : null}
-            <FormActions>
-              <Button
-                type="submit"
-                loading={createAdmission.isPending}
-                disabled={!selectedPatient || !beds.length}
-              >
-                Admit patient
-              </Button>
-            </FormActions>
-          </ClinicalForm>
-        </Card>
-
-        <Card>
-          <PageHeader title="Admissions list" description="Select one to document progress or discharge." />
-          <div className="mt-2 max-h-[28rem] space-y-2 overflow-y-auto">
-            {admissions.map((admission) => (
-              <button
-                key={admission.id}
-                type="button"
-                onClick={() => setSelectedAdmissionId(admission.id)}
-                className={`w-full rounded-xl border p-4 text-left transition ${
-                  selectedAdmissionId === admission.id
-                    ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-200'
-                    : 'border-slate-200 hover:border-teal-200'
-                }`}
-              >
-                <p className="font-semibold text-slate-900">
-                  {admission.patient?.firstName} {admission.patient?.lastName}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {admission.admissionNo} · {admission.ward?.name} · Bed {admission.bed?.bedNo}
-                </p>
-                <span className="mt-2 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold capitalize">
-                  {admission.status}
-                </span>
-              </button>
-            ))}
-            {!admissions.length ? (
-              <p className="py-10 text-center text-sm text-slate-500">
-                No admissions yet. Create beds on the Bed Dashboard first.
-              </p>
-            ) : null}
-          </div>
-        </Card>
-      </div>
-
-      {selectedAdmission ? (
-        <Card>
-          <PageHeader
-            title={`${selectedAdmission.patient?.firstName} ${selectedAdmission.patient?.lastName}`}
-            description={`${selectedAdmission.admissionNo} · ${selectedAdmission.ward?.name} · Bed ${selectedAdmission.bed?.bedNo}`}
-          />
-          {selectedAdmission.patient ? (
-            <div className="mb-6">
-              <PatientSafetyBanner patient={selectedAdmission.patient} />
-            </div>
-          ) : null}
-
-          <div className="grid gap-6 xl:grid-cols-3">
-            <ClinicalForm onSubmit={(event) => submitClinicalForm(addProgressNote, event)}>
-              <FormSection title="Daily progress note" columns={1}>
-                <TextareaField name="subjective" label="Subjective" required />
-                <TextareaField name="objective" label="Objective" required />
-                <TextareaField name="assessment" label="Assessment" required />
-                <TextareaField name="plan" label="Plan" required />
-              </FormSection>
-              <FormActions className="border-0 pt-0">
-                <Button type="submit" loading={addProgressNote.isPending}>
-                  Save progress note
-                </Button>
-              </FormActions>
-            </ClinicalForm>
-
-            <ClinicalForm onSubmit={(event) => submitClinicalForm(createDischargeSummary, event)}>
-              <FormSection title="Discharge summary" columns={1}>
-                <Field name="presentingComplaint" label="Presenting complaint" required />
-                <TextareaField name="history" label="History" required />
-                <TextareaField name="examOnAdmission" label="Exam on admission" required />
-                <TextareaField name="investigationsSummary" label="Investigations" required />
-                <TextareaField name="finalDiagnosis" label="Final diagnosis" required />
-                <TextareaField name="treatmentGiven" label="Treatment given" required />
-                <TextareaField name="dischargeMeds" label="Discharge medications" required />
-                <TextareaField name="followUpInstructions" label="Follow-up" required />
-                <Field name="diet" label="Diet advice" />
-              </FormSection>
-              <FormActions className="border-0 pt-0">
-                <Button type="submit" loading={createDischargeSummary.isPending}>
-                  Create summary
-                </Button>
-              </FormActions>
-            </ClinicalForm>
-
-            <div className="space-y-6">
-              <ClinicalForm onSubmit={(event) => submitClinicalForm(completeSummary, event)}>
-                <FormSection title="Complete summary" columns={1}>
-                  <Field name="summaryId" label="Summary ID" required />
-                </FormSection>
-                <FormActions className="border-0 pt-0">
-                  <Button type="submit" variant="secondary" loading={completeSummary.isPending}>
-                    Mark complete
-                  </Button>
-                </FormActions>
-              </ClinicalForm>
-
-              <ClinicalForm onSubmit={(event) => submitClinicalForm(dischargeAdmission, event)}>
-                <FormSection title="Discharge patient" columns={1}>
-                  <SelectField name="conditionOnDischarge" label="Condition on discharge" required>
-                    <option value="improved">Improved</option>
-                    <option value="same">Same</option>
-                    <option value="deteriorated">Deteriorated</option>
-                    <option value="died">Died</option>
-                    <option value="absconded">Absconded</option>
-                  </SelectField>
-                </FormSection>
-                {dischargeAdmission.error ? (
-                  <Alert tone="error">{dischargeAdmission.error.message}</Alert>
-                ) : null}
-                <FormActions className="border-0 pt-0">
-                  <Button type="submit" variant="danger" loading={dischargeAdmission.isPending}>
-                    Discharge admission
-                  </Button>
-                </FormActions>
-              </ClinicalForm>
-            </div>
-          </div>
-        </Card>
-      ) : null}
-    </div>
-  )
-}
-
-function EmergencyScreen() {
-  const queryClient = useQueryClient()
-  const { data: emergencies = [] } = useQuery({
-    queryKey: ['emergency-dashboard'],
-    queryFn: () => apiRequest<unknown[]>('/emergency/dashboard'),
-  })
-  const { data: alerts = [] } = useQuery({
-    queryKey: ['critical-alerts'],
-    queryFn: () =>
-      apiRequest<{ id: string; message: string; severity: string }[]>(
-        '/emergency/alerts',
-      ),
-  })
-  const register = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/emergency/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: form.get('patientId'),
-          presentingComplaint: form.get('presentingComplaint'),
-          arrivalMode: form.get('arrivalMode'),
-          traumaFlag: form.get('traumaFlag') === 'on',
-          traumaMechanism: form.get('traumaMechanism') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['emergency-dashboard'] })
-    },
-  })
-  const acknowledge = useMutation({
-    mutationFn: (id: string) =>
-      apiRequest(`/emergency/alerts/${id}/acknowledge`, { method: 'POST' }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['critical-alerts'] })
-    },
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          register.mutate(event)
-          event.currentTarget.reset()
-        }}
-      >
-        <h3 className="text-xl font-bold">Emergency fast registration</h3>
-        <Field name="patientId" label="Patient ID" required />
-        <Field name="presentingComplaint" label="Presenting complaint" required />
-        <select name="arrivalMode" className="input" required>
-          <option value="walk_in">Walk-in</option>
-          <option value="ambulance">Ambulance</option>
-          <option value="police">Police</option>
-          <option value="referral">Referral</option>
-          <option value="airlift">Airlift</option>
-        </select>
-        <label className="flex items-center gap-2 text-sm">
-          <input name="traumaFlag" type="checkbox" /> Trauma case
-        </label>
-        <Field name="traumaMechanism" label="Trauma mechanism" />
-        <button className="rounded-xl bg-red-600 px-4 py-2 font-bold text-white">
-          Register emergency
-        </button>
-      </form>
-      <div className="space-y-6">
-        <div className="rounded-3xl bg-white p-6 shadow-sm">
-          <h3 className="text-xl font-bold">Emergency dashboard</h3>
-          <pre className="mt-4 max-h-72 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-white">
-            {JSON.stringify(emergencies, null, 2)}
-          </pre>
-        </div>
-        <div className="rounded-3xl bg-white p-6 shadow-sm">
-          <h3 className="text-xl font-bold">Critical alerts</h3>
-          <div className="mt-4 space-y-3">
-            {alerts.map((alert) => (
-              <div key={alert.id} className="rounded-2xl bg-red-50 p-4 text-red-800">
-                <p className="font-bold">{alert.severity}</p>
-                <p className="text-sm">{alert.message}</p>
-                <button
-                  className="mt-3 rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
-                  onClick={() => acknowledge.mutate(alert.id)}
-                >
-                  Acknowledge
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function NursingScreen() {
-  const queryClient = useQueryClient()
-  const [admissionId, setAdmissionId] = useState('')
-
-  const { data: admissions = [] } = useQuery({
-    queryKey: ['nursing-admissions'],
-    queryFn: () =>
-      apiRequest<
-        {
-          id: string
-          admissionNo: string
-          patient?: PatientSummary
-          bed?: { bedNo: string }
-          ward?: { name: string }
-        }[]
-      >('/inpatient/admissions?status=active'),
-  })
-
-  const selectedAdmission = admissions.find((item) => item.id === admissionId) ?? null
-
-  const { data: vitals = [] } = useQuery({
-    queryKey: ['vitals', admissionId],
-    queryFn: () => apiRequest<unknown[]>(`/nursing/vitals?admissionId=${admissionId}`),
-    enabled: Boolean(admissionId),
-  })
-  const { data: mar = [] } = useQuery({
-    queryKey: ['mar', admissionId],
-    queryFn: () =>
-      apiRequest<{ id: string; medicationName: string; status: string }[]>(
-        `/nursing/mar/${admissionId}`,
-      ),
-    enabled: Boolean(admissionId),
-  })
-  const { data: wards = [] } = useQuery({
-    queryKey: ['nursing-wards'],
-    queryFn: () => apiRequest<{ id: string; name: string }[]>('/inpatient/wards'),
-  })
-
-  const createVitals = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest('/nursing/vitals', {
-        method: 'POST',
-        body: JSON.stringify({
-          admissionId,
-          temperature: Number(form.get('temperature') || 0),
-          pulse: Number(form.get('pulse') || 0),
-          respiratoryRate: Number(form.get('respiratoryRate') || 0),
-          bpSystolic: Number(form.get('bpSystolic') || 0),
-          bpDiastolic: Number(form.get('bpDiastolic') || 0),
-          spo2: Number(form.get('spo2') || 0),
-          weight: Number(form.get('weight') || 0) || undefined,
-          height: Number(form.get('height') || 0) || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => {
-      emitAppNotification({ title: 'Vitals recorded', body: 'Nursing vitals saved to chart.', severity: 'success' })
-      await queryClient.invalidateQueries({ queryKey: ['vitals', admissionId] })
-    },
-  })
-
-  const createMar = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest('/nursing/mar', {
-        method: 'POST',
-        body: JSON.stringify({
-          admissionId,
-          medicationName: form.get('medicationName'),
-          genericName: form.get('genericName') || undefined,
-          dosage: form.get('dosage'),
-          route: form.get('route'),
-          frequency: form.get('frequency'),
-          scheduledTime: form.get('scheduledTime'),
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['mar', admissionId] }),
-  })
-
-  const updateMar = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/nursing/mar/${form.get('marId')}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          status: form.get('status'),
-          withholdReason: form.get('withholdReason') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['mar', admissionId] }),
-  })
-
-  const createShiftNote = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest('/nursing/shift-notes', {
-        method: 'POST',
-        body: JSON.stringify({
-          wardId: form.get('wardId'),
-          shift: form.get('shift'),
-          date: form.get('date'),
-          type: form.get('type'),
-          body: form.get('body'),
-        }),
-      })
-    },
-  })
-
-  const createObservation = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest('/nursing/observations', {
-        method: 'POST',
-        body: JSON.stringify({
-          admissionId,
-          type: form.get('type'),
-          value: form.get('value'),
-          unit: form.get('unit') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () =>
-      queryClient.invalidateQueries({ queryKey: ['observations', admissionId] }),
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr] animate-fade-in">
-      <div className="space-y-4">
-        <Card>
-          <PageHeader
-            eyebrow="Inpatient"
-            title="Ward patients"
-            description={`${admissions.length} active admission(s)`}
-          />
-          <div className="mt-3 space-y-2">
-            {admissions.map((admission) => (
-              <button
-                key={admission.id}
-                type="button"
-                onClick={() => setAdmissionId(admission.id)}
-                className={`w-full rounded-xl border p-4 text-left transition ${
-                  admissionId === admission.id
-                    ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-200'
-                    : 'border-slate-200 hover:border-teal-200'
-                }`}
-              >
-                <p className="font-semibold text-slate-900">
-                  {admission.patient?.firstName} {admission.patient?.lastName}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {admission.admissionNo} · {admission.ward?.name} · Bed {admission.bed?.bedNo}
-                </p>
-              </button>
-            ))}
-            {!admissions.length ? (
-              <p className="py-8 text-center text-sm text-slate-500">No active admissions.</p>
-            ) : null}
-          </div>
-        </Card>
-
-        <Card>
-          <PageHeader title="Shift note" description="Ward-level handover (not patient-specific)." />
-          <ClinicalForm onSubmit={(event) => submitClinicalForm(createShiftNote, event)}>
-            <FormSection title="Shift details" columns={1}>
-              <SelectField name="wardId" label="Ward" required>
-                <option value="">Select ward</option>
-                {wards.map((ward) => (
-                  <option key={ward.id} value={ward.id}>
-                    {ward.name}
-                  </option>
-                ))}
-              </SelectField>
-              <Field name="date" label="Date" type="date" required />
-              <SelectField name="shift" label="Shift" required>
-                <option value="morning">Morning</option>
-                <option value="afternoon">Afternoon</option>
-                <option value="night">Night</option>
-              </SelectField>
-              <SelectField name="type" label="Note type" required>
-                <option value="handover">Handover</option>
-                <option value="incident">Incident</option>
-                <option value="general">General</option>
-              </SelectField>
-              <TextareaField name="body" label="Note" required />
-            </FormSection>
-            <FormActions className="border-0 pt-0">
-              <Button type="submit" loading={createShiftNote.isPending}>
-                Save shift note
-              </Button>
-            </FormActions>
-          </ClinicalForm>
-        </Card>
-      </div>
-
-      {selectedAdmission ? (
-        <div className="space-y-6">
-          <Card>
-            <PageHeader
-              title={`${selectedAdmission.patient?.firstName} ${selectedAdmission.patient?.lastName}`}
-              description={`${selectedAdmission.admissionNo} · ${selectedAdmission.ward?.name} · Bed ${selectedAdmission.bed?.bedNo}`}
-            />
-            {selectedAdmission.patient ? (
-              <PatientSafetyBanner patient={selectedAdmission.patient} />
-            ) : null}
-
-            <ClinicalForm
-              className="mt-6"
-              onSubmit={(event) => submitClinicalForm(createVitals, event)}
-            >
-              <FormSection
-                title="Record vitals"
-                description="Tap a normal preset or adjust. Abnormal values are highlighted."
-                columns={1}
-              >
-                <VitalsForm />
-              </FormSection>
-              <FormActions className="border-0 pt-0">
-                <Button type="submit" loading={createVitals.isPending}>
-                  Save vitals
-                </Button>
-              </FormActions>
-            </ClinicalForm>
-          </Card>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <PageHeader title="Medication (MAR)" />
-              <ClinicalForm onSubmit={(event) => submitClinicalForm(createMar, event)}>
-                <FormSection title="Schedule dose" columns={1}>
-                  <Field name="medicationName" label="Medication" required />
-                  <Field name="genericName" label="Generic name" />
-                  <Field name="dosage" label="Dosage" required />
-                  <SelectField name="route" label="Route" required>
-                    <option value="oral">Oral</option>
-                    <option value="iv">IV</option>
-                    <option value="im">IM</option>
-                    <option value="sc">SC</option>
-                    <option value="topical">Topical</option>
-                    <option value="inhaled">Inhaled</option>
-                  </SelectField>
-                  <Field name="frequency" label="Frequency" required />
-                  <Field name="scheduledTime" label="Scheduled time" type="datetime-local" required />
-                </FormSection>
-                <FormActions className="border-0 pt-0">
-                  <Button type="submit" loading={createMar.isPending}>
-                    Schedule dose
-                  </Button>
-                </FormActions>
-              </ClinicalForm>
-
-              <ClinicalForm
-                className="mt-6 border-t border-slate-100 pt-6"
-                onSubmit={(event) => submitClinicalForm(updateMar, event)}
-              >
-                <FormSection title="Update dose status" columns={1}>
-                  <SelectField name="marId" label="MAR entry" required>
-                    <option value="">Select entry</option>
-                    {mar.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.medicationName} · {item.status}
-                      </option>
-                    ))}
-                  </SelectField>
-                  <SelectField name="status" label="Status" required>
-                    <option value="given">Given</option>
-                    <option value="withheld">Withheld</option>
-                    <option value="refused">Refused</option>
-                    <option value="not_available">Not available</option>
-                  </SelectField>
-                  <Field name="withholdReason" label="Reason if not given" />
-                </FormSection>
-                <FormActions className="border-0 pt-0">
-                  <Button type="submit" variant="secondary" loading={updateMar.isPending}>
-                    Update MAR
-                  </Button>
-                </FormActions>
-              </ClinicalForm>
-            </Card>
-
-            <Card>
-              <PageHeader title="Observations" />
-              <ClinicalForm onSubmit={(event) => submitClinicalForm(createObservation, event)}>
-                <FormSection title="Record observation" columns={1}>
-                  <SelectField name="type" label="Observation type" required>
-                    <option value="fluid_intake">Fluid intake</option>
-                    <option value="fluid_output">Fluid output</option>
-                    <option value="wound">Wound</option>
-                    <option value="bowel">Bowel</option>
-                    <option value="urine_output">Urine output</option>
-                    <option value="pain">Pain</option>
-                    <option value="neuro">Neuro</option>
-                    <option value="skin">Skin</option>
-                  </SelectField>
-                  <Field name="value" label="Value" required />
-                  <Field name="unit" label="Unit" />
-                </FormSection>
-                <FormActions className="border-0 pt-0">
-                  <Button type="submit" loading={createObservation.isPending}>
-                    Record observation
-                  </Button>
-                </FormActions>
-              </ClinicalForm>
-
-              <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-bold uppercase text-slate-500">Recent vitals</p>
-                <pre className="mt-2 max-h-40 overflow-auto text-xs text-slate-700">
-                  {vitals.length ? JSON.stringify(vitals.slice(0, 3), null, 2) : 'No vitals yet.'}
-                </pre>
-              </div>
-            </Card>
-          </div>
-        </div>
-      ) : (
-        <Card>
-          <p className="py-20 text-center text-slate-500">
-            Select a ward patient from the list to record vitals and nursing care.
-          </p>
-        </Card>
-      )}
-    </div>
-  )
-}
-
-function LaboratoryScreen() {
-  const queryClient = useQueryClient()
-  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
-  const { data: panels = [] } = useQuery({
-    queryKey: ['lab-panels'],
-    queryFn: () => apiRequest<{ id: string; name: string }[]>('/laboratory/panels'),
-  })
-  const { data: tests = [] } = useQuery({
-    queryKey: ['lab-tests'],
-    queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/laboratory/tests'),
-  })
-  const { data: requests = [] } = useQuery({
-    queryKey: ['lab-requests'],
-    queryFn: () => apiRequest<unknown[]>('/laboratory/requests'),
-    refetchInterval: 30_000,
-  })
-  const [labLastUpdated, setLabLastUpdated] = useState(new Date())
-  useEffect(() => {
-    const interval = window.setInterval(() => setLabLastUpdated(new Date()), 30_000)
-    return () => window.clearInterval(interval)
-  }, [])
-  const createRequest = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      const testId = form.get('testId')?.toString()
-      const panelId = form.get('panelId')?.toString()
-      return apiRequest('/laboratory/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selectedPatient?.id,
-          encounterId: form.get('encounterId'),
-          admissionId: form.get('admissionId') || undefined,
-          priority: form.get('priority'),
-          notes: form.get('notes') || undefined,
-          testIds: testId ? [testId] : [],
-          panelIds: panelId ? [panelId] : [],
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
-  })
-  const collectSample = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/laboratory/requests/${form.get('requestId')}/samples`, {
-        method: 'POST',
-        body: JSON.stringify({ type: form.get('type') }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
-  })
-  const enterResult = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/laboratory/results', {
-        method: 'POST',
-        body: JSON.stringify({
-          requestItemId: form.get('requestItemId'),
-          sampleId: form.get('sampleId') || undefined,
-          value: form.get('value'),
-          unit: form.get('unit') || undefined,
-        }),
-      })
-    },
-  })
-  const verifyRequest = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/laboratory/requests/${form.get('requestId')}/verify`, {
-        method: 'POST',
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <div className="space-y-6">
-        <div className="rounded-3xl bg-blue-950 p-6 text-white shadow-sm">
-          <h3 className="text-xl font-bold">Laboratory dashboard</h3>
-          <p className="mt-2 text-sm text-blue-100">
-            This queue refreshes every 30 seconds. Last refresh marker: {labLastUpdated.toLocaleTimeString()}.
-          </p>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl bg-white/10 p-3">
-              <p className="text-xs uppercase text-blue-200">Requests</p>
-              <p className="text-2xl font-bold">{requests.length}</p>
-            </div>
-            <div className="rounded-2xl bg-white/10 p-3">
-              <p className="text-xs uppercase text-blue-200">Tests</p>
-              <p className="text-2xl font-bold">{tests.length}</p>
-            </div>
-            <div className="rounded-2xl bg-white/10 p-3">
-              <p className="text-xs uppercase text-blue-200">Panels</p>
-              <p className="text-2xl font-bold">{panels.length}</p>
-            </div>
-          </div>
-        </div>
-        <QuickAddForm
-          title="Create lab request"
-          pending={createRequest.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createRequest.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <PatientLookup
-            selectedPatient={selectedPatient}
-            onSelect={setSelectedPatient}
-          />
-          <input name="encounterId" className="input" placeholder="Encounter ID" required />
-          <input name="admissionId" className="input" placeholder="Admission ID" />
-          <select name="priority" className="input" required>
-            <option value="routine">Routine</option>
-            <option value="urgent">Urgent</option>
-            <option value="stat">STAT</option>
-          </select>
-          <select name="testId" className="input">
-            <option value="">Select test</option>
-            {tests.map((test) => (
-              <option key={test.id} value={test.id}>
-                {test.name}
-              </option>
-            ))}
-          </select>
-          <select name="panelId" className="input">
-            <option value="">Select panel</option>
-            {panels.map((panel) => (
-              <option key={panel.id} value={panel.id}>
-                {panel.name}
-              </option>
-            ))}
-          </select>
-          <input name="notes" className="input" placeholder="Clinical notes" />
-          {createRequest.error ? (
-            <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-              {createRequest.error.message}
-            </p>
-          ) : null}
-          {createRequest.isSuccess ? (
-            <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-              Lab request created.
-            </p>
-          ) : null}
-        </QuickAddForm>
-        <QuickAddForm
-          title="Collect sample"
-          pending={collectSample.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            collectSample.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="requestId" className="input" placeholder="Lab request ID" required />
-          <input name="type" className="input" placeholder="Sample type" required />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Enter result"
-          pending={enterResult.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            enterResult.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="requestItemId" className="input" placeholder="Request item ID" required />
-          <input name="sampleId" className="input" placeholder="Sample ID" />
-          <input name="value" className="input" placeholder="Result value" required />
-          <input name="unit" className="input" placeholder="Unit" />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Verify request"
-          pending={verifyRequest.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            verifyRequest.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="requestId" className="input" placeholder="Lab request ID" required />
-        </QuickAddForm>
-      </div>
-      <JsonPanel title="Lab requests" data={requests} />
-    </div>
-  )
-}
-
-function RadiologyScreen() {
-  const queryClient = useQueryClient()
-  const [selectedPatient, setSelectedPatient] = useState<PatientSummary | null>(null)
-  const [signedUpload, setSignedUpload] = useState<{ key: string; url: string } | null>(null)
-  const { data: modalities = [] } = useQuery({
-    queryKey: ['radiology-modalities'],
-    queryFn: () => apiRequest<{ id: string; name: string }[]>('/radiology/modalities'),
-  })
-  const { data: requests = [] } = useQuery({
-    queryKey: ['radiology-requests'],
-    queryFn: () => apiRequest<unknown[]>('/radiology/requests'),
-  })
-  const createRequest = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/radiology/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selectedPatient?.id,
-          encounterId: form.get('encounterId'),
-          admissionId: form.get('admissionId') || undefined,
-          modalityId: form.get('modalityId'),
-          bodyPart: form.get('bodyPart'),
-          views: form.get('views') || undefined,
-          clinicalIndication: form.get('clinicalIndication'),
-          priority: form.get('priority'),
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
-  })
-  const createReport = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/radiology/requests/${form.get('requestId')}/reports`, {
-        method: 'POST',
-        body: JSON.stringify({
-          findings: form.get('findings'),
-          impression: form.get('impression'),
-          recommendation: form.get('recommendation') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
-  })
-  const presignUpload = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest<{ key: string; url: string }>('/storage/presign-upload', {
-        method: 'POST',
-        body: JSON.stringify({
-          key: form.get('key'),
-          contentType: form.get('contentType'),
-          folder: 'radiology',
-        }),
-      })
-    },
-    onSuccess: (data) => setSignedUpload(data),
-  })
-  const addAttachment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/radiology/requests/${form.get('requestId')}/attachments`, {
-        method: 'POST',
-        body: JSON.stringify({
-          filename: form.get('filename'),
-          mimeType: form.get('mimeType'),
-          storagePath: form.get('storagePath'),
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-requests'] }),
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <div className="space-y-6">
-        <QuickAddForm
-          title="Create radiology request"
-          pending={createRequest.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createRequest.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <PatientLookup
-            selectedPatient={selectedPatient}
-            onSelect={setSelectedPatient}
-          />
-          <input name="encounterId" className="input" placeholder="Encounter ID" required />
-          <input name="admissionId" className="input" placeholder="Admission ID" />
-          <select name="modalityId" className="input" required>
-            {modalities.map((modality) => (
-              <option key={modality.id} value={modality.id}>
-                {modality.name}
-              </option>
-            ))}
-          </select>
-          <input name="bodyPart" className="input" placeholder="Body part" required />
-          <input name="views" className="input" placeholder="Views" />
-          <input name="clinicalIndication" className="input" placeholder="Clinical indication" required />
-          <select name="priority" className="input" required>
-            <option value="routine">Routine</option>
-            <option value="urgent">Urgent</option>
-            <option value="stat">STAT</option>
-          </select>
-          {createRequest.error ? (
-            <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-              {createRequest.error.message}
-            </p>
-          ) : null}
-          {createRequest.isSuccess ? (
-            <p className="rounded-xl bg-green-50 p-3 text-sm text-green-700">
-              Radiology request created.
-            </p>
-          ) : null}
-        </QuickAddForm>
-        <QuickAddForm
-          title="Write report"
-          pending={createReport.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createReport.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="requestId" className="input" placeholder="Radiology request ID" required />
-          <textarea name="findings" className="input" placeholder="Findings" required />
-          <textarea name="impression" className="input" placeholder="Impression" required />
-          <textarea name="recommendation" className="input" placeholder="Recommendation" />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Get signed image upload URL"
-          pending={presignUpload.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            presignUpload.mutate(event)
-          }}
-        >
-          <input name="key" className="input" placeholder="file-name-or-path.png" required />
-          <input name="contentType" className="input" placeholder="image/png" required />
-          {signedUpload ? (
-            <div className="rounded-xl bg-blue-50 p-3 text-xs text-blue-900">
-              <p className="font-bold">Upload key: {signedUpload.key}</p>
-              <p className="mt-2 break-all">{signedUpload.url}</p>
-            </div>
-          ) : null}
-        </QuickAddForm>
-        <QuickAddForm
-          title="Attach uploaded image reference"
-          pending={addAttachment.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            addAttachment.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="requestId" className="input" placeholder="Radiology request ID" required />
-          <input name="filename" className="input" placeholder="Filename" required />
-          <input name="mimeType" className="input" placeholder="image/png" required />
-          <input
-            name="storagePath"
-            className="input"
-            placeholder="Use signed upload key"
-            defaultValue={signedUpload?.key ?? ''}
-            required
-          />
-        </QuickAddForm>
-      </div>
-      <JsonPanel title="Radiology requests" data={requests} />
-    </div>
-  )
-}
-
 function ResultsInbox() {
   const queryClient = useQueryClient()
   const { data: labResults = [] } = useQuery({
     queryKey: ['lab-results-inbox'],
-    queryFn: () => apiRequest<{ id: string; value?: string; flag?: string; reviewedAt?: string | null }[]>('/laboratory/results/inbox'),
+    queryFn: () => apiRequest<LabInboxItem[]>('/laboratory/results/inbox'),
   })
   const { data: criticalResults = [] } = useQuery({
     queryKey: ['critical-results'],
-    queryFn: () => apiRequest<{ id: string; value?: string; flag?: string; reviewedAt?: string | null }[]>('/laboratory/results/critical'),
+    queryFn: () => apiRequest<LabInboxItem[]>('/laboratory/results/critical'),
   })
   const { data: radiologyReports = [] } = useQuery({
     queryKey: ['radiology-reports-inbox'],
-    queryFn: () => apiRequest<{ id: string; impression?: string; reviewedAt?: string | null }[]>('/radiology/reports/inbox'),
+    queryFn: () => apiRequest<RadiologyInboxItem[]>('/radiology/reports/inbox'),
   })
   const reviewLab = useMutation({
     mutationFn: (id: string) => apiRequest(`/laboratory/results/${id}/review`, { method: 'POST' }),
@@ -3574,841 +1183,97 @@ function ResultsInbox() {
 
   return (
     <div className="grid gap-6 xl:grid-cols-3">
-      <ReviewList title="Verified lab results" items={labResults} onReview={reviewLab.mutate} />
-      <ReviewList title="Critical lab results" items={criticalResults} onReview={reviewLab.mutate} />
-      <ReviewList title="Radiology reports" items={radiologyReports} onReview={reviewRadiology.mutate} />
+      <ReviewList title="Verified lab results" items={labResults} kind="lab" onReview={reviewLab.mutate} />
+      <ReviewList title="Critical lab results" items={criticalResults} kind="lab" onReview={reviewLab.mutate} />
+      <ReviewList title="Radiology reports" items={radiologyReports} kind="radiology" onReview={reviewRadiology.mutate} />
     </div>
   )
 }
 
+type LabInboxItem = {
+  id: string
+  value?: string
+  flag?: string
+  reviewedAt?: string | null
+  requestItem?: {
+    test?: { name: string } | null
+    panel?: { name: string } | null
+    request?: {
+      requestNo?: string
+      patient?: { firstName: string; lastName: string; patientNo: string }
+    }
+  }
+}
+
+type RadiologyInboxItem = {
+  id: string
+  impression?: string
+  reviewedAt?: string | null
+  request?: {
+    requestNo?: string
+    patient?: { firstName: string; lastName: string; patientNo: string }
+    modality?: { name: string }
+  }
+}
+
+type InboxItem = LabInboxItem | RadiologyInboxItem
+
 function ReviewList({
   title,
   items,
+  kind,
   onReview,
 }: {
   title: string
-  items: { id: string; value?: string; flag?: string; impression?: string; reviewedAt?: string | null }[]
+  items: InboxItem[]
+  kind: 'lab' | 'radiology'
   onReview: (id: string) => void
 }) {
   return (
     <div className="rounded-3xl bg-white p-6 shadow-sm">
       <h3 className="text-xl font-bold">{title}</h3>
       <div className="mt-4 space-y-3">
-        {items.map((item) => (
-          <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
-            <p className="text-sm text-slate-500">{item.id}</p>
-            <p className="mt-1 font-semibold">
-              {item.impression ?? `${item.value ?? ''} ${item.flag ?? ''}`}
-            </p>
-            <button
-              className="mt-3 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-300"
-              disabled={Boolean(item.reviewedAt)}
-              onClick={() => onReview(item.id)}
-            >
-              {item.reviewedAt ? 'Reviewed' : 'Mark reviewed'}
-            </button>
-          </div>
-        ))}
+        {items.map((item) => {
+          const labItem = kind === 'lab' ? (item as LabInboxItem) : null
+          const radItem = kind === 'radiology' ? (item as RadiologyInboxItem) : null
+          const patient = labItem?.requestItem?.request?.patient ?? radItem?.request?.patient
+          const requestNo = labItem?.requestItem?.request?.requestNo ?? radItem?.request?.requestNo
+          const testName =
+            labItem?.requestItem?.test?.name ??
+            labItem?.requestItem?.panel?.name ??
+            radItem?.request?.modality?.name
+
+          return (
+            <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
+              {patient ? (
+                <p className="font-semibold text-slate-900">
+                  {patient.firstName} {patient.lastName}
+                  <span className="ml-2 text-sm font-normal text-slate-500">{patient.patientNo}</span>
+                </p>
+              ) : null}
+              <p className="text-xs text-slate-500">
+                {[requestNo, testName].filter(Boolean).join(' · ') || 'Clinical result'}
+              </p>
+              <p className="mt-1 font-semibold">
+                {radItem?.impression ?? `${labItem?.value ?? ''} ${labItem?.flag ?? ''}`.trim()}
+              </p>
+              <button
+                className="mt-3 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-300"
+                disabled={Boolean(item.reviewedAt)}
+                onClick={() => onReview(item.id)}
+              >
+                {item.reviewedAt ? 'Reviewed' : 'Mark reviewed'}
+              </button>
+            </div>
+          )
+        })}
         {!items.length ? <p className="text-sm text-slate-500">No items.</p> : null}
       </div>
     </div>
   )
 }
 
-function TheatreScreen() {
-  const queryClient = useQueryClient()
-  const { data: theatres = [] } = useQuery({
-    queryKey: ['theatres'],
-    queryFn: () => apiRequest<{ id: string; name: string }[]>('/theatre/theatres'),
-  })
-  const { data: procedures = [] } = useQuery({
-    queryKey: ['surgical-procedures'],
-    queryFn: () =>
-      apiRequest<{ id: string; name: string }[]>('/theatre/procedures'),
-  })
-  const { data: bookings = [] } = useQuery({
-    queryKey: ['surgery-bookings'],
-    queryFn: () => apiRequest<unknown[]>('/theatre/bookings'),
-  })
-  const createTheatre = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/theatre/theatres', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          code: form.get('code'),
-          location: form.get('location'),
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['theatres'] }),
-  })
-  const createProcedure = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/theatre/procedures', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          code: form.get('code'),
-          category: form.get('category'),
-          expectedDurationMinutes: Number(form.get('expectedDurationMinutes') || 0),
-        }),
-      })
-    },
-    onSuccess: async () =>
-      queryClient.invalidateQueries({ queryKey: ['surgical-procedures'] }),
-  })
-  const createBooking = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/theatre/bookings', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: form.get('patientId'),
-          admissionId: form.get('admissionId') || undefined,
-          procedureId: form.get('procedureId'),
-          theatreId: form.get('theatreId') || undefined,
-          scheduledStartAt: form.get('scheduledStartAt'),
-          priority: form.get('priority'),
-        }),
-      })
-    },
-    onSuccess: async () =>
-      queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] }),
-  })
-  const updateBookingStatus = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/theatre/bookings/${form.get('bookingId')}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: form.get('status') }),
-      })
-    },
-    onSuccess: async () =>
-      queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] }),
-  })
-  const assignStaff = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/theatre/bookings/${form.get('bookingId')}/staff`, {
-        method: 'POST',
-        body: JSON.stringify({ userId: form.get('userId'), role: form.get('role') }),
-      })
-    },
-  })
-  const addSurgeryNote = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/theatre/bookings/${form.get('bookingId')}/notes`, {
-        method: 'POST',
-        body: JSON.stringify({ type: form.get('type'), body: form.get('body') }),
-      })
-    },
-  })
 
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <div className="space-y-6">
-        <QuickAddForm
-          title="Create theatre"
-          pending={createTheatre.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createTheatre.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="name" className="input" placeholder="Theatre name" required />
-          <input name="code" className="input" placeholder="Code" required />
-          <input name="location" className="input" placeholder="Location" />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Create surgical procedure"
-          pending={createProcedure.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createProcedure.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="name" className="input" placeholder="Procedure name" required />
-          <input name="code" className="input" placeholder="Code" required />
-          <input name="category" className="input" placeholder="Category" />
-          <input
-            name="expectedDurationMinutes"
-            className="input"
-            placeholder="Expected minutes"
-          />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Book surgery"
-          pending={createBooking.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createBooking.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="patientId" className="input" placeholder="Patient ID" required />
-          <input name="admissionId" className="input" placeholder="Admission ID" />
-          <select name="procedureId" className="input" required>
-            {procedures.map((procedure) => (
-              <option key={procedure.id} value={procedure.id}>
-                {procedure.name}
-              </option>
-            ))}
-          </select>
-          <select name="theatreId" className="input">
-            <option value="">No theatre assigned</option>
-            {theatres.map((theatre) => (
-              <option key={theatre.id} value={theatre.id}>
-                {theatre.name}
-              </option>
-            ))}
-          </select>
-          <input name="scheduledStartAt" type="datetime-local" className="input" required />
-          <select name="priority" className="input" required>
-            <option value="elective">Elective</option>
-            <option value="urgent">Urgent</option>
-            <option value="emergency">Emergency</option>
-          </select>
-        </QuickAddForm>
-        <QuickAddForm
-          title="Update surgery status"
-          pending={updateBookingStatus.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateBookingStatus.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="bookingId" className="input" placeholder="Surgery booking ID" required />
-          <select name="status" className="input" required>
-            <option value="requested">Requested</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="pre_op">Pre-op</option>
-            <option value="in_theatre">In theatre</option>
-            <option value="recovery">Recovery</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </QuickAddForm>
-        <QuickAddForm
-          title="Assign theatre staff"
-          pending={assignStaff.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            assignStaff.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="bookingId" className="input" placeholder="Surgery booking ID" required />
-          <input name="userId" className="input" placeholder="Staff user ID" required />
-          <select name="role" className="input" required>
-            <option value="primary_surgeon">Primary surgeon</option>
-            <option value="assistant_surgeon">Assistant surgeon</option>
-            <option value="anesthetist">Anesthetist</option>
-            <option value="theatre_nurse">Theatre nurse</option>
-            <option value="scrub_nurse">Scrub nurse</option>
-            <option value="circulating_nurse">Circulating nurse</option>
-          </select>
-        </QuickAddForm>
-        <QuickAddForm
-          title="Add surgery note"
-          pending={addSurgeryNote.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            addSurgeryNote.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="bookingId" className="input" placeholder="Surgery booking ID" required />
-          <select name="type" className="input" required>
-            <option value="pre_op_assessment">Pre-op assessment</option>
-            <option value="consent">Consent</option>
-            <option value="checklist">Checklist</option>
-            <option value="intraoperative">Intraoperative</option>
-            <option value="operation">Operation note</option>
-            <option value="findings">Findings</option>
-            <option value="post_op">Post-op</option>
-            <option value="recovery">Recovery</option>
-          </select>
-          <textarea name="body" className="input" placeholder="Note" required />
-        </QuickAddForm>
-      </div>
-      <JsonPanel title="Surgery bookings" data={bookings} />
-    </div>
-  )
-}
-
-function MaternityScreen() {
-  const queryClient = useQueryClient()
-  const [selectedPregnancyId, setSelectedPregnancyId] = useState('')
-  const { data: pregnancies = [] } = useQuery({
-    queryKey: ['pregnancies'],
-    queryFn: () =>
-      apiRequest<{ id: string; pregnancyNo: string; patient?: PatientSummary }[]>(
-        '/maternity/pregnancies',
-      ),
-  })
-  const createPregnancy = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest('/maternity/pregnancies', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: form.get('patientId'),
-          admissionId: form.get('admissionId') || undefined,
-          gravida: Number(form.get('gravida') || 0),
-          para: Number(form.get('para') || 0),
-          lmpDate: form.get('lmpDate') || undefined,
-          riskLevel: form.get('riskLevel'),
-          riskNotes: form.get('riskNotes') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
-  })
-  const createAnc = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/anc-visits`, {
-        method: 'POST',
-        body: JSON.stringify({
-          visitDate: form.get('visitDate'),
-          gestationalAgeWeeks: Number(form.get('gestationalAgeWeeks') || 0),
-          riskAssessment: form.get('riskAssessment') || undefined,
-          plan: form.get('plan'),
-        }),
-      })
-    },
-  })
-  const createDelivery = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/deliveries`, {
-        method: 'POST',
-        body: JSON.stringify({
-          deliveryTime: form.get('deliveryTime'),
-          mode: form.get('mode'),
-          outcome: form.get('outcome'),
-          bloodLossMl: Number(form.get('bloodLossMl') || 0),
-          complications: form.get('complications') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['pregnancies'] }),
-  })
-  const createLabour = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/labour-records`, {
-        method: 'POST',
-        body: JSON.stringify({
-          admissionId: form.get('admissionId') || undefined,
-          cervicalDilationCm: Number(form.get('cervicalDilationCm') || 0),
-          contractions: form.get('contractions') || undefined,
-          fetalHeartRate: Number(form.get('fetalHeartRate') || 0),
-          membranesStatus: form.get('membranesStatus') || undefined,
-          notes: form.get('notes') || undefined,
-        }),
-      })
-    },
-  })
-  const createNewborn = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/maternity/deliveries/${form.get('deliveryId')}/newborns`, {
-        method: 'POST',
-        body: JSON.stringify({
-          babyPatientId: form.get('babyPatientId') || undefined,
-          sex: form.get('sex'),
-          birthWeightGrams: Number(form.get('birthWeightGrams') || 0),
-          apgar1Min: Number(form.get('apgar1Min') || 0),
-          apgar5Min: Number(form.get('apgar5Min') || 0),
-          apgar10Min: Number(form.get('apgar10Min') || 0),
-          resuscitationRequired: form.get('resuscitationRequired') === 'on',
-          status: form.get('status'),
-        }),
-      })
-    },
-  })
-  const createPostnatal = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/maternity/pregnancies/${selectedPregnancyId}/postnatal-visits`, {
-        method: 'POST',
-        body: JSON.stringify({
-          visitDate: form.get('visitDate'),
-          motherCondition: form.get('motherCondition'),
-          newbornCondition: form.get('newbornCondition') || undefined,
-          feedingStatus: form.get('feedingStatus') || undefined,
-          dangerSigns: form.get('dangerSigns') || undefined,
-          plan: form.get('plan'),
-        }),
-      })
-    },
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <div className="space-y-6">
-        <QuickAddForm
-          title="Register pregnancy"
-          pending={createPregnancy.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createPregnancy.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="patientId" className="input" placeholder="Mother patient ID" required />
-          <input name="admissionId" className="input" placeholder="Admission ID" />
-          <input name="gravida" className="input" placeholder="Gravida" required />
-          <input name="para" className="input" placeholder="Para" required />
-          <input name="lmpDate" className="input" type="date" />
-          <select name="riskLevel" className="input">
-            <option value="low">Low risk</option>
-            <option value="moderate">Moderate risk</option>
-            <option value="high">High risk</option>
-          </select>
-          <input name="riskNotes" className="input" placeholder="Risk notes" />
-        </QuickAddForm>
-        <select
-          className="input"
-          value={selectedPregnancyId}
-          onChange={(event) => setSelectedPregnancyId(event.target.value)}
-        >
-          <option value="">Select pregnancy for ANC/delivery</option>
-          {pregnancies.map((pregnancy) => (
-            <option key={pregnancy.id} value={pregnancy.id}>
-              {pregnancy.pregnancyNo}
-            </option>
-          ))}
-        </select>
-        <QuickAddForm
-          title="Add ANC visit"
-          pending={createAnc.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createAnc.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="visitDate" className="input" type="date" required />
-          <input name="gestationalAgeWeeks" className="input" placeholder="Gestational weeks" />
-          <input name="riskAssessment" className="input" placeholder="Risk assessment" />
-          <input name="plan" className="input" placeholder="Plan" required />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Labour record"
-          pending={createLabour.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createLabour.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="admissionId" className="input" placeholder="Admission ID" />
-          <input name="cervicalDilationCm" className="input" placeholder="Cervical dilation cm" />
-          <input name="contractions" className="input" placeholder="Contractions" />
-          <input name="fetalHeartRate" className="input" placeholder="Fetal heart rate" />
-          <input name="membranesStatus" className="input" placeholder="Membranes status" />
-          <textarea name="notes" className="input" placeholder="Notes" />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Record delivery"
-          pending={createDelivery.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createDelivery.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="deliveryTime" className="input" type="datetime-local" required />
-          <select name="mode" className="input" required>
-            <option value="svd">SVD</option>
-            <option value="assisted">Assisted</option>
-            <option value="cesarean">Cesarean</option>
-            <option value="breech">Breech</option>
-          </select>
-          <select name="outcome" className="input" required>
-            <option value="live_birth">Live birth</option>
-            <option value="stillbirth">Stillbirth</option>
-            <option value="maternal_transfer">Maternal transfer</option>
-            <option value="maternal_death">Maternal death</option>
-          </select>
-          <input name="bloodLossMl" className="input" placeholder="Blood loss ml" />
-          <input name="complications" className="input" placeholder="Complications" />
-        </QuickAddForm>
-        <QuickAddForm
-          title="Register newborn"
-          pending={createNewborn.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createNewborn.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="deliveryId" className="input" placeholder="Delivery ID" required />
-          <input name="babyPatientId" className="input" placeholder="Baby patient ID if registered" />
-          <select name="sex" className="input" required>
-            <option value="female">Female</option>
-            <option value="male">Male</option>
-            <option value="unknown">Unknown</option>
-          </select>
-          <input name="birthWeightGrams" className="input" placeholder="Birth weight grams" />
-          <input name="apgar1Min" className="input" placeholder="APGAR 1 min" />
-          <input name="apgar5Min" className="input" placeholder="APGAR 5 min" />
-          <input name="apgar10Min" className="input" placeholder="APGAR 10 min" />
-          <label className="flex items-center gap-2 text-sm">
-            <input name="resuscitationRequired" type="checkbox" /> Resuscitation required
-          </label>
-          <select name="status" className="input" required>
-            <option value="alive">Alive</option>
-            <option value="stillborn">Stillborn</option>
-            <option value="referred">Referred</option>
-            <option value="deceased">Deceased</option>
-          </select>
-        </QuickAddForm>
-        <QuickAddForm
-          title="Postnatal visit"
-          pending={createPostnatal.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            createPostnatal.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="visitDate" className="input" type="date" required />
-          <textarea name="motherCondition" className="input" placeholder="Mother condition" required />
-          <textarea name="newbornCondition" className="input" placeholder="Newborn condition" />
-          <input name="feedingStatus" className="input" placeholder="Feeding status" />
-          <textarea name="dangerSigns" className="input" placeholder="Danger signs" />
-          <textarea name="plan" className="input" placeholder="Plan" required />
-        </QuickAddForm>
-      </div>
-      <JsonPanel title="Pregnancies" data={pregnancies} />
-    </div>
-  )
-}
-
-function IcuScreen() {
-  return <CriticalCareScreen unit="icu" title="ICU" />
-}
-
-function HduScreen() {
-  return <CriticalCareScreen unit="hdu" title="HDU" />
-}
-
-function CriticalCareScreen({ unit, title }: { unit: 'icu' | 'hdu'; title: string }) {
-  const queryClient = useQueryClient()
-  const [selectedId, setSelectedId] = useState('')
-  const { data: admissions = [] } = useQuery({
-    queryKey: [`${unit}-admissions`],
-    queryFn: () =>
-      apiRequest<{ id: string; admission?: { admissionNo: string; patient?: PatientSummary } }[]>(
-        `/${unit}/admissions`,
-      ),
-  })
-  const admit = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/${unit}/admissions`, {
-        method: 'POST',
-        body: JSON.stringify({
-          admissionId: form.get('admissionId'),
-          [`${unit}BedId`]: form.get('bedId') || undefined,
-          reason: form.get('reason'),
-          severityScore: unit === 'icu' ? Number(form.get('severityScore') || 0) : undefined,
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: [`${unit}-admissions`] }),
-  })
-  const observe = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/${unit}/admissions/${selectedId}/observations`, {
-        method: 'POST',
-        body: JSON.stringify({
-          heartRate: Number(form.get('heartRate') || 0),
-          respiratoryRate: Number(form.get('respiratoryRate') || 0),
-          bpSystolic: Number(form.get('bpSystolic') || 0),
-          bpDiastolic: Number(form.get('bpDiastolic') || 0),
-          spo2: Number(form.get('spo2') || 0),
-          gcs: unit === 'icu' ? Number(form.get('gcs') || 0) : undefined,
-          oxygenSupport: unit === 'hdu' ? form.get('oxygenSupport') || undefined : undefined,
-          escalationRequired: unit === 'hdu' ? form.get('escalationRequired') === 'on' : undefined,
-          notes: form.get('notes') || undefined,
-        }),
-      })
-    },
-  })
-  const round = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/${unit}/admissions/${selectedId}/rounds`, {
-        method: 'POST',
-        body: JSON.stringify({
-          assessment: form.get('assessment'),
-          plan: form.get('plan'),
-          escalationDecision: form.get('escalationDecision') || undefined,
-        }),
-      })
-    },
-  })
-  const updateStatus = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/${unit}/admissions/${selectedId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: form.get('status') }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: [`${unit}-admissions`] }),
-  })
-  const ventilator = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/icu/admissions/${selectedId}/ventilator-records`, {
-        method: 'POST',
-        body: JSON.stringify({
-          mode: form.get('mode'),
-          fio2: Number(form.get('fio2') || 0),
-          peep: Number(form.get('peep') || 0),
-          tidalVolume: Number(form.get('tidalVolume') || 0),
-          notes: form.get('notes') || undefined,
-        }),
-      })
-    },
-  })
-  const fluid = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
-      return apiRequest(`/icu/admissions/${selectedId}/fluid-balance`, {
-        method: 'POST',
-        body: JSON.stringify({
-          inputVolumeMl: Number(form.get('inputVolumeMl') || 0),
-          outputVolumeMl: Number(form.get('outputVolumeMl') || 0),
-          notes: form.get('notes') || undefined,
-        }),
-      })
-    },
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <div className="space-y-6">
-        <QuickAddForm
-          title={`${title} admission`}
-          pending={admit.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            admit.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="admissionId" className="input" placeholder="Base admission ID" required />
-          <input name="bedId" className="input" placeholder={`${title} bed ID`} />
-          <input name="reason" className="input" placeholder="Reason" required />
-          {unit === 'icu' ? (
-            <input name="severityScore" className="input" placeholder="Severity score" />
-          ) : null}
-        </QuickAddForm>
-        <select className="input" value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
-          <option value="">Select {title} admission</option>
-          {admissions.map((admission) => (
-            <option key={admission.id} value={admission.id}>
-              {admission.admission?.admissionNo ?? admission.id}
-            </option>
-          ))}
-        </select>
-        <QuickAddForm
-          title={`${title} observation`}
-          pending={observe.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            observe.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <input name="heartRate" className="input" placeholder="Heart rate" />
-          <input name="respiratoryRate" className="input" placeholder="Resp rate" />
-          <input name="bpSystolic" className="input" placeholder="BP sys" />
-          <input name="bpDiastolic" className="input" placeholder="BP dia" />
-          <input name="spo2" className="input" placeholder="SpO2" />
-          {unit === 'icu' ? <input name="gcs" className="input" placeholder="GCS" /> : null}
-          {unit === 'hdu' ? <input name="oxygenSupport" className="input" placeholder="Oxygen support" /> : null}
-          {unit === 'hdu' ? (
-            <label className="flex items-center gap-2 text-sm">
-              <input name="escalationRequired" type="checkbox" /> Escalation required
-            </label>
-          ) : null}
-          <input name="notes" className="input" placeholder="Notes" />
-        </QuickAddForm>
-        <QuickAddForm
-          title={`${title} round`}
-          pending={round.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            round.mutate(event)
-            event.currentTarget.reset()
-          }}
-        >
-          <textarea name="assessment" className="input" placeholder="Assessment" required />
-          <textarea name="plan" className="input" placeholder="Plan" required />
-          <input name="escalationDecision" className="input" placeholder="Escalation decision" />
-        </QuickAddForm>
-        <QuickAddForm
-          title={`${title} status`}
-          pending={updateStatus.isPending}
-          onSubmit={(event) => {
-            event.preventDefault()
-            updateStatus.mutate(event)
-          }}
-        >
-          <select name="status" className="input" required>
-            <option value="transferred_out">Transferred out</option>
-            <option value="discharged">Discharged</option>
-            <option value="died">Died</option>
-          </select>
-        </QuickAddForm>
-        {unit === 'icu' ? (
-          <>
-            <QuickAddForm
-              title="Ventilator record"
-              pending={ventilator.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                ventilator.mutate(event)
-                event.currentTarget.reset()
-              }}
-            >
-              <input name="mode" className="input" placeholder="Mode" required />
-              <input name="fio2" className="input" placeholder="FiO2" />
-              <input name="peep" className="input" placeholder="PEEP" />
-              <input name="tidalVolume" className="input" placeholder="Tidal volume" />
-              <textarea name="notes" className="input" placeholder="Notes" />
-            </QuickAddForm>
-            <QuickAddForm
-              title="Fluid balance"
-              pending={fluid.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                fluid.mutate(event)
-                event.currentTarget.reset()
-              }}
-            >
-              <input name="inputVolumeMl" className="input" placeholder="Input ml" />
-              <input name="outputVolumeMl" className="input" placeholder="Output ml" />
-              <textarea name="notes" className="input" placeholder="Notes" />
-            </QuickAddForm>
-          </>
-        ) : null}
-      </div>
-      <JsonPanel title={`${title} admissions`} data={admissions} />
-    </div>
-  )
-}
-
-function JsonPanel({ title, data }: { title: string; data: unknown }) {
-  const rows = Array.isArray(data) ? data : []
-  const columns = rows.length
-    ? Object.keys(flattenForTable(rows[0] as Record<string, unknown>)).slice(0, 6)
-    : []
-
-  return (
-    <div className="rounded-3xl bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-xl font-bold">{title}</h3>
-        {Array.isArray(data) ? (
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-            {data.length} records
-          </span>
-        ) : null}
-      </div>
-      {rows.length ? (
-        <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-              <tr>
-                {columns.map((column) => (
-                  <th key={column} className="px-4 py-3">
-                    {humanize(column)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.map((row, index) => {
-                const flat = flattenForTable(row as Record<string, unknown>)
-                return (
-                  <tr key={index} className="hover:bg-slate-50">
-                    {columns.map((column) => (
-                      <td key={column} className="max-w-xs truncate px-4 py-3 text-slate-700">
-                        {formatCell(flat[column])}
-                      </td>
-                    ))}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="mt-4 rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">
-          No records yet.
-        </p>
-      )}
-      <details className="mt-4">
-        <summary className="cursor-pointer text-sm font-semibold text-blue-700">
-          Raw data
-        </summary>
-        <pre className="mt-3 max-h-96 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </details>
-    </div>
-  )
-}
-
-function flattenForTable(row: Record<string, unknown>) {
-  const flattened: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(row)) {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const nested = value as Record<string, unknown>
-      const display =
-        nested.name ??
-        nested.label ??
-        nested.patientNo ??
-        nested.admissionNo ??
-        nested.encounterNo ??
-        nested.bedNo ??
-        nested.email ??
-        nested.id
-      flattened[key] = display
-    } else if (!Array.isArray(value)) {
-      flattened[key] = value
-    }
-  }
-  return flattened
-}
-
-function formatCell(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-'
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
-    return new Date(value).toLocaleString()
-  }
-  return String(value)
-}
-
-function humanize(value: string) {
-  return value.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim()
-}
 
 interface RoleItem {
   id: string
@@ -4443,8 +1308,8 @@ function AdminUsers() {
     queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/admin/departments'),
   })
   const createUser = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       const roleId = form.get('roleId')?.toString()
       return apiRequest('/admin/users', {
         method: 'POST',
@@ -4464,8 +1329,8 @@ function AdminUsers() {
     },
   })
   const createDepartment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/admin/departments', {
         method: 'POST',
         body: JSON.stringify({
@@ -4478,8 +1343,8 @@ function AdminUsers() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['admin-departments'] }),
   })
   const assignDepartment = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest(`/admin/users/${form.get('userId')}/departments`, {
         method: 'POST',
         body: JSON.stringify({
@@ -4498,7 +1363,7 @@ function AdminUsers() {
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
         onSubmit={(event) => {
           event.preventDefault()
-          createUser.mutate(event)
+          createUser.mutate(event.currentTarget)
           event.currentTarget.reset()
         }}
       >
@@ -4534,7 +1399,7 @@ function AdminUsers() {
         pending={createDepartment.isPending}
         onSubmit={(event) => {
           event.preventDefault()
-          createDepartment.mutate(event)
+          createDepartment.mutate(event.currentTarget)
           event.currentTarget.reset()
         }}
       >
@@ -4547,7 +1412,7 @@ function AdminUsers() {
         pending={assignDepartment.isPending}
         onSubmit={(event) => {
           event.preventDefault()
-          assignDepartment.mutate(event)
+          assignDepartment.mutate(event.currentTarget)
           event.currentTarget.reset()
         }}
       >
@@ -4614,8 +1479,8 @@ function AdminRoles() {
       ),
   })
   const createRole = useMutation({
-    mutationFn: (event: FormEvent<HTMLFormElement>) => {
-      const form = new FormData(event.currentTarget)
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
       return apiRequest('/admin/roles', {
         method: 'POST',
         body: JSON.stringify({
@@ -4636,7 +1501,7 @@ function AdminRoles() {
         className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
         onSubmit={(event) => {
           event.preventDefault()
-          createRole.mutate(event)
+          createRole.mutate(event.currentTarget)
           event.currentTarget.reset()
         }}
       >
@@ -4676,124 +1541,6 @@ function AdminRoles() {
           </div>
         </details>
       </div>
-    </div>
-  )
-}
-
-function AdminSettings() {
-  const queryClient = useQueryClient()
-  const { data } = useQuery({
-    queryKey: ['admin-settings'],
-    queryFn: () =>
-      apiRequest<{
-        smsSenderName: string
-        patientIdPrefix: string
-        triageSystem: string
-        clinicalCatalog?: {
-          clinics?: string[]
-          doctorCategories?: string[]
-          assignableDoctors?: string[]
-        }
-      }>('/admin/settings'),
-  })
-  const [clinicsText, setClinicsText] = useState('')
-  const [doctorCategoriesText, setDoctorCategoriesText] = useState('')
-  const [doctorsText, setDoctorsText] = useState('')
-
-  useEffect(() => {
-    if (!data?.clinicalCatalog) return
-    setClinicsText((data.clinicalCatalog.clinics ?? []).join('\n'))
-    setDoctorCategoriesText((data.clinicalCatalog.doctorCategories ?? []).join('\n'))
-    setDoctorsText((data.clinicalCatalog.assignableDoctors ?? []).join('\n'))
-  }, [data])
-
-  const update = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      const splitLines = (value: string) =>
-        value.split('\n').map((line) => line.trim()).filter(Boolean)
-      return apiRequest('/admin/settings', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          smsSenderName: form.get('smsSenderName'),
-          patientIdPrefix: form.get('patientIdPrefix'),
-          triageSystem: form.get('triageSystem'),
-          clinicalCatalog: {
-            ...(data?.clinicalCatalog ?? {}),
-            clinics: splitLines(clinicsText),
-            doctorCategories: splitLines(doctorCategoriesText),
-            assignableDoctors: splitLines(doctorsText),
-          },
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
-      await queryClient.invalidateQueries({ queryKey: ['clinical-catalog'] })
-    },
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_0.4fr] animate-fade-in">
-      <Card>
-        <PageHeader
-          eyebrow="Administration"
-          title="Hospital settings"
-          description="Configure dropdown lists used at reception check-in."
-        />
-        <ClinicalForm
-          key={data ? `${data.smsSenderName}-${data.patientIdPrefix}` : 'loading'}
-          onSubmit={(event) => submitClinicalForm(update, event, { resetOnSuccess: false })}
-        >
-          <FormSection title="General">
-            <Field name="smsSenderName" label="SMS sender name" defaultValue={data?.smsSenderName ?? ''} />
-            <Field name="patientIdPrefix" label="Patient ID prefix" defaultValue={data?.patientIdPrefix ?? ''} />
-            <Field name="triageSystem" label="Triage system" defaultValue={data?.triageSystem ?? ''} />
-          </FormSection>
-          <FormSection title="Check-in dropdowns" description="One item per line." columns={1}>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Clinics / departments</span>
-              <textarea
-                className="input min-h-28"
-                value={clinicsText}
-                onChange={(event) => setClinicsText(event.target.value)}
-                placeholder="General OPD&#10;Cardiology&#10;Paediatrics"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Doctor categories</span>
-              <textarea
-                className="input min-h-24"
-                value={doctorCategoriesText}
-                onChange={(event) => setDoctorCategoriesText(event.target.value)}
-                placeholder="Consultant&#10;Medical Officer"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-slate-700">Assignable doctors (optional)</span>
-              <textarea
-                className="input min-h-24"
-                value={doctorsText}
-                onChange={(event) => setDoctorsText(event.target.value)}
-                placeholder="Dr. Kamau&#10;Dr. Wanjiku"
-              />
-            </label>
-          </FormSection>
-          {update.error ? <Alert tone="error">{update.error.message}</Alert> : null}
-          {update.isSuccess ? <Alert tone="success">Settings saved.</Alert> : null}
-          <FormActions>
-            <Button type="submit" loading={update.isPending}>
-              Save settings
-            </Button>
-          </FormActions>
-        </ClinicalForm>
-      </Card>
-      <Card className="bg-gradient-to-br from-teal-900 to-teal-800 text-white">
-        <h3 className="font-bold">Dropdown tip</h3>
-        <p className="mt-2 text-sm text-teal-100">
-          Clinics and doctor lists appear on the OPD check-in screen. Changes apply immediately for all reception staff.
-        </p>
-      </Card>
     </div>
   )
 }

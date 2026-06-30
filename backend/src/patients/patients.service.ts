@@ -5,15 +5,15 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import QRCode from 'qrcode';
-import { Repository } from 'typeorm';
+import { Repository, Not, In } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { Appointment } from '../appointments/appointment.entities';
 import { HduAdmission } from '../hdu/hdu.entities';
 import { IcuAdmission } from '../icu/icu.entities';
 import { Admission } from '../inpatient/inpatient.entities';
-import { LabResult } from '../laboratory/laboratory.entities';
+import { LabRequest, LabResult } from '../laboratory/laboratory.entities';
 import { Pregnancy } from '../maternity/maternity.entities';
-import { Encounter } from '../opd/opd.entities';
+import { Consultation, Encounter, TriageAssessment } from '../opd/opd.entities';
 import { RadiologyReport } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
@@ -57,6 +57,12 @@ export class PatientsService {
     private readonly admissions: Repository<Admission>,
     @InjectRepository(LabResult)
     private readonly labResults: Repository<LabResult>,
+    @InjectRepository(LabRequest)
+    private readonly labRequests: Repository<LabRequest>,
+    @InjectRepository(Consultation)
+    private readonly consultations: Repository<Consultation>,
+    @InjectRepository(TriageAssessment)
+    private readonly triages: Repository<TriageAssessment>,
     @InjectRepository(RadiologyReport)
     private readonly radiologyReports: Repository<RadiologyReport>,
     @InjectRepository(SurgeryBooking)
@@ -130,24 +136,36 @@ export class PatientsService {
   }
 
   async create(dto: CreatePatientDto, request: RequestContext) {
-    await this.ensureNoDuplicateIdentifier(dto.identifiers);
+    const identifiers = dto.identifiers ?? [];
+    if (identifiers.length) {
+      await this.ensureNoDuplicateIdentifier(identifiers);
+    }
 
     const patientNo = await this.generatePatientNumber(
       request.tenant?.code ?? 'AFYA',
     );
     const patient = this.patients.create({
-      ...dto,
-      patientNo,
-      qrCode: `afyasasa:patient:${patientNo}`,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
       middleName: dto.middleName ?? null,
+      dateOfBirth: dto.dateOfBirth,
+      gender: dto.gender,
+      primaryPhone: dto.primaryPhone,
       secondaryPhone: dto.secondaryPhone ?? null,
       email: dto.email ?? null,
       bloodGroup: dto.bloodGroup ?? null,
       county: dto.county ?? null,
+      subCounty: dto.subCounty ?? null,
+      nationality: dto.nationality ?? null,
+      maritalStatus: dto.maritalStatus ?? null,
+      occupation: dto.occupation ?? null,
+      religion: dto.religion ?? null,
+      patientNo,
+      qrCode: `afyasasa:patient:${patientNo}`,
       registeredBy: request.user?.sub ?? null,
       createdBy: request.user?.sub ?? null,
       updatedBy: request.user?.sub ?? null,
-      identifiers: dto.identifiers.map((identifier, index) =>
+      identifiers: identifiers.map((identifier, index) =>
         this.identifiers.create({
           ...identifier,
           verified: identifier.verified ?? false,
@@ -169,6 +187,29 @@ export class PatientsService {
     });
 
     const saved = await this.patients.save(patient);
+
+    for (const allergy of dto.allergies ?? []) {
+      await this.allergies.save(
+        this.allergies.create({
+          ...allergy,
+          patient: saved,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+    }
+
+    for (const condition of dto.chronicConditions ?? []) {
+      await this.chronicConditions.save(
+        this.chronicConditions.create({
+          ...condition,
+          patient: saved,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+    }
+
     await this.notifications.queuePatientRegistered(saved);
     return this.findOne(saved.id);
   }
@@ -237,6 +278,7 @@ export class PatientsService {
     const [
       encounters,
       admissions,
+      labRequests,
       labResults,
       radiologyReports,
       surgeries,
@@ -245,9 +287,12 @@ export class PatientsService {
       hduAdmissions,
       appointments,
       referrals,
+      triages,
+      consultations,
     ] = await Promise.all([
       this.encounters.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
       this.admissions.find({ where: { patient: { id } }, relations: { ward: true, bed: true }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.labRequests.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
       this.labResults.find({
         where: { requestItem: { request: { patient: { id } } } },
         relations: { requestItem: { request: true, test: true, panel: true } },
@@ -266,23 +311,201 @@ export class PatientsService {
       this.hduAdmissions.find({ where: { admission: { patient: { id } } }, relations: { admission: true }, order: { createdAt: 'DESC' }, take: 50 }),
       this.appointments.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
       this.referrals.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
+      this.triages.find({
+        where: { encounter: { patient: { id } } },
+        relations: { encounter: true },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
+      this.consultations.find({
+        where: { encounter: { patient: { id } } },
+        relations: { encounter: true },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
     ]);
 
     const events = [
-      { type: 'registration', occurredAt: patient.createdAt, title: 'Patient registered', summary: patient.patientNo },
-      ...encounters.map((item) => ({ type: 'visit', occurredAt: item.startedAt, title: `Encounter ${item.encounterNo}`, summary: `${item.type} - ${item.status}` })),
-      ...admissions.map((item) => ({ type: 'admission', occurredAt: item.admittedAt, title: `Admission ${item.admissionNo}`, summary: `${item.ward?.name ?? 'Ward'} / ${item.bed?.bedNo ?? 'Bed'} - ${item.status}` })),
-      ...labResults.map((item) => ({ type: 'lab_result', occurredAt: item.enteredAt, title: item.requestItem.test?.name ?? item.requestItem.panel?.name ?? 'Lab result', summary: `${item.value} ${item.unit ?? ''} (${item.flag})` })),
-      ...radiologyReports.map((item) => ({ type: 'radiology', occurredAt: item.createdAt, title: `${item.request.modality?.name ?? 'Radiology'} report`, summary: item.impression })),
-      ...surgeries.map((item) => ({ type: 'surgery', occurredAt: item.scheduledStartAt, title: item.procedure?.name ?? 'Surgery', summary: `${item.status} ${item.theatre?.name ?? ''}` })),
-      ...pregnancies.map((item) => ({ type: 'maternity', occurredAt: item.createdAt, title: `Pregnancy ${item.pregnancyNo}`, summary: `${item.status} risk: ${item.riskLevel}` })),
-      ...icuAdmissions.map((item) => ({ type: 'icu', occurredAt: item.admittedToIcuAt, title: 'ICU admission', summary: item.status })),
-      ...hduAdmissions.map((item) => ({ type: 'hdu', occurredAt: item.admittedToHduAt, title: 'HDU admission', summary: item.status })),
-      ...appointments.map((item) => ({ type: 'appointment', occurredAt: item.createdAt, title: `Appointment ${item.appointmentDate}`, summary: `${item.type} - ${item.status}` })),
-      ...referrals.map((item) => ({ type: 'referral', occurredAt: item.createdAt, title: `${item.type} referral`, summary: `${item.status} - ${item.reason}` })),
+      {
+        id: patient.id,
+        type: 'registration',
+        occurredAt: patient.createdAt,
+        title: 'Patient registered',
+        summary: patient.patientNo,
+      },
+      ...encounters.map((item) => ({
+        id: item.id,
+        type: 'visit',
+        occurredAt: item.startedAt,
+        title: `Encounter ${item.encounterNo}`,
+        summary: `${item.type} — ${item.status}`,
+      })),
+      ...triages.map((item) => ({
+        id: item.id,
+        type: 'triage',
+        occurredAt: item.createdAt,
+        title: `Triage ${item.colour}`,
+        summary: `${item.category} — ${item.chiefComplaint}`,
+      })),
+      ...consultations.map((item) => ({
+        id: item.id,
+        type: 'consultation',
+        occurredAt: item.createdAt,
+        title: 'Consultation',
+        summary: item.assessment ?? item.plan ?? 'SOAP note recorded',
+      })),
+      ...labRequests.map((item) => ({
+        id: item.id,
+        type: 'lab_request',
+        occurredAt: item.createdAt,
+        title: 'Lab request',
+        summary: `${item.status} — ${item.priority}`,
+      })),
+      ...admissions.map((item) => ({
+        id: item.id,
+        type: 'admission',
+        occurredAt: item.admittedAt,
+        title: `Admission ${item.admissionNo}`,
+        summary: `${item.ward?.name ?? 'Ward'} / ${item.bed?.bedNo ?? 'Bed'} — ${item.status}`,
+      })),
+      ...labResults.map((item) => ({
+        id: item.id,
+        type: 'lab_result',
+        occurredAt: item.enteredAt,
+        title: item.requestItem.test?.name ?? item.requestItem.panel?.name ?? 'Lab result',
+        summary: `${item.value} ${item.unit ?? ''} (${item.flag})`,
+      })),
+      ...radiologyReports.map((item) => ({
+        id: item.id,
+        type: 'radiology',
+        occurredAt: item.createdAt,
+        title: `${item.request.modality?.name ?? 'Radiology'} report`,
+        summary: item.impression,
+      })),
+      ...surgeries.map((item) => ({
+        id: item.id,
+        type: 'surgery',
+        occurredAt: item.scheduledStartAt,
+        title: item.procedure?.name ?? 'Surgery',
+        summary: `${item.status} ${item.theatre?.name ?? ''}`,
+      })),
+      ...pregnancies.map((item) => ({
+        id: item.id,
+        type: 'maternity',
+        occurredAt: item.createdAt,
+        title: `Pregnancy ${item.pregnancyNo}`,
+        summary: `${item.status} risk: ${item.riskLevel}`,
+      })),
+      ...icuAdmissions.map((item) => ({
+        id: item.id,
+        type: 'icu',
+        occurredAt: item.admittedToIcuAt,
+        title: 'ICU admission',
+        summary: item.status,
+      })),
+      ...hduAdmissions.map((item) => ({
+        id: item.id,
+        type: 'hdu',
+        occurredAt: item.admittedToHduAt,
+        title: 'HDU admission',
+        summary: item.status,
+      })),
+      ...appointments.map((item) => ({
+        id: item.id,
+        type: 'appointment',
+        occurredAt: item.createdAt,
+        title: `Appointment ${item.appointmentDate}`,
+        summary: `${item.type} — ${item.status}`,
+      })),
+      ...referrals.map((item) => ({
+        id: item.id,
+        type: 'referral',
+        occurredAt: item.createdAt,
+        title: `${item.type} referral`,
+        summary: `${item.status} — ${item.reason}`,
+      })),
     ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
     return { patient, events };
+  }
+
+  async getJourneyStatus(id: string) {
+    await this.findOne(id);
+    const [activeEncounter, activePregnancy, pendingLabs, criticalLabs] =
+      await Promise.all([
+        this.encounters.findOne({
+          where: {
+            patient: { id },
+            type: 'opd',
+            status: Not('completed'),
+          },
+          order: { startedAt: 'DESC' },
+        }),
+        this.pregnancies.findOne({
+          where: { patient: { id }, status: 'active' },
+          order: { createdAt: 'DESC' },
+        }),
+        this.labRequests.count({
+          where: {
+            patient: { id },
+            status: In(['requested', 'sample_collected', 'processing']),
+          },
+        }),
+        this.labResults.count({
+          where: [
+            {
+              requestItem: { request: { patient: { id } } },
+              flag: 'critically_low',
+              reviewedAt: null as never,
+            },
+            {
+              requestItem: { request: { patient: { id } } },
+              flag: 'critically_high',
+              reviewedAt: null as never,
+            },
+          ],
+        }),
+      ]);
+
+    const hasPendingLab = pendingLabs > 0;
+    const hasLabResults = false;
+    let step = 'registered';
+
+    if (!activeEncounter) {
+      step = 'registered';
+    } else {
+      switch (activeEncounter.status) {
+        case 'registered':
+          step = 'waiting_triage';
+          break;
+        case 'triaged':
+          step = hasPendingLab
+            ? 'waiting_lab'
+            : 'waiting_doctor';
+          break;
+        case 'in_consultation':
+          step = hasPendingLab ? 'waiting_lab' : 'in_consultation';
+          break;
+        case 'awaiting_results':
+          step = hasPendingLab ? 'waiting_lab' : 'waiting_review';
+          break;
+        case 'completed':
+          step = 'discharged';
+          break;
+        default:
+          step = activeEncounter.status;
+      }
+    }
+
+    return {
+      patientId: id,
+      step,
+      encounterId: activeEncounter?.id ?? null,
+      encounterStatus: activeEncounter?.status ?? null,
+      pregnancyAlert: Boolean(activePregnancy),
+      criticalLabAlert: criticalLabs > 0,
+      hasPendingLab,
+    };
   }
 
   async qrCard(id: string) {
@@ -300,14 +523,17 @@ export class PatientsService {
   }
 
   async detectDuplicates(dto: CreatePatientDto) {
-    const identifierMatches = await Promise.all(
-      dto.identifiers.map((identifier) =>
-        this.identifiers.findOne({
-          where: { type: identifier.type, value: identifier.value },
-          relations: { patient: true },
-        }),
-      ),
-    );
+    const identifiers = dto.identifiers ?? [];
+    const identifierMatches = identifiers.length
+      ? await Promise.all(
+          identifiers.map((identifier) =>
+            this.identifiers.findOne({
+              where: { type: identifier.type, value: identifier.value },
+              relations: { patient: true },
+            }),
+          ),
+        )
+      : [];
     const phoneMatches = await this.patients.find({
       where: [
         { primaryPhone: dto.primaryPhone },
@@ -529,6 +755,7 @@ export class PatientsService {
   private async ensureNoDuplicateIdentifier(
     identifiers: CreatePatientDto['identifiers'],
   ): Promise<void> {
+    if (!identifiers?.length) return
     for (const identifier of identifiers) {
       const duplicate = await this.identifiers.findOne({
         where: { type: identifier.type, value: identifier.value },

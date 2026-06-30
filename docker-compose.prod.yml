@@ -1,0 +1,25 @@
+# Production / internet-facing override — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Only Nginx is published. Database, Redis, MinIO, backend, and frontend
+# stay on the internal Docker network.
+
+services:
+  postgres:
+    ports: []
+
+  redis:
+    ports: []
+
+  minio:
+    ports: []
+
+  backend:
+    ports: []
+
+  frontend:
+    ports: []
+
+  nginx:
+    ports:
+      - "80:80"

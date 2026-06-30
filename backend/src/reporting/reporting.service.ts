@@ -1,11 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Not, Repository, In, MoreThanOrEqual } from 'typeorm';
 import { Appointment } from '../appointments/appointment.entities';
 import { CriticalAlert, EmergencyEncounter } from '../emergency/emergency.entities';
 import { Admission, Bed } from '../inpatient/inpatient.entities';
+import { LabRequest } from '../laboratory/laboratory.entities';
+import { Pregnancy } from '../maternity/maternity.entities';
 import { Encounter, EncounterDiagnosis } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
+import { RadiologyRequest } from '../radiology/radiology.entities';
+import { Referral } from '../referrals/referral.entities';
+import { SurgeryBooking } from '../theatre/theatre.entities';
 
 export interface ReportResult<T> {
   generatedAt: string;
@@ -28,6 +33,16 @@ export class ReportingService {
     private readonly criticalAlerts: Repository<CriticalAlert>,
     @InjectRepository(Appointment)
     private readonly appointments: Repository<Appointment>,
+    @InjectRepository(LabRequest)
+    private readonly labRequests: Repository<LabRequest>,
+    @InjectRepository(RadiologyRequest)
+    private readonly radiologyRequests: Repository<RadiologyRequest>,
+    @InjectRepository(SurgeryBooking)
+    private readonly surgeries: Repository<SurgeryBooking>,
+    @InjectRepository(Pregnancy)
+    private readonly pregnancies: Repository<Pregnancy>,
+    @InjectRepository(Referral)
+    private readonly referrals: Repository<Referral>,
   ) {}
 
   async dashboard() {
@@ -59,6 +74,67 @@ export class ReportingService {
       activeEmergency,
       activeAlerts,
       todayAppointments,
+    };
+  }
+
+  async operationsCommandCenter() {
+    const today = new Date().toISOString().slice(0, 10);
+    const startOfDay = new Date(`${today}T00:00:00.000Z`);
+    const [
+      totalPatients,
+      opdToday,
+      activeAdmissions,
+      totalBeds,
+      occupiedBeds,
+      pendingLabs,
+      pendingRadiology,
+      criticalAlerts,
+      activeEmergency,
+      maternityActive,
+      theatreToday,
+      todayAppointments,
+    ] = await Promise.all([
+      this.patients.count(),
+      this.encounters.count({
+        where: { type: 'opd', startedAt: MoreThanOrEqual(startOfDay) },
+      }),
+      this.admissions.count({ where: { status: 'active' } }),
+      this.beds.count(),
+      this.beds.count({ where: { status: 'occupied' } }),
+      this.labRequests.count({
+        where: { status: In(['requested', 'sample_collected', 'processing', 'resulted']) },
+      }),
+      this.radiologyRequests.count({
+        where: { status: In(['requested', 'scheduled', 'in_progress']) },
+      }),
+      this.criticalAlerts.count({ where: { acknowledgedAt: IsNull() } }),
+      this.emergencyEncounters.count({ where: { status: 'active' } }),
+      this.pregnancies.count({ where: { status: 'active' } }),
+      this.surgeries.count({
+        where: { scheduledStartAt: MoreThanOrEqual(startOfDay) },
+      }),
+      this.appointments.count({ where: { appointmentDate: today } }),
+    ]);
+
+    const occupancyPct =
+      totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      patientsToday: opdToday,
+      admissions: activeAdmissions,
+      dischargesToday: null,
+      occupancy: { occupied: occupiedBeds, total: totalBeds, percent: occupancyPct },
+      pendingLabs,
+      pendingRadiology,
+      criticalPatients: criticalAlerts,
+      emergencyCases: activeEmergency,
+      maternityCases: maternityActive,
+      theatreCases: theatreToday,
+      todayAppointments,
+      totalPatients,
+      revenuePlaceholder: null,
+      activeUsers: null,
     };
   }
 
@@ -236,6 +312,82 @@ export class ReportingService {
         description: string;
         count: number;
       }>).map((row) => [row.icd10Code, row.description, row.count])),
+    ]);
+  }
+
+  async laboratoryReport(): Promise<ReportResult<unknown>> {
+    const requests = await this.labRequests.find({ take: 2000, order: { createdAt: 'DESC' } });
+    const byStatus = this.countBy(requests, (r) => r.status);
+    const data = { totalRequests: requests.length, byStatus };
+    return this.withCsv(data, [
+      ['metric', 'value'],
+      ['totalRequests', requests.length],
+      ...Object.entries(byStatus).map(([k, v]) => [`status:${k}`, v]),
+    ]);
+  }
+
+  async theatreReport(): Promise<ReportResult<unknown>> {
+    const bookings = await this.surgeries.find({
+      relations: { patient: true, procedure: true },
+      take: 1000,
+      order: { scheduledStartAt: 'DESC' },
+    });
+    const byStatus = this.countBy(bookings, (b) => b.status);
+    const data = { totalBookings: bookings.length, byStatus };
+    return this.withCsv(data, [
+      ['metric', 'value'],
+      ['totalBookings', bookings.length],
+      ...Object.entries(byStatus).map(([k, v]) => [`status:${k}`, v]),
+    ]);
+  }
+
+  async maternityReport(): Promise<ReportResult<unknown>> {
+    const pregnancies = await this.pregnancies.find({ take: 1000 });
+    const byStatus = this.countBy(pregnancies, (p) => p.status);
+    const data = { totalPregnancies: pregnancies.length, byStatus };
+    return this.withCsv(data, [
+      ['metric', 'value'],
+      ['totalPregnancies', pregnancies.length],
+      ...Object.entries(byStatus).map(([k, v]) => [`status:${k}`, v]),
+    ]);
+  }
+
+  async referralsReport(): Promise<ReportResult<unknown>> {
+    const referrals = await this.referrals.find({
+      relations: { patient: true },
+      take: 1000,
+      order: { createdAt: 'DESC' },
+    });
+    const byStatus = this.countBy(referrals, (r) => r.status);
+    const byType = this.countBy(referrals, (r) => r.type);
+    const data = { totalReferrals: referrals.length, byStatus, byType };
+    return this.withCsv(data, [
+      ['metric', 'value'],
+      ['totalReferrals', referrals.length],
+      ...Object.entries(byStatus).map(([k, v]) => [`status:${k}`, v]),
+      ...Object.entries(byType).map(([k, v]) => [`type:${k}`, v]),
+    ]);
+  }
+
+  async icuReport(): Promise<ReportResult<unknown>> {
+    const admissions = await this.admissions.find({
+      relations: { ward: true },
+      take: 1000,
+    });
+    const criticalCare = admissions.filter((a) =>
+      ['icu', 'hdu'].includes(a.ward?.type ?? ''),
+    );
+    const byWard = this.countBy(criticalCare, (a) => a.ward?.name ?? 'unknown');
+    const data = {
+      totalCriticalCare: criticalCare.length,
+      active: criticalCare.filter((a) => a.status === 'active').length,
+      byWard,
+    };
+    return this.withCsv(data, [
+      ['metric', 'value'],
+      ['totalCriticalCare', data.totalCriticalCare],
+      ['active', data.active],
+      ...Object.entries(byWard).map(([k, v]) => [`ward:${k}`, v]),
     ]);
   }
 

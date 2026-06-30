@@ -10,6 +10,7 @@ import {
   EncounterAttachment,
   EncounterDiagnosis,
   OpdEncounterStatus,
+  SickSheet,
   TriageAssessment,
 } from './opd.entities';
 import {
@@ -18,6 +19,7 @@ import {
   CreateConsultationDto,
   CreateDiagnosisDto,
   CreateEncounterDto,
+  CreateSickSheetDto,
   CreateTriageDto,
   UpdateConsultationDto,
 } from './opd.dto';
@@ -47,6 +49,8 @@ export class OpdService {
     private readonly notes: Repository<ClinicalNote>,
     @InjectRepository(EncounterAttachment)
     private readonly attachments: Repository<EncounterAttachment>,
+    @InjectRepository(SickSheet)
+    private readonly sickSheets: Repository<SickSheet>,
   ) {}
 
   async createEncounter(dto: CreateEncounterDto, request: RequestContext) {
@@ -79,13 +83,17 @@ export class OpdService {
     status?: OpdEncounterStatus;
     doctorId?: string;
   }) {
+    const where: {
+      patient?: { id: string };
+      status?: OpdEncounterStatus;
+      attendingDoctor?: { id: string };
+      type: 'opd';
+    } = { type: 'opd' };
+    if (params.patientId) where.patient = { id: params.patientId };
+    if (params.status) where.status = params.status;
+    if (params.doctorId) where.attendingDoctor = { id: params.doctorId };
     return this.encounters.find({
-      where: {
-        patient: params.patientId ? { id: params.patientId } : undefined,
-        status: params.status,
-        attendingDoctor: params.doctorId ? { id: params.doctorId } : undefined,
-        type: 'opd',
-      },
+      where,
       relations: { patient: true, attendingDoctor: true },
       order: { startedAt: 'DESC' },
       take: 100,
@@ -383,6 +391,41 @@ export class OpdService {
         .sort((a, b) => b.count - a.count)
         .slice(0, 10),
     };
+  }
+
+  listSickSheets(patientId?: string) {
+    const where: { patient?: { id: string } } = {};
+    if (patientId) where.patient = { id: patientId };
+    return this.sickSheets.find({
+      where,
+      relations: { patient: true, encounter: true },
+      order: { createdAt: 'DESC' },
+      take: 100,
+    });
+  }
+
+  async createSickSheet(dto: CreateSickSheetDto, request: RequestContext) {
+    const patient = await this.patients.findOne({ where: { id: dto.patientId } });
+    if (!patient) throw new NotFoundException('Patient not found');
+    const encounter = dto.encounterId
+      ? await this.encounters.findOne({ where: { id: dto.encounterId } })
+      : null;
+    return this.sickSheets.save(
+      this.sickSheets.create({
+        patient,
+        encounter,
+        diagnosis: dto.diagnosis,
+        daysOff: dto.daysOff,
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+        doctorName: dto.doctorName,
+        licenseNumber: dto.licenseNumber ?? null,
+        notes: dto.notes ?? null,
+        storagePath: dto.storagePath ?? null,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
   }
 
   private async getEncounterEntity(id: string) {

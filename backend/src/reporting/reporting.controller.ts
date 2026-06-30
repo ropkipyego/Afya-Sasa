@@ -15,6 +15,12 @@ export class ReportingController {
     return this.reportingService.dashboard();
   }
 
+  @Get('operations')
+  @RequirePermissions('reports:read')
+  operations() {
+    return this.reportingService.operationsCommandCenter();
+  }
+
   @Get('opd-summary')
   @RequirePermissions('reports:read')
   opdSummary() {
@@ -55,5 +61,35 @@ export class ReportingController {
   @RequirePermissions('reports:read')
   moh705() {
     return this.reportingService.moh705();
+  }
+
+  @Get('laboratory')
+  @RequirePermissions('reports:read')
+  laboratoryReport() {
+    return this.reportingService.laboratoryReport();
+  }
+
+  @Get('theatre')
+  @RequirePermissions('reports:read')
+  theatreReport() {
+    return this.reportingService.theatreReport();
+  }
+
+  @Get('maternity')
+  @RequirePermissions('reports:read')
+  maternityReport() {
+    return this.reportingService.maternityReport();
+  }
+
+  @Get('referrals')
+  @RequirePermissions('reports:read')
+  referralsReport() {
+    return this.reportingService.referralsReport();
+  }
+
+  @Get('icu')
+  @RequirePermissions('reports:read')
+  icuReport() {
+    return this.reportingService.icuReport();
   }
 }

@@ -1,0 +1,11 @@
+{
+  "name": "afyasasa-onboarding-tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

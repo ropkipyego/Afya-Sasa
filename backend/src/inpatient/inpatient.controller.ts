@@ -69,6 +69,24 @@ export class InpatientController {
     return this.inpatientService.updateBedStatus(id, dto, request);
   }
 
+  @Get('dashboard')
+  @RequirePermissions('beds:read')
+  dashboard() {
+    return this.inpatientService.getDashboard();
+  }
+
+  @Get('wards/:id/census')
+  @RequirePermissions('beds:read')
+  wardCensus(@Param('id') id: string) {
+    return this.inpatientService.getWardCensus(id);
+  }
+
+  @Get('admissions/:id/workspace')
+  @RequirePermissions('admissions:read')
+  admissionWorkspace(@Param('id') id: string) {
+    return this.inpatientService.getAdmissionWorkspace(id);
+  }
+
   @Get('admissions')
   @RequirePermissions('admissions:read')
   listAdmissions(@Query('status') status?: 'active' | 'discharged', @Query('wardId') wardId?: string) {

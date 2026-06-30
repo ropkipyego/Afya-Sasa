@@ -210,3 +210,39 @@ export class EncounterAttachment extends SoftDeleteClinicalEntity {
   @Column({ type: 'varchar',  name: 'storage_path' })
   storagePath!: string;
 }
+
+@Entity({ name: 'sick_sheets', schema: 'demo' })
+@Index(['patient', 'startDate'])
+export class SickSheet extends SoftDeleteClinicalEntity {
+  @ManyToOne(() => Patient)
+  @JoinColumn({ name: 'patient_id' })
+  patient!: Patient;
+
+  @ManyToOne(() => Encounter, { nullable: true })
+  @JoinColumn({ name: 'encounter_id' })
+  encounter!: Encounter | null;
+
+  @Column({ type: 'text' })
+  diagnosis!: string;
+
+  @Column({ type: 'int', name: 'days_off' })
+  daysOff!: number;
+
+  @Column({ name: 'start_date', type: 'date' })
+  startDate!: string;
+
+  @Column({ name: 'end_date', type: 'date' })
+  endDate!: string;
+
+  @Column({ name: 'doctor_name', type: 'varchar' })
+  doctorName!: string;
+
+  @Column({ name: 'license_number', type: 'varchar', nullable: true })
+  licenseNumber!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  notes!: string | null;
+
+  @Column({ name: 'storage_path', type: 'varchar', nullable: true })
+  storagePath!: string | null;
+}

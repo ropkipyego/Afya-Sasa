@@ -128,6 +128,12 @@ export class AdminController {
     return this.adminService.updateSettings(dto, request);
   }
 
+  @Get('system-health')
+  @RequirePermissions('settings:manage')
+  getSystemHealth(@Req() request: RequestContext) {
+    return this.adminService.getSystemHealth(request);
+  }
+
   @Get('audit-logs')
   @RequirePermissions('audit_logs:read')
   listAuditLogs(

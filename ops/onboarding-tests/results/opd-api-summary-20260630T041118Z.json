@@ -1,0 +1,9 @@
+{
+  "timestamp": "20260630T041118Z",
+  "patientId": "5fbdb13c-e760-4942-8a1c-8140389beceb",
+  "encounterId": "d29de881-8a35-42ea-9bbe-1d73ad61167f",
+  "consultationId": "29116bf7-5f7f-4dca-90da-c82c5b9e8e92",
+  "referralId": "1a6d82b3-1c81-4cdc-b892-04a410f2f122",
+  "sickSheetId": "d179af69-89d9-4080-8f1c-d3ec2a4fd874",
+  "status": "passed"
+}

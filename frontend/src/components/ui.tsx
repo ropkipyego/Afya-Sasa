@@ -150,6 +150,51 @@ export function TextareaField({
   )
 }
 
+export function CollapsibleSection({
+  title,
+  description,
+  children,
+  defaultOpen = false,
+  columns = 2,
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+  defaultOpen?: boolean
+  columns?: 1 | 2 | 3
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  const colClass =
+    columns === 1
+      ? 'grid-cols-1'
+      : columns === 3
+        ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+        : 'grid-cols-1 md:grid-cols-2'
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <div>
+          <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+          {description ? (
+            <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+          ) : null}
+        </div>
+        <span className="text-xs font-bold text-teal-600">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open ? (
+        <div className={clsx('grid gap-4 border-t border-slate-100 bg-slate-50/40 p-5', colClass)}>
+          {children}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 export function FormSection({
   title,
   description,

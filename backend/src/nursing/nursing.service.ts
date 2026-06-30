@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { User } from '../core/core.entities';
 import { Admission, Ward } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
 import {
@@ -17,6 +18,7 @@ import {
   CreateVitalSignsDto,
   UpdateMarStatusDto,
 } from './nursing.dto';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class NursingService {
@@ -28,6 +30,8 @@ export class NursingService {
     @InjectRepository(Admission) private readonly admissions: Repository<Admission>,
     @InjectRepository(Encounter) private readonly encounters: Repository<Encounter>,
     @InjectRepository(Ward) private readonly wards: Repository<Ward>,
+    @InjectRepository(User) private readonly users: Repository<User>,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async createVitals(dto: CreateVitalSignsDto, request: RequestContext) {
@@ -35,7 +39,7 @@ export class NursingService {
     const admission = dto.admissionId ? await this.admissions.findOne({ where: { id: dto.admissionId } }) : null;
     if (dto.encounterId && !encounter) throw new NotFoundException('Encounter not found');
     if (dto.admissionId && !admission) throw new NotFoundException('Admission not found');
-    return this.vitals.save(
+    const saved = await this.vitals.save(
       this.vitals.create({
         encounter,
         admission,
@@ -55,16 +59,36 @@ export class NursingService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
+    this.realtime.publish(request.tenant?.code ?? 'demo', 'vitals.recorded', {
+      admissionId: dto.admissionId,
+      encounterId: dto.encounterId,
+      vitalId: saved.id,
+    });
+    return saved;
   }
 
-  listVitals(admissionId?: string, encounterId?: string) {
-    return this.vitals.find({
-      where: {
-        admission: admissionId ? { id: admissionId } : undefined,
-        encounter: encounterId ? { id: encounterId } : undefined,
-      },
+  async listVitals(admissionId?: string, encounterId?: string) {
+    const where: {
+      admission?: { id: string }
+      encounter?: { id: string }
+    } = {}
+    if (admissionId) where.admission = { id: admissionId }
+    if (encounterId) where.encounter = { id: encounterId }
+    const rows = await this.vitals.find({
+      where,
       order: { recordedAt: 'DESC' },
-    });
+    })
+
+    const userIds = [...new Set(rows.map((row) => row.createdBy).filter(Boolean))] as string[];
+    const users = userIds.length
+      ? await this.users.find({ where: { id: In(userIds) } })
+      : [];
+    const userMap = new Map(users.map((user) => [user.id, `${user.firstName} ${user.lastName}`]));
+
+    return rows.map((row) => ({
+      ...row,
+      recordedByName: row.createdBy ? userMap.get(row.createdBy) ?? 'Clinical staff' : 'Unknown',
+    }));
   }
 
   async createMar(dto: CreateMarDto, request: RequestContext) {
@@ -122,11 +146,14 @@ export class NursingService {
   }
 
   listShiftNotes(wardId?: string, date?: string) {
+    const where: { ward?: { id: string }; date?: string } = {}
+    if (wardId) where.ward = { id: wardId }
+    if (date) where.date = date
     return this.shiftNotes.find({
-      where: { ward: wardId ? { id: wardId } : undefined, date },
+      where,
       relations: { ward: true },
       order: { createdAt: 'DESC' },
-    });
+    })
   }
 
   async createObservation(dto: CreateObservationDto, request: RequestContext) {

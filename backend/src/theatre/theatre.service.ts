@@ -116,8 +116,10 @@ export class TheatreService {
   }
 
   listBookings(status?: string) {
+    const where: { status?: SurgeryBooking['status'] } = {};
+    if (status) where.status = status as SurgeryBooking['status'];
     return this.bookings.find({
-      where: { status: status as never },
+      where,
       relations: { patient: true, theatre: true, procedure: true, admission: true },
       order: { scheduledStartAt: 'DESC' },
     });

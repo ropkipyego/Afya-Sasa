@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { User } from '../core/core.entities';
 import { Admission, Ward } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
 import {
@@ -14,6 +15,7 @@ import { NursingService } from './nursing.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      User,
       Admission,
       Encounter,
       Ward,

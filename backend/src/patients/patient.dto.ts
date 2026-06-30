@@ -1,6 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -176,12 +175,37 @@ export class CreatePatientDto {
   @IsString()
   county?: string;
 
-  @ApiProperty({ type: [PatientIdentifierDto] })
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  subCounty?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  nationality?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  maritalStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  occupation?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  religion?: string;
+
+  @ApiPropertyOptional({ type: [PatientIdentifierDto] })
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => PatientIdentifierDto)
-  identifiers!: PatientIdentifierDto[];
+  identifiers?: PatientIdentifierDto[];
 
   @ApiPropertyOptional({ type: [PatientNextOfKinDto] })
   @IsOptional()
@@ -189,6 +213,20 @@ export class CreatePatientDto {
   @ValidateNested({ each: true })
   @Type(() => PatientNextOfKinDto)
   nextOfKin?: PatientNextOfKinDto[];
+
+  @ApiPropertyOptional({ type: [PatientAllergyDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PatientAllergyDto)
+  allergies?: PatientAllergyDto[];
+
+  @ApiPropertyOptional({ type: [PatientChronicConditionDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PatientChronicConditionDto)
+  chronicConditions?: PatientChronicConditionDto[];
 }
 
 export class UpdatePatientDto extends PartialType(CreatePatientDto) {}
