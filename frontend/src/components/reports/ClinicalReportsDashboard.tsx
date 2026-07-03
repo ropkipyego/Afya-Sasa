@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { availableFormats, downloadReport, reportLibrary } from '../../lib/report-exporters'
+import {
+  availableFormats,
+  downloadMohDocx,
+  downloadReport,
+  isMohReport,
+  reportApiPath,
+  reportLibrary,
+} from '../../lib/report-exporters'
 import { apiRequest } from '../../lib/api'
+import { useAuthStore } from '../../lib/auth-store'
+import { notify } from '../../lib/notify'
 
 interface ReportPayload {
   generatedAt: string
@@ -18,9 +27,31 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   )
 }
 
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
+
 export function ClinicalReportsDashboard() {
+  const now = new Date()
+  const { accessToken, tenant } = useAuthStore()
   const [selectedReport, setSelectedReport] = useState('opd-summary')
-  const [exportFormat, setExportFormat] = useState<'csv' | 'pdf' | 'xlsx'>('csv')
+  const [exportFormat, setExportFormat] = useState<'csv' | 'pdf' | 'xlsx' | 'docx'>('csv')
+  const [reportYear, setReportYear] = useState(now.getFullYear())
+  const [reportMonth, setReportMonth] = useState(now.getMonth() + 1)
+
+  const mohSelected = isMohReport(selectedReport)
+  const period = { year: reportYear, month: reportMonth }
 
   const { data: dashboard } = useQuery({
     queryKey: ['reports-dashboard'],
@@ -37,19 +68,28 @@ export function ClinicalReportsDashboard() {
   })
 
   const { data: report, isFetching } = useQuery({
-    queryKey: ['clinical-report', selectedReport],
-    queryFn: () => apiRequest<ReportPayload>(`/reports/${selectedReport}`),
+    queryKey: ['clinical-report', selectedReport, reportYear, reportMonth],
+    queryFn: () => apiRequest<ReportPayload>(reportApiPath(selectedReport, mohSelected ? period : undefined)),
   })
 
   const activeDefinition = reportLibrary.find((item) => item.key === selectedReport)
   const formats = availableFormats(selectedReport)
 
-  function handleExport() {
-    if (!report) return
+  async function handleExport() {
+    if (!report && exportFormat !== 'docx') return
+    if (exportFormat === 'docx') {
+      try {
+        await downloadMohDocx(selectedReport, period, accessToken, tenant)
+        notify('DOCX ready', 'Official MOH form downloaded.', 'success')
+      } catch (error) {
+        notify('DOCX failed', (error as Error).message, 'critical')
+      }
+      return
+    }
     downloadReport(selectedReport, exportFormat, {
-      csv: report.csv,
-      data: report.data,
-      generatedAt: report.generatedAt,
+      csv: report?.csv,
+      data: report?.data,
+      generatedAt: report?.generatedAt,
     })
   }
 
@@ -68,6 +108,10 @@ export function ClinicalReportsDashboard() {
       <div className="grid gap-6 xl:grid-cols-[0.35fr_0.65fr]">
         <div className="rounded-3xl bg-white p-6 shadow-sm">
           <h3 className="text-xl font-bold">Report library</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Kenyan MOH forms (705A, 705B, 706, 717) support DOCX merge when templates are uploaded in
+            Hospital Control Center → Document Templates.
+          </p>
           <div className="mt-4 space-y-2">
             {reportLibrary.map((definition) => (
               <button
@@ -103,27 +147,58 @@ export function ClinicalReportsDashboard() {
               <h3 className="text-xl font-bold">{activeDefinition?.title ?? selectedReport}</h3>
               <p className="text-sm text-slate-500">{activeDefinition?.description}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {formats.map((format) => (
+            <div className="flex flex-wrap items-end gap-3">
+              {mohSelected ? (
+                <div className="flex flex-wrap gap-2">
+                  <label className="text-xs font-semibold text-slate-600">
+                    Month
+                    <select
+                      className="input mt-1 block text-sm"
+                      value={reportMonth}
+                      onChange={(e) => setReportMonth(Number(e.target.value))}
+                    >
+                      {MONTHS.map((label, index) => (
+                        <option key={label} value={index + 1}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-600">
+                    Year
+                    <input
+                      className="input mt-1 block w-24 text-sm"
+                      type="number"
+                      min={2020}
+                      max={2100}
+                      value={reportYear}
+                      onChange={(e) => setReportYear(Number(e.target.value))}
+                    />
+                  </label>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {formats.map((format) => (
+                  <button
+                    key={format}
+                    type="button"
+                    className={`rounded-xl px-3 py-2 text-xs font-bold uppercase ${
+                      exportFormat === format ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600'
+                    }`}
+                    onClick={() => setExportFormat(format)}
+                  >
+                    {format}
+                  </button>
+                ))}
                 <button
-                  key={format}
                   type="button"
-                  className={`rounded-xl px-3 py-2 text-xs font-bold uppercase ${
-                    exportFormat === format ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600'
-                  }`}
-                  onClick={() => setExportFormat(format)}
+                  className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:bg-slate-300"
+                  onClick={() => void handleExport()}
+                  disabled={(exportFormat !== 'docx' && !report) || isFetching}
                 >
-                  {format}
+                  Export {exportFormat.toUpperCase()}
                 </button>
-              ))}
-              <button
-                type="button"
-                className="rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:bg-slate-300"
-                onClick={handleExport}
-                disabled={!report || isFetching}
-              >
-                Export {exportFormat.toUpperCase()}
-              </button>
+              </div>
             </div>
           </div>
           <pre className="mt-4 max-h-[32rem] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-50">

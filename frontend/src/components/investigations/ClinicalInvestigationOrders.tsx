@@ -91,7 +91,10 @@ export function ClinicalInvestigationOrders({
       await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
       onSuccess?.()
     },
-    onError: (error: Error) => setMessage(error.message),
+    onError: (error: Error) => {
+      setMessage(error.message)
+      notify('Lab order failed', error.message, 'critical')
+    },
   })
 
   const orderRadiology = useMutation({

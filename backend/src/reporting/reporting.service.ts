@@ -369,6 +369,41 @@ export class ReportingService {
     ]);
   }
 
+  wrapMohReport<T extends Record<string, unknown>>(data: T): ReportResult<T> {
+    const rows: Array<Array<string | number>> = [['field', 'value']];
+    if ('lines' in data && Array.isArray(data.lines)) {
+      rows.length = 0;
+      rows.push(['code', 'condition', 'newCases']);
+      for (const line of data.lines as Array<{ code: string; condition: string; newCases: number }>) {
+        rows.push([line.code, line.condition, line.newCases]);
+      }
+    } else if ('groups' in data && Array.isArray(data.groups)) {
+      rows.length = 0;
+      rows.push(['code', 'section', 'testsDone', 'positiveResults']);
+      for (const group of data.groups as Array<{
+        code: string
+        section: string
+        testsDone: number
+        positiveResults: number
+      }>) {
+        rows.push([group.code, group.section, group.testsDone, group.positiveResults]);
+      }
+    } else if ('workload' in data && data.workload && typeof data.workload === 'object') {
+      rows.length = 0;
+      rows.push(['metric', 'count']);
+      for (const [key, value] of Object.entries(data.workload as Record<string, number>)) {
+        rows.push([key, value]);
+      }
+    } else {
+      for (const [key, value] of Object.entries(data)) {
+        if (key === 'templateVariables') continue;
+        if (typeof value === 'object') continue;
+        rows.push([key, String(value)]);
+      }
+    }
+    return this.withCsv(data, rows);
+  }
+
   async icuReport(): Promise<ReportResult<unknown>> {
     const admissions = await this.admissions.find({
       relations: { ward: true },

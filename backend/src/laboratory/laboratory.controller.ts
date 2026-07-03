@@ -1,13 +1,15 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import {
   CollectSampleDto,
+  CreateLabAttachmentDto,
   CreateLabPanelDto,
   CreateLabRequestDto,
   CreateLabTestDto,
   EnterLabResultDto,
+  ImportLabCatalogDto,
   ReceiveSampleDto,
 } from './laboratory.dto';
 import { LaboratoryService } from './laboratory.service';
@@ -42,6 +44,12 @@ export class LaboratoryController {
     return this.laboratoryService.createTest(dto, request);
   }
 
+  @Post('tests/import')
+  @RequirePermissions('lab_catalogue:manage')
+  importTests(@Body() dto: ImportLabCatalogDto, @Req() request: RequestContext) {
+    return this.laboratoryService.importCatalog(dto, request);
+  }
+
   @Get('requests')
   @RequirePermissions('lab_requests:read')
   listRequests(@Query('status') status?: string) {
@@ -52,6 +60,18 @@ export class LaboratoryController {
   @RequirePermissions('lab_requests:create')
   createRequest(@Body() dto: CreateLabRequestDto, @Req() request: RequestContext) {
     return this.laboratoryService.createRequest(dto, request);
+  }
+
+  @Get('patients/:patientId/requests')
+  @RequirePermissions('lab_requests:read')
+  patientRequests(@Param('patientId') patientId: string) {
+    return this.laboratoryService.listPatientRequests(patientId);
+  }
+
+  @Get('patients/:patientId/attachments')
+  @RequirePermissions('lab_attachments:read')
+  patientAttachments(@Param('patientId') patientId: string) {
+    return this.laboratoryService.listPatientAttachments(patientId);
   }
 
   @Get('requests/:id')
@@ -70,6 +90,22 @@ export class LaboratoryController {
   @RequirePermissions('lab_samples:receive')
   receiveSample(@Param('id') id: string, @Body() dto: ReceiveSampleDto, @Req() request: RequestContext) {
     return this.laboratoryService.receiveSample(id, dto, request);
+  }
+
+  @Post('requests/:id/attachments')
+  @RequirePermissions('lab_attachments:create')
+  addAttachment(
+    @Param('id') id: string,
+    @Body() dto: CreateLabAttachmentDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.laboratoryService.addAttachment(id, dto, request);
+  }
+
+  @Delete('attachments/:attachmentId')
+  @RequirePermissions('lab_attachments:delete')
+  deleteAttachment(@Param('attachmentId') attachmentId: string, @Req() request: RequestContext) {
+    return this.laboratoryService.deleteAttachment(attachmentId, request);
   }
 
   @Post('results')

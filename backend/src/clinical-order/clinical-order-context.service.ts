@@ -22,6 +22,7 @@ export class ClinicalOrderContextService {
       patientId: string;
       encounterId?: string;
       admissionId?: string;
+      allowWalkIn?: boolean;
     },
     request: RequestContext,
   ): Promise<{ encounter: Encounter; admission: Admission | null }> {
@@ -51,6 +52,29 @@ export class ClinicalOrderContextService {
       });
       if (openEncounter) {
         return { encounter: openEncounter, admission: null };
+      }
+
+      if (params.allowWalkIn) {
+        const walkIn = await this.encounters.save(
+          this.encounters.create({
+            encounterNo: await this.generateLabWalkInNo(),
+            patient,
+            type: 'opd',
+            status: 'registered',
+            attendingDoctor: null,
+            presentingComplaint: 'Laboratory walk-in order',
+            visitType: 'new',
+            referralSource: null,
+            referralReason: null,
+            destination: null,
+            departmentName: 'Laboratory',
+            paymentMethod: null,
+            receiptNumber: null,
+            createdBy: request.user?.sub ?? null,
+            updatedBy: request.user?.sub ?? null,
+          }),
+        );
+        return { encounter: walkIn, admission: null };
       }
 
       throw new BadRequestException(
@@ -114,5 +138,13 @@ export class ClinicalOrderContextService {
     const year = new Date().getFullYear();
     const total = await this.encounters.count({ where: { type: 'inpatient' } });
     return `IPD-${year}-${String(total + 1).padStart(5, '0')}`;
+  }
+
+  private async generateLabWalkInNo() {
+    const year = new Date().getFullYear();
+    const total = await this.encounters.count({
+      where: { departmentName: 'Laboratory' },
+    });
+    return `LAB-${year}-${String(total + 1).padStart(5, '0')}`;
   }
 }

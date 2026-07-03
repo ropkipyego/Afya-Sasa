@@ -1,10 +1,11 @@
-export type ReportFormat = 'csv' | 'pdf' | 'xlsx'
+export type ReportFormat = 'csv' | 'pdf' | 'xlsx' | 'docx'
 
 export type ReportDefinition = {
   key: string
   title: string
   description: string
   formats: ReportFormat[]
+  moh?: boolean
 }
 
 export const reportLibrary: ReportDefinition[] = [
@@ -14,7 +15,35 @@ export const reportLibrary: ReportDefinition[] = [
   { key: 'bed-occupancy', title: 'Bed Occupancy Report', description: 'Ward and bed utilisation', formats: ['csv', 'pdf', 'xlsx'] },
   { key: 'emergency-stats', title: 'Emergency Stats', description: 'Emergency department activity', formats: ['csv', 'pdf'] },
   { key: 'disease-register', title: 'Disease Burden Report', description: 'Diagnosis register', formats: ['csv', 'pdf', 'xlsx'] },
-  { key: 'moh-705', title: 'MOH 705 Draft', description: 'Outpatient morbidity summary', formats: ['csv', 'pdf'] },
+  {
+    key: 'moh-705a',
+    title: 'MOH 705A',
+    description: 'Outpatient morbidity — children under 5 years',
+    formats: ['csv', 'pdf', 'docx'],
+    moh: true,
+  },
+  {
+    key: 'moh-705b',
+    title: 'MOH 705B',
+    description: 'Outpatient morbidity — 5 years and above',
+    formats: ['csv', 'pdf', 'docx'],
+    moh: true,
+  },
+  {
+    key: 'moh-706',
+    title: 'MOH 706',
+    description: 'Laboratory services monthly summary',
+    formats: ['csv', 'pdf', 'docx'],
+    moh: true,
+  },
+  {
+    key: 'moh-717',
+    title: 'MOH 717',
+    description: 'Monthly hospital workload statistics',
+    formats: ['csv', 'pdf', 'docx'],
+    moh: true,
+  },
+  { key: 'moh-705', title: 'MOH 705 Draft', description: 'Legacy outpatient morbidity summary', formats: ['csv', 'pdf'] },
   { key: 'laboratory', title: 'Laboratory Activity', description: 'Lab request volumes by status', formats: ['csv', 'pdf'] },
   { key: 'theatre', title: 'Theatre Report', description: 'Surgical bookings by status', formats: ['csv', 'pdf'] },
   { key: 'maternity', title: 'Maternity Report', description: 'Pregnancy registry summary', formats: ['csv', 'pdf'] },
@@ -78,7 +107,7 @@ function escapeHtml(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-const exporters: Record<ReportFormat, ReportExporter> = {
+const exporters: Record<Exclude<ReportFormat, 'docx'>, ReportExporter> = {
   csv: new CsvExporter(),
   pdf: new PdfExporter(),
   xlsx: new ExcelExporter(),
@@ -86,7 +115,7 @@ const exporters: Record<ReportFormat, ReportExporter> = {
 
 export function downloadReport(
   reportKey: string,
-  format: ReportFormat,
+  format: Exclude<ReportFormat, 'docx'>,
   payload: { csv?: string; data?: unknown; generatedAt?: string },
 ) {
   const exporter = exporters[format]
@@ -101,4 +130,45 @@ export function downloadReport(
 
 export function availableFormats(reportKey: string): ReportFormat[] {
   return reportLibrary.find((item) => item.key === reportKey)?.formats ?? ['csv']
+}
+
+export function isMohReport(reportKey: string): boolean {
+  return reportLibrary.find((item) => item.key === reportKey)?.moh === true
+}
+
+export async function downloadMohDocx(
+  reportKey: string,
+  period: { year: number; month: number },
+  accessToken: string | null,
+  tenant: string,
+) {
+  const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+  const query = `year=${period.year}&month=${period.month}`
+  const response = await fetch(`${API_BASE}/reports/${reportKey}/docx?${query}`, {
+    headers: {
+      'X-Tenant': tenant,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: response.statusText }))
+    throw new Error(error.message ?? 'DOCX download failed')
+  }
+  const blob = await response.blob()
+  const disposition = response.headers.get('Content-Disposition')
+  const filenameMatch = disposition?.match(/filename="([^"]+)"/)
+  const filename = filenameMatch?.[1] ?? `${reportKey}-${period.year}-${period.month}.docx`
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export function reportApiPath(reportKey: string, period?: { year: number; month: number }) {
+  if (isMohReport(reportKey) && period) {
+    return `/reports/${reportKey}?year=${period.year}&month=${period.month}`
+  }
+  return `/reports/${reportKey}`
 }

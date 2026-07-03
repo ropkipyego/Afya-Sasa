@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { QrCode, Search, User } from 'lucide-react'
 import { apiRequest } from '../lib/api'
 import { Input, Button } from './ui'
+import { useClinicalCatalog } from '../hooks/useClinicalCatalog'
+import { isFeatureEnabled } from '../lib/hospital-configuration'
 
 export type PatientSearchItem = {
   id: string
@@ -200,6 +202,8 @@ export function PatientSearchBrowse({
   onSelect: (patient: PatientSearchItem) => void
   placeholder?: string
 }) {
+  const { data: catalog } = useClinicalCatalog()
+  const qrEnabled = isFeatureEnabled(catalog, 'qrPatientScan')
   const [query, setQuery] = useState('')
 
   const { data, isFetching } = useQuery({
@@ -215,7 +219,7 @@ export function PatientSearchBrowse({
 
   return (
     <div className="space-y-4">
-      <PatientQrLookup onSelect={onSelect} />
+      {qrEnabled ? <PatientQrLookup onSelect={onSelect} /> : null}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <Input

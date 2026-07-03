@@ -1,11 +1,14 @@
 import type { HospitalProfile } from './clinical-catalog'
+import { useAuthStore } from './auth-store'
 
 export type TemplateVariables = Record<string, string | number | undefined | null>
 
 export type PrintTemplate = {
   key?: string
   name: string
-  html: string
+  html?: string
+  docxStoragePath?: string
+  docxFilename?: string
 }
 
 const baseStyles = `
@@ -95,10 +98,56 @@ export function renderPrintTemplate(
 ): string {
   const catalog = overrides ?? {}
   const template = catalog[templateKey] ?? defaultPrintTemplates[templateKey]
-  if (!template) {
-    throw new Error(`Print template "${templateKey}" not found.`)
+  if (!template?.html) {
+    throw new Error(`Print template "${templateKey}" has no HTML fallback.`)
   }
   return interpolateTemplate(template.html, variables)
+}
+
+async function downloadRenderedDocx(
+  templateKey: string,
+  variables: Record<string, unknown>,
+  filename?: string,
+) {
+  const { tenant, accessToken } = useAuthStore.getState()
+  const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+  const response = await fetch(`${API_BASE}/reports/templates/${templateKey}/render`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Tenant': tenant,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify({ variables }),
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: response.statusText }))
+    throw new Error(error.message ?? 'DOCX render failed')
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename ?? `${templateKey}.docx`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export async function printOrDownloadTemplate(
+  templateKey: string,
+  variables: TemplateVariables,
+  overrides?: Record<string, PrintTemplate>,
+) {
+  const template = overrides?.[templateKey] ?? defaultPrintTemplates[templateKey]
+  if (template?.docxStoragePath) {
+    await downloadRenderedDocx(
+      templateKey,
+      variables as Record<string, unknown>,
+      template.docxFilename ?? `${templateKey}.docx`,
+    )
+    return
+  }
+  printFromTemplate(templateKey, variables, overrides)
 }
 
 export function openPrintHtml(html: string, title = 'Document') {

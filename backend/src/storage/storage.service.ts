@@ -65,6 +65,22 @@ export class StorageService {
     };
   }
 
+  async getObjectBuffer(key: string): Promise<Buffer> {
+    const normalisedKey = this.normaliseKey(key);
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: normalisedKey }),
+    );
+    const body = response.Body;
+    if (!body) {
+      throw new Error(`Object not found: ${normalisedKey}`);
+    }
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
   private normaliseKey(key: string, folder?: string) {
     const safeKey = key.replace(/^\/+/, '').replace(/\.\./g, '');
     if (!folder) {

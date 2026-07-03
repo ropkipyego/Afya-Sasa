@@ -10,19 +10,44 @@ export type StaffClinician = {
 
 export type HospitalProfile = {
   facilityName: string
+  shortName?: string
   mohFacilityCode: string
   licenceNumber: string
+  registrationNumber?: string
+  facilityLevel?: string
+  ownership?: string
+  hospitalType?: string
+  county?: string
+  subCounty?: string
   address: string
+  physicalAddress?: string
+  postalAddress?: string
   contactPhone: string
   contactEmail: string
+  website?: string
+  kraPin?: string
+  timeZone?: string
+  language?: string
+  currency?: string
   primaryColor: string
+  accentColor?: string
   logoUrl?: string
+  faviconUrl?: string
+  stampUrl?: string
+  sealUrl?: string
   footerText?: string
   tagline?: string
+  smsSignature?: string
 }
+
+export type FeatureFlags = {
+  /** Camera/manual QR patient lookup — disabled until biometric roadmap */
+  qrPatientScan?: boolean
+};
 
 export type ClinicalCatalog = {
   hospitalProfile?: Partial<HospitalProfile>
+  featureFlags?: FeatureFlags
   departments: string[]
   clinics: string[]
   visitTypes: CatalogOption[]
@@ -36,7 +61,13 @@ export type ClinicalCatalog = {
   identifierLabels: CatalogOption[]
   maternityDeliveryTypes?: CatalogOption[]
   maternityAncTemplates?: CatalogOption[]
-  printTemplates?: Record<string, { name: string; html: string }>
+  printTemplates?: Record<
+    string,
+    { name: string; html?: string; docxStoragePath?: string; docxFilename?: string }
+  >
+  facilities?: import('./hospital-configuration').FacilitySite[]
+  structuredDepartments?: import('./hospital-configuration').StructuredDepartment[]
+  structuredClinics?: import('./hospital-configuration').StructuredClinic[]
   /** @deprecated use doctorSpecialties */
   doctorCategories: string[]
 }
@@ -142,6 +173,13 @@ export function normalizeClinicalCatalog(raw?: Partial<ClinicalCatalog> | null):
     maternityDeliveryTypes: raw?.maternityDeliveryTypes ?? [],
     maternityAncTemplates: raw?.maternityAncTemplates ?? [],
     printTemplates: raw?.printTemplates ?? {},
+    featureFlags: {
+      qrPatientScan: false,
+      ...(raw?.featureFlags ?? {}),
+    },
+    facilities: raw?.facilities ?? [],
+    structuredDepartments: raw?.structuredDepartments ?? [],
+    structuredClinics: raw?.structuredClinics ?? [],
   }
 }
 

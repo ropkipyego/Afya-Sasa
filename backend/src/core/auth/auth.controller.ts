@@ -4,9 +4,11 @@ import type { RequestContext } from '../../common/request-context';
 import { AuthService } from './auth.service';
 import {
   ChangePasswordDto,
+  ForgotPasswordDto,
   LoginDto,
   LogoutDto,
   RefreshDto,
+  ResetPasswordDto,
 } from './auth.dto';
 import { Public } from './auth.decorators';
 
@@ -23,6 +25,7 @@ export class AuthController {
       dto.password,
       dto.device,
       request.ip,
+      request.headers['user-agent'] as string | undefined,
     );
   }
 
@@ -32,10 +35,27 @@ export class AuthController {
     return this.authService.refresh(dto.refreshToken);
   }
 
+  @Public()
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto, @Req() request: RequestContext) {
+    return this.authService.requestPasswordReset(dto.email, request.ip);
+  }
+
+  @Public()
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto, @Req() request: RequestContext) {
+    return this.authService.resetPassword(dto.token, dto.newPassword, request.ip);
+  }
+
   @ApiBearerAuth()
   @Post('logout')
-  logout(@Body() dto: LogoutDto) {
-    return this.authService.logout(dto.refreshToken);
+  logout(@Body() dto: LogoutDto, @Req() request: RequestContext) {
+    return this.authService.logout(
+      dto.refreshToken,
+      request.user?.email,
+      request.user?.sub,
+      request.ip,
+    );
   }
 
   @ApiBearerAuth()

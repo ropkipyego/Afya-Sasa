@@ -1,0 +1,13 @@
+record_type,panel_code,name,code,category,sample_type,reference_range,unit,turnaround_hours,critical_low,critical_high,description
+panel,,Full Blood Count,FBC,haematology,,,,,,,Complete blood count panel
+test,FBC,Haemoglobin,HGB,,whole_blood,12.0-16.0,g/dL,4,7,20,
+test,FBC,White Cell Count,WCC,,whole_blood,4.0-10.0,x10^9/L,4,,,
+test,FBC,Platelets,PLT,,whole_blood,150-400,x10^9/L,4,,50,
+panel,,Urea & Electrolytes,UE,biochemistry,,,,,,,Renal function panel
+test,UE,Sodium,NA,,serum,135-145,mmol/L,4,120,160,
+test,UE,Potassium,K,,serum,3.5-5.0,mmol/L,4,2.5,6.5,
+test,UE,Urea,UREA,,serum,2.5-7.5,mmol/L,4,,,
+test,UE,Creatinine,CREAT,,serum,60-110,umol/L,4,,,
+test,,Malaria Parasite,MP,,whole_blood,,,2,,,Rapid malaria screen
+test,,HIV Rapid,HIV,,whole_blood,,,2,,,Point-of-care HIV test
+test,,Urinalysis,UA,,urine,,,2,,,Routine urine dipstick/microscopy

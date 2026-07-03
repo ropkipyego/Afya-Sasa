@@ -42,3 +42,21 @@ export class ChangePasswordDto {
   @MinLength(10)
   newPassword!: string;
 }
+
+export class ForgotPasswordDto {
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  token!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(10)
+  newPassword!: string;
+}

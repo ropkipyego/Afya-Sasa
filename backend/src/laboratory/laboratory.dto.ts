@@ -111,6 +111,31 @@ export class ReceiveSampleDto {
   condition!: 'adequate' | 'haemolysed' | 'clotted' | 'insufficient' | 'contaminated';
 }
 
+export class CreateLabAttachmentDto {
+  @ApiProperty()
+  @IsString()
+  filename!: string;
+
+  @ApiProperty()
+  @IsString()
+  mimeType!: string;
+
+  @ApiProperty()
+  @IsString()
+  storagePath!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  title?: string;
+}
+
+export class ImportLabCatalogDto {
+  @ApiProperty({ description: 'CSV content with header row' })
+  @IsString()
+  csv!: string;
+}
+
 export class EnterLabResultDto {
   @ApiProperty()
   @IsString()

@@ -64,4 +64,11 @@ export class DocumentsService {
     if (!doc) throw new NotFoundException('Document not found');
     return doc;
   }
+
+  async remove(id: string, request: RequestContext) {
+    const doc = await this.documents.findOne({ where: { id } });
+    if (!doc) throw new NotFoundException('Document not found');
+    await this.documents.softRemove(doc);
+    return { id, deletedBy: request.user?.sub ?? null };
+  }
 }

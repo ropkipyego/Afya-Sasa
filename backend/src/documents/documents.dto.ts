@@ -66,3 +66,42 @@ export class RegisterClinicalDocumentDto {
   @IsUUID()
   admissionId?: string;
 }
+
+export class PublishHospitalDocumentDto {
+  @ApiProperty()
+  @IsString()
+  title!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @ApiProperty()
+  @IsString()
+  filename!: string;
+
+  @ApiProperty()
+  @IsString()
+  mimeType!: string;
+
+  @ApiProperty()
+  @IsString()
+  storagePath!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fileSize?: number;
+
+  @ApiPropertyOptional({ enum: ['all', 'clinical', 'admin', 'lab', 'radiology', 'nursing', 'reception'] })
+  @IsOptional()
+  @IsIn(['all', 'clinical', 'admin', 'lab', 'radiology', 'nursing', 'reception'])
+  audience?: string;
+}

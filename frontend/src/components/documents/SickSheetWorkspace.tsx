@@ -16,7 +16,7 @@ import { apiRequest } from '../../lib/api'
 import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
-import { hospitalTemplateVars, printFromTemplate } from '../../lib/template-engine'
+import { hospitalTemplateVars, printOrDownloadTemplate } from '../../lib/template-engine'
 
 type SickSheetRow = {
   id: string
@@ -80,7 +80,7 @@ export function SickSheetWorkspace() {
     },
   })
 
-  const printSheet = (data: {
+  const printSheet = async (data: {
     patientName: string
     patientNo: string
     diagnosis: string
@@ -90,22 +90,26 @@ export function SickSheetWorkspace() {
     doctorName: string
     licenseNumber: string
   }) => {
-    printFromTemplate(
-      'sick_sheet',
-      {
-        ...hospitalTemplateVars(profile),
-        patientName: data.patientName,
-        patientNo: data.patientNo,
-        diagnosis: data.diagnosis,
-        daysOff: data.daysOff,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        doctorName: data.doctorName,
-        licenseNumber: data.licenseNumber || '—',
-        issuedDate: new Date().toLocaleDateString(),
-      },
-      printTemplates,
-    )
+    try {
+      await printOrDownloadTemplate(
+        'sick_sheet',
+        {
+          ...hospitalTemplateVars(profile),
+          patientName: data.patientName,
+          patientNo: data.patientNo,
+          diagnosis: data.diagnosis,
+          daysOff: data.daysOff,
+          startDate: data.startDate,
+          endDate: data.endDate,
+          doctorName: data.doctorName,
+          licenseNumber: data.licenseNumber || '—',
+          issuedDate: new Date().toLocaleDateString(),
+        },
+        printTemplates,
+      )
+    } catch (error) {
+      notify('Print failed', (error as Error).message, 'critical')
+    }
   }
 
   return (

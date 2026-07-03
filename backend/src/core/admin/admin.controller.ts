@@ -35,6 +35,12 @@ export class AdminController {
     return this.adminService.listUsers();
   }
 
+  @Get('users/summary')
+  @RequirePermissions('users:manage')
+  usersSummary() {
+    return this.adminService.getUsersSummary();
+  }
+
   @Post('users')
   @RequirePermissions('users:manage')
   createUser(@Body() dto: CreateUserDto, @Req() request: RequestContext) {

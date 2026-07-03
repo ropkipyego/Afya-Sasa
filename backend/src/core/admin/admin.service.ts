@@ -223,17 +223,68 @@ export class AdminService {
 
   async updateSettings(dto: UpdateSettingsDto, request: RequestContext) {
     const current = await this.getSettings(request);
+    const mergedCatalog = dto.clinicalCatalog
+      ? this.mergeClinicalCatalog(
+          (current.clinicalCatalog ?? {}) as Record<string, unknown>,
+          dto.clinicalCatalog as Record<string, unknown>,
+        )
+      : undefined;
+
     await this.settings.update(current.id, {
       smsSenderName: dto.smsSenderName,
       patientIdPrefix: dto.patientIdPrefix,
       triageSystem: dto.triageSystem,
-      ...(dto.clinicalCatalog
-        ? { clinicalCatalog: dto.clinicalCatalog as never }
-        : {}),
+      ...(mergedCatalog ? { clinicalCatalog: mergedCatalog as never } : {}),
       updatedBy: request.user?.sub ?? null,
     });
     this.realtime.publish(request.tenant?.code ?? 'demo', 'settings.updated', {});
     return this.getSettings(request);
+  }
+
+  async getUsersSummary() {
+    const users = await this.users.find();
+    const now = new Date();
+    return {
+      activeUsers: users.filter((user) => user.active).length,
+      inactiveUsers: users.filter((user) => !user.active).length,
+      lockedAccounts: users.filter(
+        (user) => user.lockedUntil && user.lockedUntil > now,
+      ).length,
+      forcePasswordChange: users.filter((user) => user.forcePasswordChange).length,
+    };
+  }
+
+  private mergeClinicalCatalog(
+    current: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const merged: Record<string, unknown> = { ...current, ...patch };
+
+    if (patch.hospitalProfile && typeof patch.hospitalProfile === 'object') {
+      merged.hospitalProfile = {
+        ...((current.hospitalProfile as Record<string, unknown>) ?? {}),
+        ...(patch.hospitalProfile as Record<string, unknown>),
+      };
+    }
+
+    if (patch.printTemplates && typeof patch.printTemplates === 'object') {
+      merged.printTemplates = {
+        ...((current.printTemplates as Record<string, unknown>) ?? {}),
+        ...(patch.printTemplates as Record<string, unknown>),
+      };
+    }
+
+    if (patch.facilities && Array.isArray(patch.facilities)) {
+      merged.facilities = patch.facilities;
+    }
+    if (patch.structuredDepartments && Array.isArray(patch.structuredDepartments)) {
+      merged.structuredDepartments = patch.structuredDepartments;
+    }
+    if (patch.structuredClinics && Array.isArray(patch.structuredClinics)) {
+      merged.structuredClinics = patch.structuredClinics;
+    }
+
+    return merged;
   }
 
   async getSystemHealth(request: RequestContext) {

@@ -162,3 +162,22 @@ export class LabResult extends SoftDeleteClinicalEntity {
   @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
   reviewedAt!: Date | null;
 }
+
+@Entity({ name: 'lab_attachments', schema: 'demo' })
+export class LabAttachment extends SoftDeleteClinicalEntity {
+  @ManyToOne(() => LabRequest)
+  @JoinColumn({ name: 'request_id' })
+  request!: LabRequest;
+
+  @Column({ type: 'varchar' })
+  filename!: string;
+
+  @Column({ type: 'varchar', name: 'mime_type' })
+  mimeType!: string;
+
+  @Column({ type: 'varchar', name: 'storage_path' })
+  storagePath!: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  title!: string | null;
+}

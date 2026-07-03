@@ -52,6 +52,8 @@ export const navigation: NavItem[] = [
   { group: 'Reports', label: 'OPD Reports', icon: ClipboardList, permission: 'reports:read' },
   { group: 'Reports', label: 'Clinical Reports', icon: ClipboardList, permission: 'reports:read', shortLabel: 'Clinical' },
   { group: 'Reports', label: 'Operations Center', icon: LayoutDashboard, permission: 'reports:read', shortLabel: 'Ops' },
+  { group: 'Reports', label: 'Worklists', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Lists' },
+  { group: 'Administration', label: 'Hospital Library', icon: FileText, permission: 'hospital_documents:read', shortLabel: 'Library' },
   { group: 'Administration', label: 'Notifications', icon: Bell, permission: 'notifications:read' },
   { group: 'Administration', label: 'Hospital Control Center', icon: Settings, permission: 'settings:manage', shortLabel: 'Admin' },
 ]
@@ -83,9 +85,11 @@ export const workflowDescriptions: Record<string, string> = {
   'Emergency': 'ED command center — triage, bays, observation, disposition.',
   'Maternity': 'Full maternity service line — ANC, labour, delivery, nursery, NICU.',
   'Operations Center': 'Executive hospital command dashboard.',
+  Worklists: 'Cross-department operational queues with search and pagination.',
   'Notifications': 'Internal inbox for results, referrals, and tasks.',
   'Inpatient (IPD)': 'Visual ward board → patient workspace. ICU and HDU live here.',
   ICU: 'Intensive care unit — critical patients under IPD.',
   HDU: 'High dependency unit — step-down critical care under IPD.',
   'Hospital Control Center': 'Hospital operating system — organization, catalogs, facilities, security.',
+  'Hospital Library': 'Hospital-wide policies, protocols, forms, and circulars for all departments.',
 }

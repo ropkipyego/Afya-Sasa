@@ -17,7 +17,7 @@ import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { doctorSelectOptions } from '../../lib/clinical-catalog'
-import { hospitalTemplateVars, printFromTemplate } from '../../lib/template-engine'
+import { hospitalTemplateVars, printOrDownloadTemplate } from '../../lib/template-engine'
 
 type ReferralRow = {
   id: string
@@ -61,22 +61,28 @@ export function ReferralWorkspace() {
     queryFn: () => apiRequest<ReferralRow[]>('/referrals'),
   })
 
-  const printReferralLetter = (referral: ReferralRow) => {
-    printFromTemplate(
-      'referral_letter',
-      {
-        ...hospitalTemplateVars(profile),
-        patientName: `${referral.patient.firstName} ${referral.patient.lastName}`,
-        patientNo: referral.patient.patientNo,
-        referralType: referral.type,
-        referralStatus: referral.status,
-        targetDepartmentLine: referral.targetDepartment ? `Department: ${referral.targetDepartment}<br/>` : '',
-        targetFacilityLine: referral.targetFacility ? `Facility: ${referral.targetFacility}<br/>` : '',
-        reason: referral.reason,
-        letterBody: referral.letter,
-      },
-      printTemplates,
-    )
+  const printReferralLetter = async (referral: ReferralRow) => {
+    try {
+      await printOrDownloadTemplate(
+        'referral_letter',
+        {
+          ...hospitalTemplateVars(profile),
+          patientName: `${referral.patient.firstName} ${referral.patient.lastName}`,
+          patientNo: referral.patient.patientNo,
+          referralType: referral.type,
+          referralStatus: referral.status,
+          targetDepartmentLine: referral.targetDepartment
+            ? `Department: ${referral.targetDepartment}`
+            : '',
+          targetFacilityLine: referral.targetFacility ? `Facility: ${referral.targetFacility}` : '',
+          reason: referral.reason,
+          letterBody: referral.letter,
+        },
+        printTemplates,
+      )
+    } catch (error) {
+      notify('Print failed', (error as Error).message, 'critical')
+    }
   }
 
   const createReferral = useMutation({

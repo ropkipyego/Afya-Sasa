@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Download, Upload } from 'lucide-react'
 import { Alert, Button, Card, ClinicalForm, Field, FormActions, FormSection, PageHeader, SelectField } from '../../ui'
 import { formDataFromElement, submitClinicalForm } from '../../../lib/form-utils'
 import { apiRequest } from '../../../lib/api'
@@ -38,6 +40,7 @@ const sampleTypes = [
 
 export function LabCatalogPanel() {
   const queryClient = useQueryClient()
+  const [importSummary, setImportSummary] = useState<string | null>(null)
   const { data: panels = [], isLoading: panelsLoading } = useQuery({
     queryKey: ['lab-panels'],
     queryFn: () => apiRequest<LabPanel[]>('/laboratory/panels'),
@@ -66,6 +69,34 @@ export function LabCatalogPanel() {
     },
   })
 
+  const importCatalog = useMutation({
+    mutationFn: (csv: string) =>
+      apiRequest<{
+        panelsCreated: number
+        panelsSkipped: number
+        testsCreated: number
+        testsSkipped: number
+        errors: string[]
+      }>('/laboratory/tests/import', {
+        method: 'POST',
+        body: JSON.stringify({ csv }),
+      }),
+    onSuccess: async (summary) => {
+      const message = `Panels +${summary.panelsCreated} / tests +${summary.testsCreated}${
+        summary.errors.length ? ` · ${summary.errors.length} row warning(s)` : ''
+      }`
+      setImportSummary(message)
+      notify('Catalog imported', message, summary.errors.length ? 'warning' : 'success')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['lab-panels'] }),
+        queryClient.invalidateQueries({ queryKey: ['lab-tests'] }),
+        queryClient.invalidateQueries({ queryKey: ['clinical-order-panels'] }),
+        queryClient.invalidateQueries({ queryKey: ['clinical-order-tests'] }),
+      ])
+    },
+    onError: (error: Error) => notify('Import failed', error.message, 'critical'),
+  })
+
   const createTest = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
@@ -92,6 +123,49 @@ export function LabCatalogPanel() {
 
   return (
     <div className="space-y-6">
+      <Card className="p-6">
+        <PageHeader
+          title="Bulk import (onboarding)"
+          description="Upload a CSV to create panels and tests in one step. Download the template, fill your hospital catalog, then import."
+        />
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              const link = document.createElement('a')
+              link.href = '/templates/lab-catalog-import-template.csv'
+              link.download = 'lab-catalog-import-template.csv'
+              link.click()
+            }}
+          >
+            <Download className="h-4 w-4" />
+            Download CSV template
+          </Button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Upload className="h-4 w-4" />
+            {importCatalog.isPending ? 'Importing…' : 'Upload filled CSV'}
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                const csv = await file.text()
+                importCatalog.mutate(csv)
+                e.target.value = ''
+              }}
+            />
+          </label>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Columns: record_type (panel|test), panel_code, name, code, category, sample_type, reference_range,
+          unit, turnaround_hours, critical_low, critical_high, description
+        </p>
+        {importSummary ? <Alert tone="info" className="mt-4">{importSummary}</Alert> : null}
+      </Card>
+
       <Card className="p-8">
         <PageHeader
           title="Laboratory catalog"

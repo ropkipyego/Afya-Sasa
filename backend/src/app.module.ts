@@ -26,6 +26,9 @@ import { StorageModule } from './storage/storage.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { DocumentsModule } from './documents/documents.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { WorklistsModule } from './worklists/worklists.module';
+import { WorkflowModule } from './workflow/workflow.module';
+import { TenantSchemaInterceptor } from './core/tenancy/tenant-schema.interceptor';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -87,6 +90,8 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     StorageModule,
     ReferralsModule,
     DocumentsModule,
+    WorklistsModule,
+    WorkflowModule,
     HealthModule,
   ],
   controllers: [AppController],
@@ -95,6 +100,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     { provide: APP_GUARD, useClass: JwtAccessGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: TenantSchemaInterceptor },
   ],
 })
 export class AppModule implements NestModule {

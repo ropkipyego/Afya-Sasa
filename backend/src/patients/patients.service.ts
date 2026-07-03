@@ -534,6 +534,7 @@ export class PatientsService {
           ),
         )
       : [];
+
     const phoneMatches = await this.patients.find({
       where: [
         { primaryPhone: dto.primaryPhone },
@@ -542,11 +543,55 @@ export class PatientsService {
       take: 10,
     });
 
+    const nameDobMatches = dto.dateOfBirth
+      ? await this.patients
+          .createQueryBuilder('patient')
+          .where('patient.deleted_at IS NULL')
+          .andWhere('patient.date_of_birth = :dob', { dob: dto.dateOfBirth })
+          .andWhere(
+            `(lower(patient.last_name) = lower(:lastName)
+              OR patient.primary_phone = :phone
+              OR patient.secondary_phone = :phone)`,
+            {
+              lastName: dto.lastName,
+              phone: dto.primaryPhone,
+            },
+          )
+          .take(10)
+          .getMany()
+      : [];
+
+    const nationalId = identifiers.find((id) => id.type === 'national_id')?.value;
+    const nationalIdMatches = nationalId
+      ? await this.identifiers.find({
+          where: { type: 'national_id', value: nationalId },
+          relations: { patient: true },
+          take: 10,
+        })
+      : [];
+
+    const allPatients = new Map<string, Patient>();
+    for (const match of [...phoneMatches, ...nameDobMatches]) {
+      allPatients.set(match.id, match);
+    }
+
     return {
       identifierMatches: identifierMatches.filter(Boolean),
+      nationalIdMatches,
       phoneMatches,
+      nameDobMatches,
+      candidates: Array.from(allPatients.values()),
       hasPotentialDuplicate:
-        identifierMatches.some(Boolean) || phoneMatches.length > 0,
+        identifierMatches.some(Boolean) ||
+        phoneMatches.length > 0 ||
+        nameDobMatches.length > 0 ||
+        nationalIdMatches.length > 0,
+      matchReasons: [
+        ...(identifierMatches.some(Boolean) ? ['identifier'] : []),
+        ...(phoneMatches.length > 0 ? ['phone'] : []),
+        ...(nameDobMatches.length > 0 ? ['name_dob'] : []),
+        ...(nationalIdMatches.length > 0 ? ['national_id'] : []),
+      ],
     };
   }
 

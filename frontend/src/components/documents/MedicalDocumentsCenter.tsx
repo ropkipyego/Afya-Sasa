@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Download, FileUp, Search } from 'lucide-react'
+import { Download, FileUp, Printer, Search } from 'lucide-react'
 import { Button, Card, Input, PageHeader, SelectField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { PatientTimeline, type TimelineEvent } from '../PatientTimeline'
@@ -11,7 +11,7 @@ import {
   type ClinicalDocumentRow,
   type ClinicalDocumentType,
 } from '../../lib/clinical-documents'
-import { downloadClinicalFile } from '../../lib/clinical-upload'
+import { downloadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
 import { notify } from '../../lib/notify'
 
 type SickSheetRow = {
@@ -53,6 +53,7 @@ const typeLabels: Record<string, string> = {
   admission: 'Discharge / admission',
   sick_sheet: 'Sick sheet',
   stored_file: 'Uploaded file',
+  lab_pdf: 'Lab report PDF',
 }
 
 export function MedicalDocumentsCenter() {
@@ -79,6 +80,22 @@ export function MedicalDocumentsCenter() {
   const { data: storedFiles = [] } = useQuery({
     queryKey: ['clinical-documents', selectedPatient?.id],
     queryFn: () => listPatientDocuments(selectedPatient!.id),
+    enabled: Boolean(selectedPatient?.id),
+  })
+
+  const { data: labAttachments = [] } = useQuery({
+    queryKey: ['lab-patient-attachments', selectedPatient?.id],
+    queryFn: () =>
+      apiRequest<
+        {
+          id: string
+          filename: string
+          title?: string | null
+          storagePath: string
+          createdAt: string
+          requestNo?: string
+        }[]
+      >(`/laboratory/patients/${selectedPatient!.id}/attachments`),
     enabled: Boolean(selectedPatient?.id),
   })
 
@@ -113,7 +130,18 @@ export function MedicalDocumentsCenter() {
       file: f,
     }))
 
-    let combined = [...events, ...sheets, ...files]
+    const labPdfs = labAttachments.map((attachment) => ({
+      id: attachment.id,
+      type: 'lab_pdf',
+      title: attachment.title ?? attachment.filename,
+      summary: attachment.requestNo ? `Lab request ${attachment.requestNo}` : 'Laboratory PDF report',
+      occurredAt: attachment.createdAt,
+      source: 'lab_pdf' as const,
+      storagePath: attachment.storagePath,
+      filename: attachment.filename,
+    }))
+
+    let combined = [...events, ...sheets, ...files, ...labPdfs]
     if (typeFilter !== 'all') {
       combined = combined.filter((d) => d.type === typeFilter || (typeFilter === 'stored_file' && d.source === 'file'))
     }
@@ -126,7 +154,7 @@ export function MedicalDocumentsCenter() {
     return combined.sort(
       (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime(),
     )
-  }, [timeline, sickSheets, storedFiles, typeFilter, search])
+  }, [timeline, sickSheets, storedFiles, labAttachments, typeFilter, search])
 
   const handleUpload = async (file: File) => {
     if (!selectedPatient) return
@@ -240,19 +268,76 @@ export function MedicalDocumentsCenter() {
                       </div>
                     </div>
                     {'file' in doc && doc.file ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={async () => {
-                          try {
-                            await downloadClinicalFile(doc.file!.storagePath, doc.file!.filename)
-                          } catch (error) {
-                            notify('Download failed', (error as Error).message, 'critical')
-                          }
-                        }}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={async () => {
+                            try {
+                              await viewClinicalFile(doc.file!.storagePath)
+                            } catch (error) {
+                              notify('View failed', (error as Error).message, 'critical')
+                            }
+                          }}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={async () => {
+                            try {
+                              await downloadClinicalFile(doc.file!.storagePath, doc.file!.filename)
+                            } catch (error) {
+                              notify('Download failed', (error as Error).message, 'critical')
+                            }
+                          }}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : 'storagePath' in doc && doc.storagePath ? (
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={async () => {
+                            try {
+                              await viewClinicalFile(doc.storagePath)
+                            } catch (error) {
+                              notify('View failed', (error as Error).message, 'critical')
+                            }
+                          }}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={async () => {
+                            try {
+                              await viewClinicalFile(doc.storagePath)
+                            } catch (error) {
+                              notify('Print failed', (error as Error).message, 'critical')
+                            }
+                          }}
+                        >
+                          <Printer className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={async () => {
+                            try {
+                              await downloadClinicalFile(doc.storagePath, doc.filename)
+                            } catch (error) {
+                              notify('Download failed', (error as Error).message, 'critical')
+                            }
+                          }}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
                     ) : null}
                   </div>
                 ))}

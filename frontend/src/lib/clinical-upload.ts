@@ -42,6 +42,14 @@ export async function uploadClinicalFile(
   }
 }
 
+export async function viewClinicalFile(storagePath: string): Promise<void> {
+  const presigned = await apiRequest<{ url: string }>('/storage/presign-download', {
+    method: 'POST',
+    body: JSON.stringify({ key: storagePath }),
+  })
+  window.open(presigned.url, '_blank', 'noopener,noreferrer')
+}
+
 export async function downloadClinicalFile(
   storagePath: string,
   filename?: string,

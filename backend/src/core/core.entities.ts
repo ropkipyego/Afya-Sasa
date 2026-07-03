@@ -262,3 +262,58 @@ export class AuditLog {
   @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
   createdAt!: Date;
 }
+
+@Entity({ name: 'login_events', schema: 'demo' })
+@Index(['email', 'createdAt'])
+export class LoginEvent {
+  @Column({ type: 'uuid', primary: true, generated: 'uuid' })
+  id!: string;
+
+  @Column({ name: 'user_id', type: 'uuid', nullable: true })
+  userId!: string | null;
+
+  @Column({ type: 'varchar' })
+  email!: string;
+
+  @Column({ name: 'event_type', type: 'varchar' })
+  eventType!: 'login' | 'logout' | 'login_failed' | 'password_reset_requested' | 'password_reset_completed';
+
+  @Column({ type: 'boolean', default: false })
+  success!: boolean;
+
+  @Column({ name: 'failure_reason', type: 'varchar', nullable: true })
+  failureReason!: string | null;
+
+  @Column({ name: 'ip_address', type: 'varchar', nullable: true })
+  ipAddress!: string | null;
+
+  @Column({ name: 'user_agent', type: 'text', nullable: true })
+  userAgent!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  device!: string | null;
+
+  @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
+  createdAt!: Date;
+}
+
+@Entity({ name: 'password_reset_tokens', schema: 'demo' })
+export class PasswordResetToken {
+  @Column({ type: 'uuid', primary: true, generated: 'uuid' })
+  id!: string;
+
+  @Column({ name: 'user_id', type: 'uuid' })
+  userId!: string;
+
+  @Column({ name: 'token_hash', type: 'varchar', unique: true })
+  tokenHash!: string;
+
+  @Column({ name: 'expires_at', type: 'timestamptz' })
+  expiresAt!: Date;
+
+  @Column({ name: 'used_at', type: 'timestamptz', nullable: true })
+  usedAt!: Date | null;
+
+  @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
+  createdAt!: Date;
+}

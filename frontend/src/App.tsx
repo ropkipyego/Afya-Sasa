@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   Bell,
   ClipboardList,
-  Hospital,
   KeyRound,
   LogOut,
   Printer,
@@ -28,6 +27,9 @@ import { PatientTimeline } from './components/PatientTimeline'
 import type { WorkflowStep } from './lib/workflow-status'
 import { IpdModule } from './components/ipd/IpdModule'
 import { HospitalControlCenter } from './components/admin/HospitalControlCenter'
+import { HospitalBrandMark, HospitalFacilityBadge } from './components/branding/HospitalBrandMark'
+import { useClinicalCatalog } from './hooks/useClinicalCatalog'
+import { resolveHospitalBranding } from './lib/hospital-configuration'
 import { OpdCheckInWorkspace } from './components/opd/OpdCheckInWorkspace'
 import { TriageWorkspace } from './components/opd/TriageWorkspace'
 import { AppointmentCenter } from './components/appointments/AppointmentCenter'
@@ -35,11 +37,13 @@ import { ReferralWorkspace } from './components/referrals/ReferralWorkspace'
 import { LabWorklist } from './components/investigations/LabWorklist'
 import { RadiologyWorklist } from './components/investigations/RadiologyWorklist'
 import { MedicalDocumentsCenter } from './components/documents/MedicalDocumentsCenter'
+import { HospitalLibrary } from './components/documents/HospitalLibrary'
 import { SickSheetWorkspace } from './components/documents/SickSheetWorkspace'
 import { MaternityServiceLine } from './components/maternity/MaternityServiceLine'
 import { EmergencyCommandCenter } from './components/emergency/EmergencyCommandCenter'
 import { NotificationInbox } from './components/notifications/NotificationInbox'
 import { OperationsCommandCenter } from './components/operations/OperationsCommandCenter'
+import { OperationalWorklists } from './components/worklists/OperationalWorklists'
 import { ClinicalReportsDashboard } from './components/reports/ClinicalReportsDashboard'
 import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
 import { PatientCardPrint } from './components/patients/PatientCardPrint'
@@ -48,6 +52,7 @@ import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
 
+import { filterNavigationByModules } from './lib/nav-module-filter'
 import { navigation, workflowDescriptions } from './lib/navigation'
 import { AppMobileNav } from './components/layout/AppMobileNav'
 
@@ -108,6 +113,22 @@ function App() {
   })
 
   useHospitalSync()
+  const { data: hospitalCatalog } = useClinicalCatalog()
+  const hospitalBrand = resolveHospitalBranding(hospitalCatalog)
+
+  useEffect(() => {
+    if (!accessToken) return
+    document.title = `${hospitalBrand.facilityName ?? 'AfyaSasa'} — Clinical EMR`
+    if (hospitalBrand.faviconUrl) {
+      let link = document.querySelector<HTMLLinkElement>("link[rel='icon']")
+      if (!link) {
+        link = document.createElement('link')
+        link.rel = 'icon'
+        document.head.appendChild(link)
+      }
+      link.href = hospitalBrand.faviconUrl
+    }
+  }, [accessToken, hospitalBrand.facilityName, hospitalBrand.faviconUrl])
 
   if (!accessToken || !user) {
     return <LoginScreen tenant={tenant} setTenant={setTenant} />
@@ -117,8 +138,9 @@ function App() {
     return <ForcedPasswordChangeScreen />
   }
 
-  const allowedNavigation = navigation.filter((item) =>
-    user.permissions.includes(item.permission),
+  const allowedNavigation = filterNavigationByModules(
+    navigation.filter((item) => user.permissions.includes(item.permission)),
+    hospitalCatalog,
   )
   const groupedNavigation = allowedNavigation.reduce(
     (groups, item) => {
@@ -133,18 +155,8 @@ function App() {
       <NotificationCenter />
       <aside className="fixed inset-y-0 left-0 hidden w-72 flex-col border-r border-slate-200/80 bg-white shadow-sm lg:flex">
         <div className="shrink-0 border-b border-slate-100 p-5">
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-gradient-to-br from-teal-600 to-teal-700 p-2.5 text-white shadow-md">
-              <Hospital size={22} />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-teal-600">AfyaSasa</p>
-              <h1 className="text-base font-bold tracking-tight">Clinical EMR</h1>
-            </div>
-          </div>
-          <div className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <span className="font-semibold text-slate-800">Tenant</span> · {tenant}
-          </div>
+          <HospitalBrandMark />
+          <HospitalFacilityBadge label={tenant} />
         </div>
 
         <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
@@ -242,6 +254,7 @@ function App() {
           {activeScreen === 'Appointments' ? <AppointmentCenter /> : null}
           {activeScreen === 'Referrals' ? <ReferralWorkspace /> : null}
           {activeScreen === 'Medical Documents' ? <MedicalDocumentsCenter /> : null}
+          {activeScreen === 'Hospital Library' ? <HospitalLibrary /> : null}
           {activeScreen === 'Sick Sheets' ? <SickSheetWorkspace /> : null}
           {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
           {activeScreen === 'Inpatient (IPD)' ? <IpdModule /> : null}
@@ -252,16 +265,11 @@ function App() {
           {activeScreen === 'ICU' ? <IpdModule initialWardType="icu" /> : null}
           {activeScreen === 'HDU' ? <IpdModule initialWardType="hdu" /> : null}
           {activeScreen === 'Operations Center' ? <OperationsCommandCenter /> : null}
+          {activeScreen === 'Worklists' ? <OperationalWorklists /> : null}
           {activeScreen === 'Notifications' ? (
             <NotificationInbox onNavigate={setActiveScreen} />
           ) : null}
-          {activeScreen === 'Hospital Control Center' ? (
-            <HospitalControlCenter
-              usersPanel={<AdminUsers />}
-              rolesPanel={<AdminRoles />}
-              auditPanel={<AuditLogViewer />}
-            />
-          ) : null}
+          {activeScreen === 'Hospital Control Center' ? <HospitalControlCenter /> : null}
           {activeScreen !== 'Patient Search' &&
           activeScreen !== 'Register Patient' &&
           activeScreen !== 'OPD Check-In' &&
@@ -273,9 +281,11 @@ function App() {
           activeScreen !== 'Appointments' &&
           activeScreen !== 'Referrals' &&
           activeScreen !== 'Medical Documents' &&
+          activeScreen !== 'Hospital Library' &&
           activeScreen !== 'Sick Sheets' &&
           activeScreen !== 'OPD Reports' &&
           activeScreen !== 'Operations Center' &&
+          activeScreen !== 'Worklists' &&
           activeScreen !== 'Notifications' &&
           activeScreen !== 'Inpatient (IPD)' &&
           activeScreen !== 'Emergency' &&
@@ -304,6 +314,8 @@ function LoginScreen(props: {
   tenant: string
   setTenant: (tenant: string) => void
 }) {
+  const { data: catalog } = useClinicalCatalog()
+  const brand = resolveHospitalBranding(catalog)
   const [email, setEmail] = useState(import.meta.env.DEV ? 'admin@demo.afyasasa.local' : '')
   const [password, setPassword] = useState('')
   const setSession = useAuthStore((state) => state.setSession)
@@ -322,7 +334,10 @@ function LoginScreen(props: {
   })
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-blue-950 p-6">
+    <div
+      className="flex min-h-screen items-center justify-center p-6"
+      style={{ background: `linear-gradient(160deg, ${brand.primaryColor ?? '#0f766e'} 0%, #0f172a 100%)` }}
+    >
       <form
         className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
         onSubmit={(event) => {
@@ -330,19 +345,11 @@ function LoginScreen(props: {
           mutation.mutate()
         }}
       >
-        <div className="mb-8 flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-600 p-3 text-white">
-            <Hospital />
-          </div>
-          <div>
-            <p className="text-sm font-semibold uppercase text-blue-600">
-              AfyaSasa
-            </p>
-            <h1 className="text-2xl font-bold">Clinical Management</h1>
-          </div>
+        <div className="mb-8">
+          <HospitalBrandMark showFacility={false} />
         </div>
         <label className="mb-4 block">
-          <span className="text-sm font-semibold text-slate-700">Tenant</span>
+          <span className="text-sm font-semibold text-slate-700">Hospital code</span>
           <input
             className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
             value={props.tenant}
@@ -1274,309 +1281,6 @@ function ReviewList({
 }
 
 
-
-interface RoleItem {
-  id: string
-  name: string
-  label: string
-  permissions?: { id: string; permissionKey: string }[]
-}
-
-interface AdminUserItem {
-  id: string
-  employeeNo: string
-  firstName: string
-  lastName: string
-  email: string
-  active: boolean
-  roles: RoleItem[]
-  departments?: { id: string; name: string; isPrimary?: boolean }[]
-}
-
-function AdminUsers() {
-  const queryClient = useQueryClient()
-  const { data: users = [] } = useQuery({
-    queryKey: ['admin-users'],
-    queryFn: () => apiRequest<AdminUserItem[]>('/admin/users'),
-  })
-  const { data: roles = [] } = useQuery({
-    queryKey: ['admin-roles'],
-    queryFn: () => apiRequest<RoleItem[]>('/admin/roles'),
-  })
-  const { data: departments = [] } = useQuery({
-    queryKey: ['admin-departments'],
-    queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/admin/departments'),
-  })
-  const createUser = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      const roleId = form.get('roleId')?.toString()
-      return apiRequest('/admin/users', {
-        method: 'POST',
-        body: JSON.stringify({
-          employeeNo: form.get('employeeNo'),
-          firstName: form.get('firstName'),
-          lastName: form.get('lastName'),
-          email: form.get('email'),
-          phone: form.get('phone'),
-          temporaryPassword: form.get('temporaryPassword'),
-          roleIds: roleId ? [roleId] : [],
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
-    },
-  })
-  const createDepartment = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest('/admin/departments', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          code: form.get('code'),
-          type: form.get('type') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['admin-departments'] }),
-  })
-  const assignDepartment = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/admin/users/${form.get('userId')}/departments`, {
-        method: 'POST',
-        body: JSON.stringify({
-          departmentId: form.get('departmentId'),
-          isPrimary: form.get('isPrimary') === 'on',
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <div className="space-y-6">
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createUser.mutate(event.currentTarget)
-          event.currentTarget.reset()
-        }}
-      >
-        <h3 className="text-xl font-bold">Create staff user</h3>
-        <Field name="employeeNo" label="Employee no." required />
-        <Field name="firstName" label="First name" required />
-        <Field name="lastName" label="Last name" required />
-        <Field name="email" label="Email" type="email" required />
-        <Field name="phone" label="Phone" />
-        <Field
-          name="temporaryPassword"
-          label="Temporary password"
-          type="password"
-          required
-        />
-        <label>
-          <span className="text-sm font-semibold">Role</span>
-          <select name="roleId" className="input mt-2">
-            <option value="">No role</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-          {createUser.isPending ? 'Creating...' : 'Create user'}
-        </button>
-      </form>
-      <QuickAddForm
-        title="Create department"
-        pending={createDepartment.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          createDepartment.mutate(event.currentTarget)
-          event.currentTarget.reset()
-        }}
-      >
-        <input name="name" className="input" placeholder="Department name" required />
-        <input name="code" className="input" placeholder="Code" required />
-        <input name="type" className="input" placeholder="clinical / diagnostic / admin" />
-      </QuickAddForm>
-      <QuickAddForm
-        title="Assign user to department"
-        pending={assignDepartment.isPending}
-        onSubmit={(event) => {
-          event.preventDefault()
-          assignDepartment.mutate(event.currentTarget)
-          event.currentTarget.reset()
-        }}
-      >
-        <select name="userId" className="input" required>
-          <option value="">Select user</option>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.firstName} {user.lastName}
-            </option>
-          ))}
-        </select>
-        <select name="departmentId" className="input" required>
-          <option value="">Select department</option>
-          {departments.map((department) => (
-            <option key={department.id} value={department.id}>
-              {department.name}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-2 text-sm">
-          <input name="isPrimary" type="checkbox" /> Primary department
-        </label>
-      </QuickAddForm>
-      </div>
-
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Users</h3>
-        <div className="mt-4 divide-y divide-slate-100">
-          {users.map((user) => (
-            <div key={user.id} className="py-4">
-              <p className="font-bold">
-                {user.firstName} {user.lastName}
-              </p>
-              <p className="text-sm text-slate-500">
-                {user.employeeNo} · {user.email} ·{' '}
-                {user.active ? 'active' : 'inactive'}
-              </p>
-              <p className="mt-1 text-sm text-blue-700">
-                {user.roles.map((role) => role.label).join(', ') || 'No roles'}
-              </p>
-              <p className="mt-1 text-sm text-slate-500">
-                Departments:{' '}
-                {user.departments?.map((department) => department.name).join(', ') || 'none'}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AdminRoles() {
-  const queryClient = useQueryClient()
-  const { data: roles = [] } = useQuery({
-    queryKey: ['admin-roles'],
-    queryFn: () => apiRequest<RoleItem[]>('/admin/roles'),
-  })
-  const { data: permissions = [] } = useQuery({
-    queryKey: ['admin-permissions'],
-    queryFn: () =>
-      apiRequest<{ id: string; permissionKey: string; description?: string }[]>(
-        '/admin/permissions',
-      ),
-  })
-  const createRole = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest('/admin/roles', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          label: form.get('label'),
-          description: form.get('description'),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['admin-roles'] })
-    },
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-      <form
-        className="space-y-4 rounded-3xl bg-white p-6 shadow-sm"
-        onSubmit={(event) => {
-          event.preventDefault()
-          createRole.mutate(event.currentTarget)
-          event.currentTarget.reset()
-        }}
-      >
-        <h3 className="text-xl font-bold">Create role</h3>
-        <Field name="name" label="Role key" required />
-        <Field name="label" label="Display label" required />
-        <Field name="description" label="Description" />
-        <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-          {createRole.isPending ? 'Creating...' : 'Create role'}
-        </button>
-      </form>
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-bold">Roles and permissions</h3>
-        <div className="mt-4 space-y-4">
-          {roles.map((role) => (
-            <div key={role.id} className="rounded-2xl border border-slate-200 p-4">
-              <p className="font-bold">{role.label}</p>
-              <p className="text-sm text-slate-500">{role.name}</p>
-              <p className="mt-2 text-xs text-slate-500">
-                {(role.permissions ?? [])
-                  .map((permission) => permission.permissionKey)
-                  .join(', ') || 'No permissions'}
-              </p>
-            </div>
-          ))}
-        </div>
-        <details className="mt-6 rounded-2xl bg-slate-50 p-4">
-          <summary className="cursor-pointer font-semibold">
-            Available permissions
-          </summary>
-          <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
-            {permissions.map((permission) => (
-              <span key={permission.id} className="rounded-lg bg-white p-2">
-                {permission.permissionKey}
-              </span>
-            ))}
-          </div>
-        </details>
-      </div>
-    </div>
-  )
-}
-
-function AuditLogViewer() {
-  const { data } = useQuery({
-    queryKey: ['audit-logs'],
-    queryFn: () =>
-      apiRequest<{
-        items: {
-          id: string
-          action: string
-          endpoint: string
-          httpCode: number
-          createdAt: string
-        }[]
-      }>('/admin/audit-logs'),
-  })
-
-  return (
-    <div className="rounded-3xl bg-white p-6 shadow-sm">
-      <h3 className="text-xl font-bold">Audit logs</h3>
-      <div className="mt-4 divide-y divide-slate-100">
-        {(data?.items ?? []).map((entry) => (
-          <div key={entry.id} className="py-3 text-sm">
-            <p className="font-semibold">
-              {entry.action.toUpperCase()} · {entry.httpCode}
-            </p>
-            <p className="text-slate-500">{entry.endpoint}</p>
-            <p className="text-xs text-slate-400">{entry.createdAt}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function Placeholder({ screen }: { screen: string }) {
   return (

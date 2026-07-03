@@ -99,5 +99,7 @@ The demo migration seeds:
 - SMS and object storage integrations: `docs/integrations.md`
 - Local testing guide: `docs/local-testing-guide.md`
 - **Free test hosting guide:** `docs/free-test-hosting-guide.md`
+- Lab, hospital documents & catalog onboarding: `docs/lab-documents-progress-report.md`
+- **Enterprise backend refactor plan:** `docs/enterprise-backend-refactor-plan.md`
 - Go-live checklist: `docs/go-live-checklist.md`
 - Role manuals: `docs/user-manuals/`

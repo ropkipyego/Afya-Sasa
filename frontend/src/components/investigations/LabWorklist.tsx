@@ -1,13 +1,23 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Clock, FlaskConical, TestTube, User } from 'lucide-react'
+import { AlertTriangle, Clock, Download, FileUp, FlaskConical, Printer, TestTube, Trash2, User } from 'lucide-react'
 import clsx from 'clsx'
 import { Button, Card, Field, PageHeader, SelectField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { ClinicalInvestigationOrders } from './ClinicalInvestigationOrders'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { downloadClinicalFile, uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
+
+type LabAttachment = {
+  id: string
+  filename: string
+  mimeType: string
+  storagePath: string
+  title?: string | null
+  createdAt: string
+}
 
 type LabRequestRow = {
   id: string
@@ -16,6 +26,7 @@ type LabRequestRow = {
   createdAt: string
   patient?: { firstName: string; lastName: string; patientNo: string }
   items?: { id: string; status: string; test?: { name: string }; panel?: { name: string } }[]
+  attachments?: LabAttachment[]
 }
 
 const stages = [
@@ -34,9 +45,12 @@ function waitLabel(createdAt: string) {
 
 export function LabWorklist() {
   const queryClient = useQueryClient()
+  const fileRef = useRef<HTMLInputElement>(null)
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [showNewRequest, setShowNewRequest] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [fileBusyId, setFileBusyId] = useState<string | null>(null)
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['lab-requests'],
@@ -64,6 +78,7 @@ export function LabWorklist() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
       queryClient.invalidateQueries({ queryKey: ['lab-request'] }),
+      queryClient.invalidateQueries({ queryKey: ['lab-patient-attachments'] }),
       queryClient.invalidateQueries({ queryKey: ['notification-inbox'] }),
       queryClient.invalidateQueries({ queryKey: ['notification-summary'] }),
       queryClient.invalidateQueries({ queryKey: ['critical-results'] }),
@@ -77,6 +92,7 @@ export function LabWorklist() {
         body: JSON.stringify({ type: 'blood' }),
       }),
     onSuccess: refreshClinical,
+    onError: (error: Error) => notify('Sample collection failed', error.message, 'critical'),
   })
 
   const enterResult = useMutation({
@@ -95,6 +111,7 @@ export function LabWorklist() {
       notify('Result saved', 'Critical values alert clinicians immediately.', 'success')
       await refreshClinical()
     },
+    onError: (error: Error) => notify('Result entry failed', error.message, 'critical'),
   })
 
   const verifyRequest = useMutation({
@@ -105,7 +122,40 @@ export function LabWorklist() {
       await refreshClinical()
       setActiveId(null)
     },
+    onError: (error: Error) => notify('Verification failed', error.message, 'critical'),
   })
+
+  const deleteAttachment = useMutation({
+    mutationFn: (attachmentId: string) =>
+      apiRequest(`/laboratory/attachments/${attachmentId}`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      notify('Attachment removed', 'PDF report deleted from request.', 'success')
+      await refreshClinical()
+    },
+    onError: (error: Error) => notify('Delete failed', error.message, 'critical'),
+  })
+
+  const attachPdf = async (requestId: string, file: File) => {
+    setUploading(true)
+    try {
+      const uploaded = await uploadClinicalFile(file, 'laboratory', requestId)
+      await apiRequest(`/laboratory/requests/${requestId}/attachments`, {
+        method: 'POST',
+        body: JSON.stringify({
+          filename: uploaded.filename,
+          mimeType: uploaded.mimeType,
+          storagePath: uploaded.storagePath,
+          title: uploaded.filename,
+        }),
+      })
+      notify('PDF uploaded', 'Report linked — doctors and reception can view it.', 'success')
+      await refreshClinical()
+    } catch (error) {
+      notify('Upload failed', (error as Error).message, 'critical')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const byStage = useMemo(() => {
     const map: Record<string, LabRequestRow[]> = {}
@@ -121,7 +171,7 @@ export function LabWorklist() {
     <div className="workspace-shell animate-fade-in">
       <PageHeader
         title="Laboratory operations"
-        description="Card worklist — requested → collected → processing → completed → verified"
+        description="Order tests, collect samples, enter results, or upload PDF reports for clinicians."
         actions={
           <Button type="button" variant="secondary" onClick={() => setShowNewRequest((v) => !v)}>
             New request
@@ -138,7 +188,10 @@ export function LabWorklist() {
 
       {showNewRequest ? (
         <Card className="p-5 md:p-6">
-          <PageHeader title="New laboratory request" description="Auto-links to active visit or admission." />
+          <PageHeader
+            title="New laboratory request"
+            description="Links to an active visit when available, or creates a laboratory walk-in encounter."
+          />
           <div className="mt-4 space-y-4">
             <PatientSearchAutocomplete selected={selectedPatient} onSelect={setSelectedPatient} />
             {selectedPatient ? (
@@ -222,7 +275,7 @@ export function LabWorklist() {
                     ? `${activeRequest.patient.firstName} ${activeRequest.patient.lastName}`
                     : 'Lab request'}
                 </p>
-                <p className="text-sm capitalize text-slate-500">{activeRequest.status.replace('_', ' ')}</p>
+                <p className="text-sm capitalize text-slate-500">{activeRequest.status.replaceAll('_', ' ')}</p>
               </div>
             </div>
             <Button type="button" variant="ghost" onClick={() => setActiveId(null)}>Close</Button>
@@ -242,6 +295,104 @@ export function LabWorklist() {
             ) : null}
           </div>
 
+          <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <FileUp className="h-4 w-4 text-teal-600" />
+              Upload lab report PDF
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Upload external or instrument PDF — visible to doctors and reception after verification.
+            </p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf,image/*"
+              className="mt-4 w-full text-sm"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (file) await attachPdf(activeRequest.id, file)
+                e.target.value = ''
+              }}
+            />
+            {uploading ? <p className="mt-2 text-xs text-teal-700">Uploading…</p> : null}
+          </div>
+
+          {(activeRequest.attachments ?? []).length ? (
+            <div className="mt-6 space-y-2">
+              <p className="text-sm font-semibold text-slate-700">Uploaded reports</p>
+              {activeRequest.attachments!.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3"
+                >
+                  <span className="text-sm font-medium text-slate-800">{file.title ?? file.filename}</span>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      loading={fileBusyId === `${file.id}-view`}
+                      onClick={async () => {
+                        setFileBusyId(`${file.id}-view`)
+                        try {
+                          await viewClinicalFile(file.storagePath)
+                        } catch (error) {
+                          notify('View failed', (error as Error).message, 'critical')
+                        } finally {
+                          setFileBusyId(null)
+                        }
+                      }}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      loading={fileBusyId === `${file.id}-print`}
+                      onClick={async () => {
+                        setFileBusyId(`${file.id}-print`)
+                        try {
+                          await viewClinicalFile(file.storagePath)
+                        } catch (error) {
+                          notify('Print failed', (error as Error).message, 'critical')
+                        } finally {
+                          setFileBusyId(null)
+                        }
+                      }}
+                    >
+                      <Printer className="h-4 w-4" />
+                      Print
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      loading={fileBusyId === file.id}
+                      onClick={async () => {
+                        setFileBusyId(file.id)
+                        try {
+                          await downloadClinicalFile(file.storagePath, file.filename)
+                        } catch (error) {
+                          notify('Download failed', (error as Error).message, 'critical')
+                        } finally {
+                          setFileBusyId(null)
+                        }
+                      }}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      loading={deleteAttachment.isPending}
+                      onClick={() => deleteAttachment.mutate(file.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           {(activeRequest.items ?? []).length ? (
             <form
               className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5"
@@ -250,7 +401,7 @@ export function LabWorklist() {
                 enterResult.mutate(e.currentTarget)
               }}
             >
-              <p className="text-sm font-bold text-slate-800">Enter structured result</p>
+              <p className="text-sm font-bold text-slate-800">Enter structured result (optional)</p>
               <SelectField name="requestItemId" label="Test" required>
                 {(activeRequest.items ?? []).map((item) => (
                   <option key={item.id} value={item.id}>
