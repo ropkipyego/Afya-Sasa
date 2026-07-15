@@ -22,6 +22,16 @@ const SYNC_QUERY_PREFIXES = [
   'notification-inbox',
   'notification-summary',
   'system-health',
+  'worklist',
+  'worklists-catalog',
+  'module-patients',
+  'emergency-metrics',
+  'emergency-queue',
+  'emergency-bays',
+  'emergency-alerts',
+  'clinical-orders',
+  'nursing-observations',
+  'shift-notes',
 ]
 
 function invalidateClinicalQueries(queryClient: ReturnType<typeof useQueryClient>) {
@@ -81,11 +91,14 @@ export function useHospitalSync() {
         instance.on('vitals.recorded', handleSync)
         instance.on('admission.created', handleSync)
         instance.on('admission.updated', handleSync)
+        instance.on('admission.discharged', handleSync)
         instance.on('bed.updated', handleSync)
         instance.on('settings.updated', handleSync)
         instance.on('lab.updated', handleSync)
         instance.on('radiology.updated', handleSync)
+        instance.on('triage.updated', handleSync)
         instance.on('notification.created', handleSync)
+        instance.on('emergency.alert', handleSync)
 
         socket = instance
       } catch {

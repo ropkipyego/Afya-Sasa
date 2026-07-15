@@ -11,25 +11,37 @@ export const navModuleMap: Partial<Record<string, HospitalModuleKey>> = {
   'OPD Check-In': 'opd',
   Appointments: 'opd',
   Referrals: 'opd',
-  'Medical Documents': 'documents',
   'Sick Sheets': 'documents',
+  'Medical Documents': 'documents',
+  'Hospital Library': 'documents',
   'Triage Queue': 'opd',
+  'OPD Patients': 'opd',
   'Doctor Queue': 'opd',
+  'Lab Dashboard': 'laboratory',
   Laboratory: 'laboratory',
-  Radiology: 'radiology',
+  'Lab Patients': 'laboratory',
   'Results Inbox': 'laboratory',
+  'Imaging Dashboard': 'radiology',
+  Radiology: 'radiology',
+  'Imaging Patients': 'radiology',
   'Inpatient (IPD)': 'ipd',
+  'IPD Patients': 'ipd',
+  Nursing: 'ipd',
   ICU: 'icu',
   HDU: 'icu',
   Emergency: 'emergency',
+  'ED Patients': 'emergency',
   Theatre: 'theatre',
   Maternity: 'maternity',
+  Pharmacy: 'pharmacy',
   'OPD Reports': 'reporting',
   'Clinical Reports': 'reporting',
+  'Executive Analytics': 'reporting',
   'Operations Center': 'reporting',
+  'Clinical Orders': 'laboratory',
+  Worklists: 'reporting',
   Notifications: 'registration',
   'Hospital Control Center': 'registration',
-  'Hospital Library': 'documents',
 }
 
 export function filterNavigationByModules(
@@ -39,6 +51,12 @@ export function filterNavigationByModules(
   return items.filter((item) => {
     const module = navModuleMap[item.label]
     if (!module) return true
+    // Pharmacy is opt-in; default false until enabled in facility modules
+    if (module === 'pharmacy') {
+      const facilities = catalog?.facilities
+      if (!facilities?.length) return false
+      return isModuleEnabled(catalog, 'pharmacy')
+    }
     return isModuleEnabled(catalog, module)
   })
 }

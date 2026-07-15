@@ -15,6 +15,7 @@ import {
   Field,
   NavGroup,
   PageHeader,
+  PasswordInput,
   TriageBadge,
   TriageIndicator,
   triageCardAccent,
@@ -35,7 +36,10 @@ import { TriageWorkspace } from './components/opd/TriageWorkspace'
 import { AppointmentCenter } from './components/appointments/AppointmentCenter'
 import { ReferralWorkspace } from './components/referrals/ReferralWorkspace'
 import { LabWorklist } from './components/investigations/LabWorklist'
+import { LabDashboard } from './components/investigations/LabDashboard'
 import { RadiologyWorklist } from './components/investigations/RadiologyWorklist'
+import { ImagingDashboard } from './components/investigations/ImagingDashboard'
+import { ClinicalOrdersDashboard, PharmacyWorkspace } from './components/orders/ClinicalOrdersDashboard'
 import { MedicalDocumentsCenter } from './components/documents/MedicalDocumentsCenter'
 import { HospitalLibrary } from './components/documents/HospitalLibrary'
 import { SickSheetWorkspace } from './components/documents/SickSheetWorkspace'
@@ -44,13 +48,23 @@ import { EmergencyCommandCenter } from './components/emergency/EmergencyCommandC
 import { NotificationInbox } from './components/notifications/NotificationInbox'
 import { OperationsCommandCenter } from './components/operations/OperationsCommandCenter'
 import { OperationalWorklists } from './components/worklists/OperationalWorklists'
+import {
+  EmergencyPatientsView,
+  IpdPatientsView,
+  LabPatientsView,
+  OpdPatientsView,
+  RadiologyPatientsView,
+} from './components/patients/ModulePatientViews'
 import { ClinicalReportsDashboard } from './components/reports/ClinicalReportsDashboard'
+import { ExecutiveAnalyticsDashboard } from './components/reports/ExecutiveAnalyticsDashboard'
 import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
 import { PatientCardPrint } from './components/patients/PatientCardPrint'
 import { useHospitalSync } from './hooks/useHospitalSync'
 import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
+import { useAuthSession } from './hooks/useAuthSession'
+import { DEFAULT_TENANT, HIDE_TENANT_SELECTOR, SINGLE_TENANT_MODE } from './lib/tenant-config'
 
 import { filterNavigationByModules } from './lib/nav-module-filter'
 import { navigation, workflowDescriptions } from './lib/navigation'
@@ -99,11 +113,29 @@ function greetingForNow() {
   return 'Good evening'
 }
 
+function SessionLoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-950">
+      <div className="text-center">
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-teal-500 border-t-transparent" />
+        <p className="text-sm font-medium text-slate-300">Restoring your session…</p>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const { user, accessToken, tenant, setTenant, clearSession } = useAuthStore()
-  const [activeScreen, setActiveScreen] = useState('Patient Search')
+  const { hydrated } = useAuthSession()
+  const [activeScreen, setActiveScreen] = useState(
+    () => sessionStorage.getItem('afyasasa.activeScreen') ?? 'Patient Search',
+  )
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
+
+  useEffect(() => {
+    sessionStorage.setItem('afyasasa.activeScreen', activeScreen)
+  }, [activeScreen])
 
   const { data: notificationSummary } = useQuery({
     queryKey: ['notification-summary'],
@@ -130,6 +162,10 @@ function App() {
     }
   }, [accessToken, hospitalBrand.facilityName, hospitalBrand.faviconUrl])
 
+  if (!hydrated) {
+    return <SessionLoadingScreen />
+  }
+
   if (!accessToken || !user) {
     return <LoginScreen tenant={tenant} setTenant={setTenant} />
   }
@@ -153,10 +189,10 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <NotificationCenter />
-      <aside className="fixed inset-y-0 left-0 hidden w-72 flex-col border-r border-slate-200/80 bg-white shadow-sm lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-slate-200/80 bg-white shadow-sm xl:flex">
         <div className="shrink-0 border-b border-slate-100 p-5">
           <HospitalBrandMark />
-          <HospitalFacilityBadge label={tenant} />
+          {!SINGLE_TENANT_MODE ? <HospitalFacilityBadge label={tenant} /> : null}
         </div>
 
         <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
@@ -186,22 +222,31 @@ function App() {
         </nav>
       </aside>
 
-      <main className="min-h-screen lg:pl-72">
-        <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-md md:px-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+      <main className="min-h-dvh w-full min-w-0 max-w-full overflow-x-hidden xl:pl-72">
+        <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+          <div className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 md:px-5">
             <AppMobileNav
               items={allowedNavigation}
               activeScreen={activeScreen}
               onNavigate={setActiveScreen}
               tenant={tenant}
             />
-            <div className="hidden min-w-0 flex-1 animate-fade-in lg:block">
-              <p className="text-sm text-slate-500">
-                {greeting} · {workflowDescriptions[activeScreen] ?? 'Clinical workflow'}
+            <div className="hidden min-w-0 flex-1 xl:block">
+              <p className="welcome-line truncate text-lg font-semibold tracking-tight text-slate-800 sm:text-xl">
+                {greeting}
+                <span className="welcome-accent font-medium text-teal-700">
+                  {' '}
+                  — welcome to the system
+                </span>
               </p>
-              <h2 className="text-xl font-bold tracking-tight">{activeScreen}</h2>
+              <p className="mt-0.5 truncate text-sm text-slate-500 animate-fade-in">
+                {workflowDescriptions[activeScreen] ?? 'Clinical workflow'}
+              </p>
+              <h2 className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                {activeScreen}
+              </h2>
             </div>
-            <div className="flex items-center gap-3 sm:gap-4">
+            <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
               {user.forcePasswordChange ? <ForcedPasswordNotice /> : null}
               <button
                 type="button"
@@ -216,11 +261,13 @@ function App() {
                   </span>
                 ) : null}
               </button>
-              <div className="text-right text-sm">
-                <p className="font-semibold">
+              <div className="hidden text-right text-sm sm:block">
+                <p className="max-w-[8rem] truncate font-semibold sm:max-w-none">
                   {user.firstName} {user.lastName}
                 </p>
-                <p className="text-slate-500">{user.roles.join(', ')}</p>
+                <p className="max-w-[8rem] truncate text-slate-500 sm:max-w-none">
+                  {user.roles.join(', ')}
+                </p>
               </div>
               <button
                 className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
@@ -233,7 +280,7 @@ function App() {
           </div>
         </header>
 
-        <section className="min-h-[calc(100vh-5rem)] overflow-x-hidden p-4 md:p-6">
+        <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 sm:p-4 md:p-6">
           {activeScreen === 'Patient Search' ? (
             <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
           ) : null}
@@ -247,9 +294,20 @@ function App() {
           ) : null}
           {activeScreen === 'OPD Check-In' ? <OpdCheckInWorkspace /> : null}
           {activeScreen === 'Triage Queue' ? <TriageWorkspace /> : null}
+          {activeScreen === 'OPD Patients' ? (
+            <OpdPatientsView onOpenPatient={setSelectedPatientId} />
+          ) : null}
           {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
+          {activeScreen === 'Lab Dashboard' ? <LabDashboard /> : null}
           {activeScreen === 'Laboratory' ? <LabWorklist /> : null}
+          {activeScreen === 'Lab Patients' ? (
+            <LabPatientsView onOpenPatient={setSelectedPatientId} />
+          ) : null}
+          {activeScreen === 'Imaging Dashboard' ? <ImagingDashboard /> : null}
           {activeScreen === 'Radiology' ? <RadiologyWorklist /> : null}
+          {activeScreen === 'Imaging Patients' ? (
+            <RadiologyPatientsView onOpenPatient={setSelectedPatientId} />
+          ) : null}
           {activeScreen === 'Results Inbox' ? <ResultsInbox /> : null}
           {activeScreen === 'Appointments' ? <AppointmentCenter /> : null}
           {activeScreen === 'Referrals' ? <ReferralWorkspace /> : null}
@@ -258,8 +316,18 @@ function App() {
           {activeScreen === 'Sick Sheets' ? <SickSheetWorkspace /> : null}
           {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
           {activeScreen === 'Inpatient (IPD)' ? <IpdModule /> : null}
+          {activeScreen === 'Nursing' ? <IpdModule initialScreen="nursing" /> : null}
+          {activeScreen === 'IPD Patients' ? (
+            <IpdPatientsView onOpenPatient={setSelectedPatientId} />
+          ) : null}
           {activeScreen === 'Emergency' ? <EmergencyCommandCenter /> : null}
+          {activeScreen === 'ED Patients' ? (
+            <EmergencyPatientsView onOpenPatient={setSelectedPatientId} />
+          ) : null}
           {activeScreen === 'Clinical Reports' ? <ClinicalReportsDashboard /> : null}
+          {activeScreen === 'Executive Analytics' ? <ExecutiveAnalyticsDashboard /> : null}
+          {activeScreen === 'Clinical Orders' ? <ClinicalOrdersDashboard /> : null}
+          {activeScreen === 'Pharmacy' ? <PharmacyWorkspace /> : null}
           {activeScreen === 'Theatre' ? <TheatreWorkspace /> : null}
           {activeScreen === 'Maternity' ? <MaternityServiceLine /> : null}
           {activeScreen === 'ICU' ? <IpdModule initialWardType="icu" /> : null}
@@ -272,11 +340,17 @@ function App() {
           {activeScreen === 'Hospital Control Center' ? <HospitalControlCenter /> : null}
           {activeScreen !== 'Patient Search' &&
           activeScreen !== 'Register Patient' &&
+          activeScreen !== 'Patient Timeline' &&
           activeScreen !== 'OPD Check-In' &&
           activeScreen !== 'Triage Queue' &&
+          activeScreen !== 'OPD Patients' &&
           activeScreen !== 'Doctor Queue' &&
+          activeScreen !== 'Lab Dashboard' &&
           activeScreen !== 'Laboratory' &&
+          activeScreen !== 'Lab Patients' &&
+          activeScreen !== 'Imaging Dashboard' &&
           activeScreen !== 'Radiology' &&
+          activeScreen !== 'Imaging Patients' &&
           activeScreen !== 'Results Inbox' &&
           activeScreen !== 'Appointments' &&
           activeScreen !== 'Referrals' &&
@@ -288,8 +362,14 @@ function App() {
           activeScreen !== 'Worklists' &&
           activeScreen !== 'Notifications' &&
           activeScreen !== 'Inpatient (IPD)' &&
+          activeScreen !== 'Nursing' &&
+          activeScreen !== 'IPD Patients' &&
           activeScreen !== 'Emergency' &&
+          activeScreen !== 'ED Patients' &&
           activeScreen !== 'Clinical Reports' &&
+          activeScreen !== 'Executive Analytics' &&
+          activeScreen !== 'Clinical Orders' &&
+          activeScreen !== 'Pharmacy' &&
           activeScreen !== 'Theatre' &&
           activeScreen !== 'Maternity' &&
           activeScreen !== 'ICU' &&
@@ -316,8 +396,25 @@ function LoginScreen(props: {
 }) {
   const { data: catalog } = useClinicalCatalog()
   const brand = resolveHospitalBranding(catalog)
-  const [email, setEmail] = useState(import.meta.env.DEV ? 'admin@demo.afyasasa.local' : '')
+
+  useEffect(() => {
+    if (HIDE_TENANT_SELECTOR && props.tenant !== DEFAULT_TENANT) {
+      props.setTenant(DEFAULT_TENANT)
+    }
+  }, [props.tenant, props.setTenant])
+
+  const initialResetToken =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('resetToken')
+      : null
+  const [mode, setMode] = useState<'login' | 'forgot' | 'reset'>(
+    initialResetToken ? 'reset' : 'login',
+  )
+  const [resetToken, setResetToken] = useState(initialResetToken ?? '')
+  const [newPassword, setNewPassword] = useState('')
+  const [email, setEmail] = useState(import.meta.env.DEV ? 'it@jalaram.co.ke' : '')
   const [password, setPassword] = useState('')
+  const [info, setInfo] = useState<string | null>(null)
   const setSession = useAuthStore((state) => state.setSession)
   const mutation = useMutation({
     mutationFn: async () => {
@@ -333,6 +430,33 @@ function LoginScreen(props: {
     },
   })
 
+  const forgotMutation = useMutation({
+    mutationFn: async () => {
+      const result = await apiRequest<{ message: string; resetToken?: string }>(
+        '/auth/forgot-password',
+        { method: 'POST', body: JSON.stringify({ email }) },
+      )
+      if (result.resetToken) {
+        setInfo(`${result.message} Dev token: ${result.resetToken}`)
+      } else {
+        setInfo(result.message)
+      }
+    },
+  })
+
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token: resetToken, newPassword }),
+      })
+      setInfo('Password updated. Sign in with your new password.')
+      setMode('login')
+      setPassword('')
+      setNewPassword('')
+    },
+  })
+
   return (
     <div
       className="flex min-h-screen items-center justify-center p-6"
@@ -342,12 +466,46 @@ function LoginScreen(props: {
         className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
         onSubmit={(event) => {
           event.preventDefault()
+          if (mode === 'forgot') {
+            forgotMutation.mutate()
+            return
+          }
+          if (mode === 'reset') {
+            resetMutation.mutate()
+            return
+          }
           mutation.mutate()
         }}
       >
         <div className="mb-8">
           <HospitalBrandMark showFacility={false} />
         </div>
+        {mode === 'reset' ? (
+          <>
+            <label className="mb-4 block">
+              <span className="text-sm font-semibold text-slate-700">Reset token</span>
+              <input
+                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm"
+                value={resetToken}
+                onChange={(event) => setResetToken(event.target.value)}
+              />
+            </label>
+            <label className="mb-6 block">
+              <span className="text-sm font-semibold text-slate-700">New password</span>
+              <div className="mt-2">
+                <PasswordInput
+                  className="rounded-xl border-slate-300 px-4 py-3"
+                  placeholder="Enter new password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+            </label>
+          </>
+        ) : (
+          <>
+        {!HIDE_TENANT_SELECTOR ? (
         <label className="mb-4 block">
           <span className="text-sm font-semibold text-slate-700">Hospital code</span>
           <input
@@ -356,6 +514,7 @@ function LoginScreen(props: {
             onChange={(event) => props.setTenant(event.target.value)}
           />
         </label>
+        ) : null}
         <label className="mb-4 block">
           <span className="text-sm font-semibold text-slate-700">Email</span>
           <input
@@ -365,26 +524,71 @@ function LoginScreen(props: {
             onChange={(event) => setEmail(event.target.value)}
           />
         </label>
+        {mode === 'login' ? (
         <label className="mb-6 block">
           <span className="text-sm font-semibold text-slate-700">Password</span>
-          <input
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          <div className="mt-2">
+            <PasswordInput
+              className="rounded-xl border-slate-300 px-4 py-3"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
         </label>
-        {mutation.error ? (
+        ) : null}
+          </>
+        )}
+        {info ? (
+          <p className="mb-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800">{info}</p>
+        ) : null}
+        {(mutation.error || forgotMutation.error || resetMutation.error) ? (
           <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {mutation.error.message}
+            {(mutation.error ?? forgotMutation.error ?? resetMutation.error)?.message}
           </p>
         ) : null}
         <button
           className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || forgotMutation.isPending || resetMutation.isPending}
         >
-          {mutation.isPending ? 'Signing in...' : 'Sign in'}
+          {mode === 'forgot'
+            ? forgotMutation.isPending
+              ? 'Sending…'
+              : 'Send reset link'
+            : mode === 'reset'
+              ? resetMutation.isPending
+                ? 'Updating…'
+                : 'Set new password'
+              : mutation.isPending
+                ? 'Signing in...'
+                : 'Sign in'}
         </button>
+        <div className="mt-4 text-center text-sm">
+          {mode === 'login' ? (
+            <button
+              type="button"
+              className="font-semibold text-teal-700 hover:underline"
+              onClick={() => {
+                setMode('forgot')
+                setInfo(null)
+              }}
+            >
+              Forgot password?
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="font-semibold text-teal-700 hover:underline"
+              onClick={() => {
+                setMode('login')
+                setInfo(null)
+              }}
+            >
+              Back to sign in
+            </button>
+          )}
+        </div>
       </form>
     </div>
   )
@@ -400,12 +604,17 @@ function ForcedPasswordNotice() {
 }
 
 function ForcedPasswordChangeScreen() {
-  const clearSession = useAuthStore((state) => state.clearSession)
+  const setSession = useAuthStore((state) => state.setSession)
   const [message, setMessage] = useState<string | null>(null)
   const mutation = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
-      return apiRequest<{ changed: boolean }>('/auth/change-password', {
+      return apiRequest<{
+        changed: boolean
+        accessToken: string
+        refreshToken: string
+        user: NonNullable<ReturnType<typeof useAuthStore.getState>['user']>
+      }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({
           currentPassword: form.get('currentPassword'),
@@ -413,9 +622,13 @@ function ForcedPasswordChangeScreen() {
         }),
       })
     },
-    onSuccess: () => {
-      setMessage('Password changed. Please sign in again.')
-      setTimeout(clearSession, 1200)
+    onSuccess: (result) => {
+      setSession({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+      })
+      setMessage('Password updated. Continuing to your workspace…')
     },
   })
 
@@ -487,11 +700,11 @@ function NotificationCenter() {
   }, [])
 
   return (
-    <div className="fixed right-4 top-4 z-50 w-full max-w-sm space-y-3">
+    <div className="pointer-events-none fixed right-3 top-3 z-50 flex w-auto max-w-[min(100vw-1.5rem,24rem)] flex-col gap-3 sm:right-4 sm:top-4">
       {notifications.map((notification) => (
         <div
           key={notification.id}
-          className={`rounded-2xl border p-4 shadow-2xl ${
+          className={`pointer-events-auto rounded-2xl border p-4 shadow-2xl ${
             notification.severity === 'critical'
               ? 'border-red-200 bg-red-50 text-red-900'
               : notification.severity === 'warning'
@@ -709,7 +922,7 @@ function PatientProfileDrawer({
   })
 
   return (
-    <div className="fixed inset-y-0 right-0 z-20 w-full max-w-2xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl">
+    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-2xl overflow-y-auto overscroll-contain border-l border-slate-200 bg-white p-4 shadow-2xl sm:p-6">
       {isLoading || !patient ? (
         <p className="text-slate-500">Loading patient profile...</p>
       ) : (

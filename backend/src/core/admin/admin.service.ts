@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { In, MoreThanOrEqual, Repository } from 'typeorm';
+import { In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../../common/request-context';
 import {
   AuditLog,
@@ -17,6 +17,7 @@ import {
   User,
   UserDepartment,
   UserRole,
+  RefreshToken,
 } from '../core.entities';
 import {
   AssignRolesDto,
@@ -29,6 +30,7 @@ import {
   UpdateUserDto,
 } from './admin.dto';
 import { RealtimeService } from '../../realtime/realtime.service';
+import { TokenRevocationService } from '../auth/token-revocation.service';
 
 @Injectable()
 export class AdminService {
@@ -51,12 +53,22 @@ export class AdminService {
     private readonly departments: Repository<Department>,
     @InjectRepository(UserDepartment)
     private readonly userDepartments: Repository<UserDepartment>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokens: Repository<RefreshToken>,
     private readonly realtime: RealtimeService,
+    private readonly tokenRevocation: TokenRevocationService,
   ) {}
 
   async listUsers() {
     const users = await this.users.find({ order: { createdAt: 'DESC' } });
     return Promise.all(users.map((user) => this.toUserResponse(user)));
+  }
+
+  listUserRoleOptions() {
+    return this.roles.find({
+      select: { id: true, name: true, label: true },
+      order: { label: 'ASC' },
+    });
   }
 
   async createUser(dto: CreateUserDto, request: RequestContext) {
@@ -72,6 +84,7 @@ export class AdminService {
         lastName: dto.lastName,
         email: dto.email.toLowerCase(),
         phone: dto.phone ?? null,
+        specialisation: dto.specialisation?.trim() || null,
         passwordHash: await bcrypt.hash(dto.temporaryPassword, 12),
         active: true,
         forcePasswordChange: true,
@@ -89,19 +102,21 @@ export class AdminService {
 
   async updateUser(id: string, dto: UpdateUserDto, request: RequestContext) {
     await this.getUser(id);
-    await this.users.update(id, {
-      employeeNo: dto.employeeNo,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      email: dto.email?.toLowerCase(),
-      phone: dto.phone,
-      active: dto.active,
-      passwordHash: dto.temporaryPassword
-        ? await bcrypt.hash(dto.temporaryPassword, 12)
-        : undefined,
-      forcePasswordChange: dto.temporaryPassword ? true : undefined,
-      updatedBy: request.user?.sub ?? null,
-    });
+    const patch: Partial<User> = { updatedBy: request.user?.sub ?? null };
+    if (dto.employeeNo !== undefined) patch.employeeNo = dto.employeeNo;
+    if (dto.firstName !== undefined) patch.firstName = dto.firstName;
+    if (dto.lastName !== undefined) patch.lastName = dto.lastName;
+    if (dto.email !== undefined) patch.email = dto.email.toLowerCase();
+    if (dto.phone !== undefined) patch.phone = dto.phone ?? null;
+    if (dto.specialisation !== undefined) {
+      patch.specialisation = dto.specialisation?.trim() || null;
+    }
+    if (dto.active !== undefined) patch.active = dto.active;
+    if (dto.temporaryPassword) {
+      patch.passwordHash = await bcrypt.hash(dto.temporaryPassword, 12);
+      patch.forcePasswordChange = true;
+    }
+    await this.users.update(id, patch);
     if (dto.roleIds) {
       await this.replaceUserRoles(id, dto.roleIds, request);
     }
@@ -111,6 +126,28 @@ export class AdminService {
   async setUserActive(id: string, active: boolean) {
     await this.getUser(id);
     await this.users.update(id, { active });
+    if (!active) {
+      await this.tokenRevocation.invalidateUser(id);
+      await this.revokeRefreshTokensForUsers([id]);
+    }
+    return this.toUserResponse(await this.getUser(id));
+  }
+
+  async resetUserPassword(
+    id: string,
+    temporaryPassword: string,
+    request: RequestContext,
+  ) {
+    await this.getUser(id);
+    await this.users.update(id, {
+      passwordHash: await bcrypt.hash(temporaryPassword, 12),
+      forcePasswordChange: true,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      updatedBy: request.user?.sub ?? null,
+    });
+    await this.tokenRevocation.invalidateUser(id);
+    await this.revokeRefreshTokensForUsers([id]);
     return this.toUserResponse(await this.getUser(id));
   }
 
@@ -162,6 +199,16 @@ export class AdminService {
   ) {
     await this.getRole(id);
     await this.replaceRolePermissions(id, dto.permissionIds, request);
+    const affected = await this.userRoles.find({
+      where: { role: { id } },
+      relations: { user: true },
+    });
+    await this.tokenRevocation.invalidateUsers(
+      affected.map((entry) => entry.user.id),
+    );
+    await this.revokeRefreshTokensForUsers(
+      affected.map((entry) => entry.user.id),
+    );
     return this.toRoleResponse(await this.getRole(id));
   }
 
@@ -345,6 +392,125 @@ export class AdminService {
     return { items, meta: { page, pageSize, total } };
   }
 
+  async exportAuditLogsCsv(params: { action?: string; recordType?: string } = {}) {
+    const { items } = await this.listAuditLogs({
+      ...params,
+      page: 1,
+      pageSize: 1000,
+    });
+    const header = [
+      'id',
+      'createdAt',
+      'userId',
+      'action',
+      'recordType',
+      'recordId',
+      'endpoint',
+      'httpCode',
+      'beforeJson',
+      'afterJson',
+    ];
+    const rows = items.map((item) =>
+      [
+        item.id,
+        item.createdAt?.toISOString?.() ?? item.createdAt,
+        item.userId ?? '',
+        item.action,
+        item.recordType ?? '',
+        item.recordId ?? '',
+        item.endpoint ?? '',
+        item.httpCode ?? '',
+        JSON.stringify(item.beforeJson ?? null),
+        JSON.stringify(item.afterJson ?? null),
+      ]
+        .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+        .join(','),
+    );
+    return [header.join(','), ...rows].join('\n');
+  }
+
+  async importAuditLogsCsv(csv: string) {
+    const lines = csv
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length < 2) {
+      return { imported: 0, skipped: 0, errors: ['CSV empty or missing header'] };
+    }
+    // Archive-style import: store as a single audit event with payload summary (append-only safe)
+    const bodyRows = lines.slice(1).length;
+    await this.auditLogs.save(
+      this.auditLogs.create({
+        userId: null,
+        action: 'import',
+        recordType: 'audit_logs',
+        recordId: null,
+        beforeJson: null,
+        afterJson: {
+          source: 'csv_import',
+          rowCount: bodyRows,
+          preview: lines.slice(0, 6),
+        },
+        ip: null,
+        userAgent: null,
+        sessionId: null,
+        endpoint: '/admin/audit-logs/import',
+        httpCode: 200,
+        durationMs: 0,
+      }),
+    );
+    return { imported: 1, skipped: bodyRows, note: 'Append-only store — CSV archived as import event' };
+  }
+
+  async phiAccessReport(params: {
+    patientId?: string;
+    userId?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = Math.max(params.page ?? 1, 1);
+    const pageSize = Math.min(Math.max(params.pageSize ?? 25, 1), 100);
+
+    const qb = this.auditLogs
+      .createQueryBuilder('log')
+      .where(`log.action = 'read'`)
+      .andWhere(
+        `(log.endpoint ILIKE '%/patients/%' OR log.record_type = 'patients')`,
+      )
+      .orderBy('log.created_at', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    if (params.userId) {
+      qb.andWhere('log.user_id = :userId', { userId: params.userId });
+    }
+    if (params.patientId) {
+      qb.andWhere(
+        `(log.record_id = :patientId OR log.endpoint ILIKE :patientPath)`,
+        {
+          patientId: params.patientId,
+          patientPath: `%/patients/${params.patientId}%`,
+        },
+      );
+    }
+    if (params.from) {
+      qb.andWhere('log.created_at >= :from', { from: new Date(params.from) });
+    }
+    if (params.to) {
+      qb.andWhere('log.created_at <= :to', { to: new Date(params.to) });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    return {
+      items,
+      meta: { page, pageSize, total },
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   listDepartments() {
     return this.departments.find({ order: { name: 'ASC' } });
   }
@@ -412,6 +578,16 @@ export class AdminService {
         }),
       ),
     );
+    await this.tokenRevocation.invalidateUser(userId);
+    await this.revokeRefreshTokensForUsers([userId]);
+  }
+
+  private async revokeRefreshTokensForUsers(userIds: string[]) {
+    if (!userIds.length) return;
+    await this.refreshTokens.update(
+      { userId: In(userIds), revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
   }
 
   private async replaceRolePermissions(
@@ -453,6 +629,7 @@ export class AdminService {
       lastName: user.lastName,
       email: user.email,
       phone: user.phone,
+      specialisation: user.specialisation,
       active: user.active,
       forcePasswordChange: user.forcePasswordChange,
       lockedUntil: user.lockedUntil,

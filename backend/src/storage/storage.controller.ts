@@ -1,6 +1,7 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../core/auth/auth.decorators';
+import type { RequestContext } from '../common/request-context';
 import { PresignDownloadDto, PresignUploadDto } from './storage.dto';
 import { StorageService } from './storage.service';
 
@@ -12,13 +13,16 @@ export class StorageController {
 
   @Post('presign-upload')
   @RequirePermissions('files:upload')
-  presignUpload(@Body() dto: PresignUploadDto) {
-    return this.storageService.presignUpload(dto);
+  presignUpload(@Body() dto: PresignUploadDto, @Req() request: RequestContext) {
+    return this.storageService.presignUpload({
+      ...dto,
+      tenantCode: request.tenant?.code,
+    });
   }
 
   @Post('presign-download')
   @RequirePermissions('files:download')
-  presignDownload(@Body() dto: PresignDownloadDto) {
-    return this.storageService.presignDownload(dto.key);
+  presignDownload(@Body() dto: PresignDownloadDto, @Req() request: RequestContext) {
+    return this.storageService.presignDownload(dto.key, request.tenant?.code);
   }
 }

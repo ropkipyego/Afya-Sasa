@@ -1,8 +1,22 @@
-import { Controller, Get, Param, Patch, Query, Req } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { ArrayNotEmpty, IsArray, IsString, MinLength } from 'class-validator';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import { NotificationsService } from './notifications.service';
+
+class BulkSmsDto {
+  @ApiProperty({ type: [String], example: ['254712345678', '0712345678'] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  mobiles!: string[];
+
+  @ApiProperty({ example: 'Dear patient, your appointment is tomorrow at 9am. — Jalaram Hospital' })
+  @IsString()
+  @MinLength(1)
+  message!: string;
+}
 
 @ApiBearerAuth()
 @ApiTags('Notifications')
@@ -41,5 +55,23 @@ export class NotificationsController {
   @RequirePermissions('notifications:read')
   markAllRead(@Req() request: RequestContext) {
     return this.notificationsService.markAllRead(request.user!.sub);
+  }
+
+  @Post('sms/bulk')
+  @RequirePermissions('settings:manage')
+  sendBulkSms(@Body() dto: BulkSmsDto, @Req() request: RequestContext) {
+    return this.notificationsService.sendBulkSms({
+      mobiles: dto.mobiles,
+      message: dto.message,
+      createdBy: request.user?.sub ?? null,
+    });
+  }
+
+  @Get('sms/logs')
+  @RequirePermissions('settings:manage')
+  smsLogs(@Query('limit') limit?: string) {
+    return this.notificationsService.listRecentSmsLogs(
+      limit ? Number(limit) : 50,
+    );
   }
 }

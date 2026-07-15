@@ -82,3 +82,9 @@ export class CreateRadiologyAttachmentDto {
   @IsString()
   storagePath!: string;
 }
+
+export class ImportRadiologyCatalogDto {
+  @ApiProperty({ description: 'CSV content with header row' })
+  @IsString()
+  csv!: string;
+}

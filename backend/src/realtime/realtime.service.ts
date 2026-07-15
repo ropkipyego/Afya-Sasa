@@ -11,7 +11,8 @@ export type RealtimeEvent =
   | 'lab.updated'
   | 'radiology.updated'
   | 'triage.updated'
-  | 'notification.created';
+  | 'notification.created'
+  | 'emergency.alert';
 
 @Injectable()
 export class RealtimeService {

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { RealtimeService } from '../realtime/realtime.service';
 import { PatientAllergy, PatientChronicCondition } from '../patients/patient.entities';
 import { Patient } from '../patients/patient.entities';
 import { Encounter } from '../opd/opd.entities';
@@ -46,6 +47,7 @@ export class EmergencyService {
     @InjectRepository(EmergencyObservationLog)
     private readonly observationLogs: Repository<EmergencyObservationLog>,
     @InjectRepository(CriticalAlert) private readonly alerts: Repository<CriticalAlert>,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async register(dto: CreateEmergencyEncounterDto, request: RequestContext) {
@@ -204,6 +206,17 @@ export class EmergencyService {
         }),
       );
     }
+    if (dto.triageCategory === 'red' || dto.triageCategory === 'orange') {
+      await this.createAlert(
+        {
+          encounterId: emergency.encounter.id,
+          type: 'critical_vitals',
+          severity: 'critical',
+          message: `${dto.triageCategory.toUpperCase()} triage — immediate clinician attention required.`,
+        },
+        request,
+      );
+    }
     return this.workspace(id);
   }
 
@@ -318,7 +331,7 @@ export class EmergencyService {
   async createAlert(dto: CreateCriticalAlertDto, request: RequestContext) {
     const encounter = await this.encounters.findOne({ where: { id: dto.encounterId } });
     if (!encounter) throw new NotFoundException('Encounter not found');
-    return this.alerts.save(
+    const alert = await this.alerts.save(
       this.alerts.create({
         encounter,
         type: dto.type,
@@ -332,6 +345,13 @@ export class EmergencyService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
+    this.realtime.publish(request.tenant?.code ?? 'demo', 'emergency.alert', {
+      alertId: alert.id,
+      severity: alert.severity,
+      message: alert.message,
+      encounterId: encounter.id,
+    });
+    return alert;
   }
 
   activeAlerts() {
@@ -352,7 +372,10 @@ export class EmergencyService {
   }
 
   private async getEmergency(id: string) {
-    const emergency = await this.emergencies.findOne({ where: { id } });
+    const emergency = await this.emergencies.findOne({
+      where: { id },
+      relations: { encounter: true, bay: true },
+    });
     if (!emergency) throw new NotFoundException('Emergency encounter not found');
     return emergency;
   }

@@ -100,12 +100,12 @@ Password: `ChangeMe123!`
 
 | Role | Email |
 |---|---|
-| Administrator | `admin@demo.afyasasa.local` |
-| Doctor | `doctor@demo.afyasasa.local` |
-| Nurse | `nurse@demo.afyasasa.local` |
-| Records Officer | `records@demo.afyasasa.local` |
-| Lab Technician | `lab@demo.afyasasa.local` |
-| Radiology Technician | `radiology@demo.afyasasa.local` |
+| Administrator | `it@jalaram.co.ke` |
+| Doctor | `doctor@jalaram.co.ke` |
+| Nurse | `nurse@jalaram.co.ke` |
+| Records Officer | `records@jalaram.co.ke` |
+| Lab Technician | `lab@jalaram.co.ke` |
+| Radiology Technician | `radiology@jalaram.co.ke` |
 
 The admin account is forced to change password on first login.
 

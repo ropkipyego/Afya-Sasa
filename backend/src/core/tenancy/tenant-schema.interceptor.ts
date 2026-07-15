@@ -8,6 +8,7 @@ import {
 import { DataSource } from 'typeorm';
 import { Observable, from, switchMap } from 'rxjs';
 import type { RequestContext } from '../../common/request-context';
+import { getTenantSchema } from './tenant-context.storage';
 
 const SAFE_SCHEMA = /^[a-z][a-z0-9_]*$/i;
 
@@ -17,7 +18,7 @@ export class TenantSchemaInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<RequestContext>();
-    const schema = request.tenant?.schemaName ?? 'demo';
+    const schema = request.tenant?.schemaName ?? getTenantSchema();
 
     if (!SAFE_SCHEMA.test(schema)) {
       throw new BadRequestException('Invalid tenant schema');

@@ -12,6 +12,8 @@ import { IsNull, Repository } from 'typeorm';
 import { PasswordResetToken, RefreshToken, User } from '../core.entities';
 import { UsersService } from '../users/users.service';
 import { LoginAuditService } from './login-audit.service';
+import { MailService } from '../mail/mail.service';
+import { TokenRevocationService } from './token-revocation.service';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +21,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly usersService: UsersService,
     private readonly loginAudit: LoginAuditService,
+    private readonly mailService: MailService,
+    private readonly tokenRevocation: TokenRevocationService,
     @InjectRepository(RefreshToken)
     private readonly refreshTokens: Repository<RefreshToken>,
     @InjectRepository(User)
@@ -102,6 +106,14 @@ export class AuthService {
     };
   }
 
+  async getMe(userId: string) {
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user || !user.active) {
+      throw new UnauthorizedException('User not found');
+    }
+    return this.toProfile(user);
+  }
+
   async refresh(rawRefreshToken: string) {
     const tokenHash = this.hashToken(rawRefreshToken);
     const token = await this.refreshTokens.findOne({
@@ -117,10 +129,19 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    await this.refreshTokens.update({ id: token.id }, { revokedAt: new Date() });
+    const refreshToken = await this.createRefreshToken(
+      user.id,
+      token.device ?? undefined,
+      token.ip ?? undefined,
+    );
+
     return {
       accessToken: await this.signAccessToken(user),
+      refreshToken,
       tokenType: 'Bearer',
       expiresIn: 15 * 60,
+      user: await this.toProfile(user),
     };
   }
 
@@ -150,7 +171,7 @@ export class AuthService {
     return { revoked: true };
   }
 
-  async requestPasswordReset(email: string, ip?: string) {
+  async requestPasswordReset(email: string, ip?: string, tenantCode = 'demo') {
     const user = await this.usersService.findByEmail(email);
     if (user) {
       const rawToken = randomBytes(32).toString('base64url');
@@ -169,11 +190,16 @@ export class AuthService {
         success: true,
         ip,
       });
+      const emailed = await this.mailService.sendPasswordReset({
+        email: user.email,
+        resetToken: rawToken,
+        tenantCode,
+      });
       return {
         message:
           'If an account exists for this email, password reset instructions have been sent.',
-        // Dev-only helper — remove or gate behind NODE_ENV in production email flow
-        resetToken: process.env.NODE_ENV === 'production' ? undefined : rawToken,
+        resetToken:
+          !emailed && process.env.NODE_ENV !== 'production' ? rawToken : undefined,
       };
     }
 
@@ -226,7 +252,9 @@ export class AuthService {
     userId: string,
     currentPassword: string,
     newPassword: string,
-  ): Promise<{ changed: boolean }> {
+    device?: string,
+    ip?: string,
+  ) {
     const user = await this.users.findOne({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -244,9 +272,19 @@ export class AuthService {
       passwordHash: await bcrypt.hash(newPassword, 12),
       forcePasswordChange: false,
     });
+    await this.tokenRevocation.invalidateUser(userId);
     await this.logoutAll(userId);
 
-    return { changed: true };
+    const updated = await this.users.findOneOrFail({ where: { id: userId } });
+    const accessToken = await this.signAccessToken(updated);
+    const refreshToken = await this.createRefreshToken(userId, device, ip);
+
+    return {
+      changed: true,
+      accessToken,
+      refreshToken,
+      user: await this.toProfile(updated),
+    };
   }
 
   private async signAccessToken(user: User): Promise<string> {

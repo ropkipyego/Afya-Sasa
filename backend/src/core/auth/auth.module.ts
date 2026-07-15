@@ -4,14 +4,17 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoginEvent, PasswordResetToken, RefreshToken, User } from '../core.entities';
 import { UsersModule } from '../users/users.module';
+import { MailModule } from '../mail/mail.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LoginAuditService } from './login-audit.service';
+import { TokenRevocationService } from './token-revocation.service';
 
 @Module({
   imports: [
     ConfigModule,
     UsersModule,
+    MailModule,
     TypeOrmModule.forFeature([RefreshToken, User, LoginEvent, PasswordResetToken]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -23,7 +26,7 @@ import { LoginAuditService } from './login-audit.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LoginAuditService],
-  exports: [AuthService, JwtModule, LoginAuditService],
+  providers: [AuthService, LoginAuditService, TokenRevocationService],
+  exports: [AuthService, JwtModule, LoginAuditService, TokenRevocationService],
 })
 export class AuthModule {}

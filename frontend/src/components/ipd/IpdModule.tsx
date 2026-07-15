@@ -20,8 +20,16 @@ type IpdView =
 
 type WardSummary = { id: string; type: string }
 
-export function IpdModule({ initialWardType }: { initialWardType?: 'icu' | 'hdu' } = {}) {
-  const [view, setView] = useState<IpdView>({ screen: 'dashboard' })
+export function IpdModule({
+  initialWardType,
+  initialScreen,
+}: {
+  initialWardType?: 'icu' | 'hdu'
+  initialScreen?: 'dashboard' | 'nursing'
+} = {}) {
+  const [view, setView] = useState<IpdView>({
+    screen: initialScreen === 'nursing' ? 'nursing' : 'dashboard',
+  })
   const [wardJumpDone, setWardJumpDone] = useState(false)
 
   const { data: dashboard } = useQuery({

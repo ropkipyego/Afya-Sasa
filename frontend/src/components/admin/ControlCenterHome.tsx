@@ -7,15 +7,24 @@ import {
   controlCenterCategories,
   filterControlCenterCards,
 } from './control-center-sections'
+import { canAccessControlCenterSection } from '../../lib/control-center-permissions'
 
 export function ControlCenterHome({
+  permissions,
   onOpen,
 }: {
+  permissions: string[]
   onOpen: (section: Exclude<ControlCenterSection, 'home'>) => void
 }) {
   const [query, setQuery] = useState('')
 
-  const cards = useMemo(() => filterControlCenterCards(query), [query])
+  const cards = useMemo(
+    () =>
+      filterControlCenterCards(query).filter((card) =>
+        canAccessControlCenterSection(permissions, card.id),
+      ),
+    [permissions, query],
+  )
 
   return (
     <div className="space-y-8">

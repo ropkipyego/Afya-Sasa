@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { ChevronRight, Home } from 'lucide-react'
-import { PageHeader } from '../ui'
+import { Alert, PageHeader } from '../ui'
 import { ControlCenterHome } from './ControlCenterHome'
 import { findControlCenterCard } from './control-center-sections'
+import { canAccessControlCenterSection } from '../../lib/control-center-permissions'
+import { useAuthStore } from '../../lib/auth-store'
 import { HospitalProfilePanel } from './panels/HospitalProfilePanel'
 import { ClinicalConfigPanel } from './panels/ClinicalConfigPanel'
 import { SystemHealthPanel } from './panels/SystemHealthPanel'
@@ -53,7 +55,10 @@ export type ControlCenterSection =
 
 export function HospitalControlCenter() {
   const [section, setSection] = useState<ControlCenterSection>('home')
+  const permissions = useAuthStore((state) => state.user?.permissions ?? [])
   const activeCard = section === 'home' ? null : findControlCenterCard(section)
+  const sectionAllowed =
+    section === 'home' || canAccessControlCenterSection(permissions, section)
 
   const openSection = (next: ControlCenterSection) => setSection(next)
   const goHome = () => setSection('home')
@@ -86,7 +91,12 @@ export function HospitalControlCenter() {
       </nav>
 
       {section === 'home' ? (
-        <ControlCenterHome onOpen={openSection} />
+        <ControlCenterHome permissions={permissions} onOpen={openSection} />
+      ) : !sectionAllowed ? (
+        <Alert tone="warning">
+          You do not have permission to open this configuration area. Contact your hospital
+          administrator if you need access.
+        </Alert>
       ) : (
         <div className="space-y-4">
           {activeCard ? (

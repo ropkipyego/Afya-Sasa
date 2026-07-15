@@ -29,7 +29,7 @@ AfyaSasa has a **broad clinical feature set** on a **single-tenant demo schema**
 | Soft deletes (`deleted_at`) | Done — `SoftDeleteClinicalEntity` for clinical data |
 | Foreign keys | Mostly done; **refresh_tokens FK added** in enterprise migration |
 | Search indexes | **Expanded** — MRN, phone, name+DOB, identifiers, encounter/admission/lab status |
-| Normalization | Good module separation; tenant isolation not yet dynamic |
+| Normalization | Good module separation; **dynamic schema via search_path** |
 | Audit clinical actions | Interceptor logs HTTP; **before/after JSON still TODO** |
 
 **Next:** Schema-per-tenant provisioning CLI; `tenant_id` on audit_logs; entity snapshot on mutations.
@@ -54,7 +54,7 @@ AfyaSasa has a **broad clinical feature set** on a **single-tenant demo schema**
 | MinIO/S3 presigned upload/download | Done — `StorageService` |
 | Metadata fields | Done — `clinical_documents`, `lab_attachments`, `hospital_documents` |
 | Unified document registry | **Partial** — multiple attachment tables; consolidate in Phase 3 |
-| Tenant-prefixed object keys | **TODO** |
+| Tenant-prefixed object keys | **Done** — presign upload/download prefixes `{tenantCode}/` |
 
 ### 4. Email-based authentication
 
@@ -85,7 +85,7 @@ AfyaSasa has a **broad clinical feature set** on a **single-tenant demo schema**
 | Filtered lists per module | **Done (API)** — `GET /worklists/:module/:listKey` |
 | Search, sort, pagination | Done — `PaginationQueryDto` |
 | Export | **TODO** — CSV export on worklist endpoints |
-| Frontend dashboards | **TODO** — wire UI to `/worklists` |
+| Frontend dashboards | **Done** — Reports → Worklists + Control Center tenant provision |
 
 **Catalog:** `GET /worklists` returns available list keys per module.
 
@@ -188,19 +188,50 @@ AfyaSasa has a **broad clinical feature set** on a **single-tenant demo schema**
 
 ## Recommended implementation phases
 
-### Phase A — Multi-tenancy (blocker for multi-hospital)
+### Phase A — Multi-tenancy (delivered)
 
-1. Tenant provisioning: clone `demo` schema → `{tenant_code}` per hospital
-2. Remove hardcoded `schema: 'demo'` from entities (dynamic schema or search_path only)
-3. Tenant-prefixed S3 keys: `{tenantCode}/patients/{id}/...`
-4. Platform admin API for tenant lifecycle
+**Migration:** `1766800000000-PhaseATenantProvisioning.ts`
 
-### Phase B — Compliance & auth hardening
+- `clone_tenant_schema(source, dest)` — PostgreSQL function to clone demo DDL into a new schema
+- `seed_tenant_rbac(source, dest)` — copies roles, permissions, catalogs, notification templates
+- Permission: `platform:tenants` (administrator on demo)
 
-1. Email provider for password reset (SMTP / SendGrid)
-2. Audit entity snapshots on PATCH/POST clinical mutations
-3. PHI access report from audit_logs
-4. JWT invalidation on role change (Redis denylist)
+**API:**
+
+```
+GET  /platform/tenants
+POST /platform/tenants/provision
+PATCH /platform/tenants/:id/status
+```
+
+**Runtime changes:**
+
+- Removed hardcoded `schema: 'demo'` from TypeORM entities — queries resolve via `SET LOCAL search_path`
+- S3 keys prefixed with `{tenantCode}/` on presign upload/download
+- Super Admin panel in Control Center for tenant list + provision form
+
+### Phase A — Multi-tenancy (remaining)
+
+1. ~~Tenant provisioning~~ **Done**
+2. ~~Remove hardcoded `schema: 'demo'`~~ **Done** (search_path + unqualified entities)
+3. ~~Tenant-prefixed S3 keys~~ **Done**
+4. ~~Platform admin API~~ **Done**
+5. Provisioned-tenant migration sync (new migrations auto-applied to all tenant schemas) — **TODO**
+6. Cross-tenant platform user (optional) — **TODO**
+
+### Phase B — Compliance & auth hardening (delivered)
+
+1. **SMTP password reset** — `MailService` sends reset links when `SMTP_HOST` is configured; dev fallback token when not
+2. **Audit snapshots** — mutations log sanitized `afterJson` on POST/PATCH/PUT
+3. **PHI access report** — `GET /admin/phi-access-report` + Control Center audit panel section
+4. **JWT invalidation** — Redis denylist on role/permission change and user deactivation (`TokenRevocationService`)
+
+**Login UI:** Forgot password + reset token flow on sign-in screen.
+
+### Phase B — remaining
+
+- Before/after JSON with entity fetch for updates (true diff)
+- Export PHI report to CSV
 
 ### Phase C — MPI & worklist UX
 
@@ -233,6 +264,9 @@ GET  /worklists/:module/:listKey?page=&pageSize=&q=&sortDir=
 POST /auth/forgot-password                   — { email }
 POST /auth/reset-password                    — { token, newPassword }
 POST /patients/duplicates                    — enhanced MPI check
+GET  /platform/tenants                       — list hospitals (platform:tenants)
+POST /platform/tenants/provision             — clone schema + create admin
+PATCH /platform/tenants/:id/status           — { active: boolean }
 ```
 
 **Worklist examples:**

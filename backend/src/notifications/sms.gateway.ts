@@ -6,13 +6,23 @@ export interface SmsSendResult {
   providerMessageId: string | null;
   status: string;
   cost: string | null;
+  recipients?: number;
 }
 
 export interface SmsGateway {
   sendSms(destination: string, text: string): Promise<SmsSendResult>;
+  sendBulkSms?(destinations: string[], text: string): Promise<SmsSendResult>;
 }
 
 export const SMS_GATEWAY = Symbol('SMS_GATEWAY');
+
+function normalizeKenyaMobile(raw: string): string {
+  const digits = raw.replace(/[^\d+]/g, '').replace(/^\+/, '');
+  if (digits.startsWith('254') && digits.length >= 12) return digits;
+  if (digits.startsWith('0') && digits.length === 10) return `254${digits.slice(1)}`;
+  if (digits.startsWith('7') && digits.length === 9) return `254${digits}`;
+  return digits;
+}
 
 @Injectable()
 export class ConfigurableSmsGateway implements SmsGateway {
@@ -20,6 +30,9 @@ export class ConfigurableSmsGateway implements SmsGateway {
 
   async sendSms(destination: string, text: string): Promise<SmsSendResult> {
     const provider = this.config.get<string>('SMS_PROVIDER', 'stub');
+    if (provider === 'celcom_africa' || provider === 'celcom') {
+      return this.sendCelcomAfrica([destination], text);
+    }
     if (provider === 'africas_talking') {
       return this.sendAfricasTalking(destination, text);
     }
@@ -29,16 +42,110 @@ export class ConfigurableSmsGateway implements SmsGateway {
     return this.sendStub(destination, text);
   }
 
+  async sendBulkSms(destinations: string[], text: string): Promise<SmsSendResult> {
+    const provider = this.config.get<string>('SMS_PROVIDER', 'stub');
+    if (provider === 'celcom_africa' || provider === 'celcom') {
+      return this.sendCelcomAfrica(destinations, text);
+    }
+    // Fallback: send one-by-one for other providers
+    let last: SmsSendResult = {
+      provider,
+      providerMessageId: null,
+      status: 'queued',
+      cost: null,
+      recipients: 0,
+    };
+    for (const destination of destinations) {
+      last = await this.sendSms(destination, text);
+    }
+    return { ...last, recipients: destinations.length };
+  }
+
   private async sendStub(
     destination: string,
     text: string,
   ): Promise<SmsSendResult> {
-    const sender = this.config.get<string>('SMS_SENDER_NAME', 'AfyaSasa');
+    const sender = this.config.get<string>('SMS_SENDER_NAME', 'Jalaram');
     return {
       provider: 'stub',
       providerMessageId: `stub-${Date.now()}`,
       status: `queued_by_${sender}_stub_for_${destination}_${text.length}`,
       cost: null,
+      recipients: 1,
+    };
+  }
+
+  /** Celcom Africa ISMS API — https://isms.celcomafrica.com */
+  private async sendCelcomAfrica(
+    destinations: string[],
+    text: string,
+  ): Promise<SmsSendResult> {
+    const apiKey = this.config.get<string>('CELCOM_API_KEY');
+    const partnerId = this.config.get<string>('CELCOM_PARTNER_ID');
+    const shortcode = this.config.get<string>(
+      'CELCOM_SHORTCODE',
+      this.config.get<string>('SMS_SENDER_NAME', 'JALARAM'),
+    );
+    const endpoint = this.config.get<string>(
+      'CELCOM_SMS_URL',
+      'https://isms.celcomafrica.com/api/services/sendsms/',
+    );
+
+    if (!apiKey || !partnerId) {
+      throw new InternalServerErrorException(
+        'Celcom Africa SMS credentials are not configured (CELCOM_API_KEY, CELCOM_PARTNER_ID)',
+      );
+    }
+
+    const mobiles = destinations.map(normalizeKenyaMobile).filter(Boolean);
+    if (!mobiles.length) {
+      throw new InternalServerErrorException('No valid mobile numbers for Celcom Africa SMS');
+    }
+
+    // Celcom accepts comma-separated mobiles for bulk in a single request
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        partnerID: partnerId,
+        apikey: apiKey,
+        mobile: mobiles.join(','),
+        message: text,
+        shortcode,
+        pass_type: 'plain',
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      responses?: Array<{
+        'respose-code'?: number;
+        'response-code'?: number;
+        'response-description'?: string;
+        mobile?: string | number;
+        messageid?: string | number;
+        networkid?: string;
+      }>;
+      message?: string;
+      error?: string;
+    };
+
+    const first = payload.responses?.[0];
+    const code = first?.['respose-code'] ?? first?.['response-code'];
+    if (!response.ok || (code !== undefined && Number(code) !== 200)) {
+      throw new InternalServerErrorException(
+        first?.['response-description'] ??
+          payload.message ??
+          payload.error ??
+          'Celcom Africa SMS request failed',
+      );
+    }
+
+    return {
+      provider: 'celcom_africa',
+      providerMessageId: first?.messageid != null ? String(first.messageid) : null,
+      status: first?.['response-description'] ?? 'Success',
+      cost: null,
+      recipients: mobiles.length,
     };
   }
 
@@ -48,11 +155,11 @@ export class ConfigurableSmsGateway implements SmsGateway {
   ): Promise<SmsSendResult> {
     const username = this.config.get<string>('AFRICAS_TALKING_USERNAME');
     const apiKey = this.config.get<string>('AFRICAS_TALKING_API_KEY');
-    const sender = this.config.get<string>('SMS_SENDER_NAME', 'AfyaSasa');
+    const sender = this.config.get<string>('SMS_SENDER_NAME', 'Jalaram');
 
     if (!username || !apiKey) {
       throw new InternalServerErrorException(
-        'Africa’s Talking SMS credentials are not configured',
+        "Africa's Talking SMS credentials are not configured",
       );
     }
 
@@ -88,7 +195,7 @@ export class ConfigurableSmsGateway implements SmsGateway {
 
     if (!response.ok) {
       throw new InternalServerErrorException(
-        payload.errorMessage ?? 'Africa’s Talking SMS request failed',
+        payload.errorMessage ?? "Africa's Talking SMS request failed",
       );
     }
 
@@ -98,6 +205,7 @@ export class ConfigurableSmsGateway implements SmsGateway {
       providerMessageId: recipient?.messageId ?? null,
       status: recipient?.status ?? 'queued',
       cost: recipient?.cost ?? null,
+      recipients: 1,
     };
   }
 
@@ -153,6 +261,7 @@ export class ConfigurableSmsGateway implements SmsGateway {
       providerMessageId: payload.sid ?? null,
       status: payload.status ?? 'queued',
       cost: payload.price ?? null,
+      recipients: 1,
     };
   }
 }

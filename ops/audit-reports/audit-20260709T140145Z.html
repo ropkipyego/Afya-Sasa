@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html><head><meta charset='utf-8'>
+<title>AfyaSasa System Audit</title>
+<style>
+  @page { margin: 18mm 15mm; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11pt; color: #1e293b; line-height: 1.5; max-width: 900px; margin: 0 auto; padding: 24px; }
+  h1 { color: #0f766e; border-bottom: 3px solid #14b8a6; padding-bottom: 8px; }
+  h2 { color: #334155; margin-top: 28px; }
+  h3 { color: #475569; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 10pt; }
+  th, td { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; }
+  th { background: #f1f5f9; font-weight: 700; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .PASS { color: #047857; font-weight: 700; }
+  .FAIL { color: #b91c1c; font-weight: 700; }
+  .WARN { color: #b45309; font-weight: 700; }
+  .check { margin: 4px 0; }
+  .muted { color: #64748b; font-size: 9pt; }
+  li { margin: 4px 0; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 24px 0; }
+</style></head><body>
+<h1>AfyaSasa Full System Audit Report</h1>
+
+<p>**Generated:** 20260709T140145Z (UTC)</p>
+<p>**Environment:** http://localhost:3000/api/v1 / http://localhost:8080</p>
+<p>**Tenant:** demo | **User:** admin@demo.afyasasa.local</p>
+
+<h2>Summary</h2>
+
+<table>
+<tr><th>Result</th><th>Count</th></tr>
+<tr><td class="PASS">PASS</td><td>39</td></tr>
+<tr><td class="WARN">WARN</td><td>6</td></tr>
+<tr><td class="FAIL">FAIL</td><td>0</td></tr>
+</table>
+
+<h2>Work completed in this release cycle</h2>
+
+<p>1. **Account Center** — create/edit users, specialisation, reset password, search, quick-add doctor, clinical staff directory</p>
+<p>2. **Radiology catalog** — CSV template download + bulk import (modalities + study protocols)</p>
+<p>3. **Executive Analytics** — BI dashboard with date ranges, KPIs, trends, comparisons, configurable widgets, CSV export</p>
+<p>4. **Auth/session** — cross-tab sync, refresh tokens, forced password change flow</p>
+<p>5. **Single-hospital mode** — tenant selector hidden via env config</p>
+
+<h2>Results by department</h2>
+
+
+<h3>Infrastructure</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>Backend health</td><td class="PASS">PASS</td><td>HTTP 200</td></tr>
+<tr><td>Frontend (Nginx)</td><td class="PASS">PASS</td><td>HTTP 200</td></tr>
+<tr><td>Swagger docs</td><td class="PASS">PASS</td><td>HTTP 200</td></tr>
+<tr><td>Template: lab-catalog-import-template.csv</td><td class="PASS">PASS</td><td>HTTP 200</td></tr>
+<tr><td>Template: radiology-catalog-import-template.csv</td><td class="PASS">PASS</td><td>HTTP 200</td></tr>
+</table>
+
+<h3>Authentication</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>Demo admin login</td><td class="PASS">PASS</td><td>Token received</td></tr>
+<tr><td>GET /auth/me</td><td class="PASS">PASS</td><td>admin@demo.afyasasa.local</td></tr>
+</table>
+
+<h3>Reception</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /patients?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /appointments?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /referrals?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+</table>
+
+<h3>Outpatient</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /opd/encounters?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /opd/triage-queue</td><td class="WARN">WARN</td><td></td></tr>
+<tr><td>GET /opd/doctor-queue</td><td class="WARN">WARN</td><td></td></tr>
+</table>
+
+<h3>Investigations</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /laboratory/panels</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /laboratory/tests?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /laboratory/requests?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /radiology/modalities</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /radiology/studies</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /radiology/requests?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+</table>
+
+<h3>Inpatient</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /inpatient/wards</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /inpatient/admissions?limit=5</td><td class="WARN">WARN</td><td></td></tr>
+<tr><td>GET /inpatient/beds</td><td class="PASS">PASS</td><td>OK</td></tr>
+</table>
+
+<h3>Emergency</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /emergency/encounters?limit=5</td><td class="WARN">WARN</td><td></td></tr>
+<tr><td>GET /emergency/bays</td><td class="WARN">WARN</td><td></td></tr>
+</table>
+
+<h3>Specialty</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /theatre/procedures</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /theatre/bookings?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /maternity/pregnancies?limit=5</td><td class="PASS">PASS</td><td>OK</td></tr>
+</table>
+
+<h3>Reports</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /reports/dashboard</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /reports/operations</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /reports/executive-analytics?from=2026-06-09&amp;to=2026-07-09</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /reports/opd-summary</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /reports/laboratory</td><td class="PASS">PASS</td><td>OK</td></tr>
+</table>
+
+<h3>Administration</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>GET /admin/users/summary</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /admin/users</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /admin/users/role-options</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /admin/clinical-staff</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /admin/settings</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /admin/clinical-catalog</td><td class="PASS">PASS</td><td>OK</td></tr>
+<tr><td>GET /admin/departments</td><td class="PASS">PASS</td><td>OK</td></tr>
+</table>
+
+<h3>Account Center</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>Clinical staff directory</td><td class="PASS">PASS</td><td>1 clinician(s) listed</td></tr>
+</table>
+
+<h3>Radiology Catalog</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>Modalities configured</td><td class="PASS">PASS</td><td>3 modality(ies)</td></tr>
+<tr><td>Study protocols in catalog</td><td class="WARN">WARN</td><td>0 study protocol(s)</td></tr>
+</table>
+
+<h3>Executive Analytics</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>BI dashboard API</td><td class="PASS">PASS</td><td>summary + trends returned</td></tr>
+</table>
+
+<h3>UI</h3>
+
+<table>
+<tr><th>Test</th><th>Status</th><th>Detail</th></tr>
+<tr><td>Page /</td><td class="PASS">PASS</td><td>HTTP 200</td></tr>
+<tr><td>Page /index.html</td><td class="PASS">PASS</td><td>HTTP 200</td></tr>
+</table>
+
+<h2>Manual UI audit checklist (for your review)</h2>
+
+<p class='check'>☐ Login screen — no hospital code field (single-tenant mode)</p>
+<p class='check'>☐ Sidebar navigation — all department groups visible for admin</p>
+<p class='check'>☐ Hospital Control Center → User &amp; access — edit doctor, reset password</p>
+<p class='check'>☐ Hospital Control Center → Radiology — download template, import CSV</p>
+<p class='check'>☐ Reports → Executive Analytics — date presets, charts, export</p>
+<p class='check'>☐ OPD → Doctor Queue, Triage Queue load without layout issues</p>
+<p class='check'>☐ Laboratory &amp; Radiology worklists operational</p>
+<p class='check'>☐ Mobile/tablet — content full width, nav drawer works</p>
+
+<hr/>
+<p class='muted'>Automated audit by ops/full-system-audit.sh</p>
+</body></html>

@@ -32,8 +32,9 @@ export class StorageService {
     key: string;
     contentType: string;
     folder?: string;
+    tenantCode?: string;
   }) {
-    const key = this.normaliseKey(input.key, input.folder);
+    const key = this.tenantKey(input.key, input.tenantCode, input.folder);
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -49,8 +50,8 @@ export class StorageService {
     };
   }
 
-  async presignDownload(key: string) {
-    const normalisedKey = this.normaliseKey(key);
+  async presignDownload(key: string, tenantCode?: string) {
+    const normalisedKey = this.tenantKey(key, tenantCode);
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: normalisedKey,
@@ -65,8 +66,8 @@ export class StorageService {
     };
   }
 
-  async getObjectBuffer(key: string): Promise<Buffer> {
-    const normalisedKey = this.normaliseKey(key);
+  async getObjectBuffer(key: string, tenantCode?: string): Promise<Buffer> {
+    const normalisedKey = this.tenantKey(key, tenantCode);
     const response = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: normalisedKey }),
     );
@@ -79,6 +80,18 @@ export class StorageService {
       chunks.push(chunk);
     }
     return Buffer.concat(chunks);
+  }
+
+  private tenantKey(key: string, tenantCode?: string, folder?: string) {
+    const safeKey = this.normaliseKey(key, folder);
+    if (!tenantCode) {
+      return safeKey;
+    }
+    const prefix = `${tenantCode.replace(/^\/+|\/+$/g, '')}/`;
+    if (safeKey.startsWith(prefix)) {
+      return safeKey;
+    }
+    return `${prefix}${safeKey}`;
   }
 
   private normaliseKey(key: string, folder?: string) {

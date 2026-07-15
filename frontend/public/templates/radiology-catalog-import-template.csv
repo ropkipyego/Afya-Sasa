@@ -1,0 +1,16 @@
+record_type,modality_code,name,code,body_part,views,description
+modality,,X-Ray,XR,,,Plain radiography
+modality,,Ultrasound,US,,,Sonography
+modality,,Computed Tomography,CT,,,Cross-sectional imaging
+modality,,Magnetic Resonance Imaging,MRI,,,MRI studies
+study,XR,Chest X-Ray PA,CXR-PA,chest,PA,Standard chest radiograph
+study,XR,Chest X-Ray AP,CXR-AP,chest,AP,Portable or AP chest
+study,XR,Abdominal X-Ray,AXR,abdomen,AP,Plain abdominal film
+study,XR,Skull X-Ray,SKULL,skull,AP/LAT,Trauma skull series
+study,US,Abdominal Ultrasound,US-ABD,abdomen,,Liver spleen kidneys
+study,US,Obstetric Ultrasound,US-OBS,uterus,,Routine ANC scan
+study,US,Pelvic Ultrasound,US-PELV,pelvis,,Gynaecology pelvic scan
+study,CT,CT Head,CT-HEAD,head,axial,Non-contrast head CT
+study,CT,CT Chest,CT-CHEST,chest,axial,Contrast chest CT
+study,CT,CT Abdomen Pelvis,CT-ABD,abdomen,axial,CT abdomen and pelvis
+study,MRI,MRI Brain,MRI-BRAIN,brain,axial/sagittal,Brain MRI

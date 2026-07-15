@@ -47,9 +47,9 @@ export class NotificationQueueEntry extends AuditableEntity {
 
 @Entity({ name: 'sms_logs', schema: 'demo' })
 export class SmsLog extends AuditableEntity {
-  @ManyToOne(() => NotificationQueueEntry)
+  @ManyToOne(() => NotificationQueueEntry, { nullable: true })
   @JoinColumn({ name: 'queue_id' })
-  queueEntry!: NotificationQueueEntry;
+  queueEntry!: NotificationQueueEntry | null;
 
   @Column({ type: 'varchar' })
   provider!: string;

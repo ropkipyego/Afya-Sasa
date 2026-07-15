@@ -4,7 +4,7 @@ set -euo pipefail
 
 API="${API:-http://localhost:3000/api/v1}"
 TENANT="${TENANT:-demo}"
-EMAIL="${EMAIL:-admin@demo.afyasasa.local}"
+EMAIL="${EMAIL:-it@jalaram.co.ke}"
 PASSWORD="${PASSWORD:-ChangeMe123!}"
 OUT_DIR="${OUT_DIR:-ops/onboarding-tests/results}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"

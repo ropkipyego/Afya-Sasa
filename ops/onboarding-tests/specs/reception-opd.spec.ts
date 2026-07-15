@@ -4,7 +4,7 @@ import * as path from 'path'
 
 const OUT = path.join(__dirname, '..', 'results', 'screenshots')
 const TENANT = process.env.TENANT ?? 'demo'
-const EMAIL = process.env.EMAIL ?? 'admin@demo.afyasasa.local'
+const EMAIL = process.env.EMAIL ?? 'it@jalaram.co.ke'
 const PASSWORD = process.env.PASSWORD ?? 'ChangeMe123!'
 
 fs.mkdirSync(OUT, { recursive: true })

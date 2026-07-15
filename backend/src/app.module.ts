@@ -7,6 +7,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { CoreModule } from './core/core.module';
+import { MailModule } from './core/mail/mail.module';
 import { PatientsModule } from './patients/patients.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthModule } from './health/health.module';
@@ -28,7 +29,6 @@ import { DocumentsModule } from './documents/documents.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { WorklistsModule } from './worklists/worklists.module';
 import { WorkflowModule } from './workflow/workflow.module';
-import { TenantSchemaInterceptor } from './core/tenancy/tenant-schema.interceptor';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -72,6 +72,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
       },
     ]),
     CoreModule,
+    MailModule,
     RealtimeModule,
     PatientsModule,
     NotificationsModule,
@@ -100,7 +101,6 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     { provide: APP_GUARD, useClass: JwtAccessGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
-    { provide: APP_INTERCEPTOR, useClass: TenantSchemaInterceptor },
   ],
 })
 export class AppModule implements NestModule {

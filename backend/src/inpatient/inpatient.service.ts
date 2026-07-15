@@ -151,13 +151,14 @@ export class InpatientService {
   }
 
   listAdmissions(status?: 'active' | 'discharged', wardId?: string) {
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+    if (wardId) where.ward = { id: wardId };
     return this.admissions.find({
-      where: {
-        status,
-        ward: wardId ? { id: wardId } : undefined,
-      },
+      where,
       relations: { patient: true, bed: true, ward: true },
       order: { admittedAt: 'DESC' },
+      take: 500,
     });
   }
 
@@ -244,6 +245,12 @@ export class InpatientService {
       status: 'cleaning',
       version: admission.bed.version + 1,
       updatedBy: request.user?.sub ?? null,
+    });
+    this.realtime.publish(request.tenant?.code ?? 'demo', 'admission.discharged', {
+      admissionId: id,
+    });
+    this.realtime.publish(request.tenant?.code ?? 'demo', 'bed.updated', {
+      bedId: admission.bed.id,
     });
     return this.getAdmission(id);
   }

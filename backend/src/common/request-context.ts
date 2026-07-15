@@ -14,6 +14,7 @@ export interface AuthenticatedUserContext {
   roles: string[];
   permissions: string[];
   forcePasswordChange?: boolean;
+  iat?: number;
 }
 
 export interface RequestContext extends Request {

@@ -4,7 +4,7 @@ set -euo pipefail
 
 API="${API:-http://localhost:3000/api/v1}"
 TENANT="${TENANT:-demo}"
-EMAIL="${EMAIL:-admin@demo.afyasasa.local}"
+EMAIL="${EMAIL:-it@jalaram.co.ke}"
 PASSWORD="${PASSWORD:-ChangeMe123!}"
 
 pass=0

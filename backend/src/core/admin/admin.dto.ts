@@ -40,6 +40,11 @@ export class CreateUserDto {
   @IsOptional()
   @IsArray()
   roleIds?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  specialisation?: string;
 }
 
 export class UpdateUserDto extends PartialType(CreateUserDto) {
@@ -116,6 +121,13 @@ export class CreateDepartmentDto {
   @IsOptional()
   @IsString()
   type?: string;
+}
+
+export class ResetUserPasswordDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(10)
+  temporaryPassword!: string;
 }
 
 export class AssignDepartmentDto {

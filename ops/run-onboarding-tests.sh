@@ -63,7 +63,7 @@ Generated: $(date -u +"%Y-%m-%d %H:%M UTC")
 ## Demo credentials
 
 - Tenant: \`demo\`
-- Email: \`admin@demo.afyasasa.local\`
+- Email: \`it@jalaram.co.ke\`
 - Password: \`ChangeMe123!\`
 - URL: http://localhost:8080
 

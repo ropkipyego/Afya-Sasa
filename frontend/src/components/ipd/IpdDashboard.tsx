@@ -30,11 +30,21 @@ type DashboardData = {
   }[]
 }
 
-function MetricTile({ label, value, suffix }: { label: string; value: number | string; suffix?: string }) {
+function MetricTile({
+  label,
+  value,
+  suffix,
+  tone = 'border-slate-200 bg-white',
+}: {
+  label: string
+  value: number | string
+  suffix?: string
+  tone?: string
+}) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className={`rounded-2xl border p-6 shadow-sm ${tone}`}>
       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-3 text-3xl font-bold text-slate-900">
+      <p className="mt-3 text-3xl font-bold tabular-nums text-slate-900">
         {value}
         {suffix ? <span className="text-lg font-semibold text-slate-500">{suffix}</span> : null}
       </p>
@@ -90,41 +100,68 @@ export function IpdDashboard({
     : 'Hospital census — one view of beds, wards, and patients.'
 
   return (
-    <div className="workspace-shell animate-fade-in space-y-12 pb-10">
-      <PageHeader
-        eyebrow="Inpatient"
-        title={title}
-        description={description}
-        actions={
-          <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" onClick={onConsultant}>
-              <Stethoscope className="h-4 w-4" /> Ward rounds
-            </Button>
-            <Button variant="secondary" onClick={onNursing}>
-              <Stethoscope className="h-4 w-4" /> Nursing center
-            </Button>
-            <Button variant="secondary" onClick={onSetup}>
-              <Settings className="h-4 w-4" /> Ward setup
-            </Button>
-            <Button onClick={onAdmit}>
-              <BedDouble className="h-4 w-4" /> Admit patient
-            </Button>
+    <div className="workspace-shell animate-fade-in space-y-10 pb-10">
+      <Card className="overflow-hidden border-0 bg-gradient-to-br from-slate-900 via-teal-950 to-slate-800 p-8 text-white shadow-lg">
+        <PageHeader
+          eyebrow="Inpatient"
+          title={title}
+          description={description}
+          actions={
+            <div className="flex flex-wrap gap-3">
+              <Button variant="secondary" onClick={onConsultant}>
+                <Stethoscope className="h-4 w-4" /> Ward rounds
+              </Button>
+              <Button variant="secondary" onClick={onNursing}>
+                <Stethoscope className="h-4 w-4" /> Nursing center
+              </Button>
+              <Button variant="secondary" onClick={onSetup}>
+                <Settings className="h-4 w-4" /> Ward setup
+              </Button>
+              <Button onClick={onAdmit}>
+                <BedDouble className="h-4 w-4" /> Admit patient
+              </Button>
+            </div>
+          }
+        />
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
+            <p className="text-[10px] font-bold uppercase text-teal-100">Active inpatients</p>
+            <p className="mt-1 text-3xl font-bold">{data.activeAdmissions}</p>
           </div>
-        }
-      />
+          <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
+            <p className="text-[10px] font-bold uppercase text-teal-100">Bed occupancy</p>
+            <p className="mt-1 text-3xl font-bold">
+              {data.totalBeds
+                ? Math.round((data.occupiedBeds / data.totalBeds) * 100)
+                : 0}
+              <span className="text-lg">%</span>
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
+            <p className="text-[10px] font-bold uppercase text-teal-100">Admissions today</p>
+            <p className="mt-1 text-3xl font-bold">{data.admissionsToday}</p>
+          </div>
+          <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
+            <p className="text-[10px] font-bold uppercase text-teal-100">Pending investigations</p>
+            <p className="mt-1 text-3xl font-bold">
+              {data.pendingLabResults + data.pendingRadiologyReports}
+            </p>
+          </div>
+        </div>
+      </Card>
 
       <MetricSection title="Today's flow">
-        <MetricTile label="Admissions today" value={data.admissionsToday} />
-        <MetricTile label="Discharges today" value={data.dischargesToday} />
-        <MetricTile label="Transfers today" value={data.transfersToday} />
-        <MetricTile label="Active inpatients" value={data.activeAdmissions} />
+        <MetricTile label="Admissions today" value={data.admissionsToday} tone="border-sky-200 bg-sky-50" />
+        <MetricTile label="Discharges today" value={data.dischargesToday} tone="border-emerald-200 bg-emerald-50" />
+        <MetricTile label="Transfers today" value={data.transfersToday} tone="border-violet-200 bg-violet-50" />
+        <MetricTile label="Active inpatients" value={data.activeAdmissions} tone="border-teal-200 bg-teal-50" />
       </MetricSection>
 
       <MetricSection title="Bed status">
-        <MetricTile label="Occupied beds" value={data.occupiedBeds} />
-        <MetricTile label="Available beds" value={data.availableBeds} />
-        <MetricTile label="ICU occupancy" value={data.icuOccupancyPct} suffix="%" />
-        <MetricTile label="HDU occupancy" value={data.hduOccupancyPct} suffix="%" />
+        <MetricTile label="Occupied beds" value={data.occupiedBeds} tone="border-rose-200 bg-rose-50" />
+        <MetricTile label="Available beds" value={data.availableBeds} tone="border-emerald-200 bg-emerald-50" />
+        <MetricTile label="ICU occupancy" value={data.icuOccupancyPct} suffix="%" tone="border-orange-200 bg-orange-50" />
+        <MetricTile label="HDU occupancy" value={data.hduOccupancyPct} suffix="%" tone="border-amber-200 bg-amber-50" />
       </MetricSection>
 
       <MetricSection title="Clinical workload">

@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { ClinicalOrderContextService } from '../clinical-order/clinical-order-context.service';
+import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
 import { Admission } from '../inpatient/inpatient.entities';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -44,6 +45,7 @@ export class LaboratoryService {
     @InjectRepository(Encounter) private readonly encounters: Repository<Encounter>,
     @InjectRepository(Admission) private readonly admissions: Repository<Admission>,
     private readonly orderContext: ClinicalOrderContextService,
+    private readonly clinicalOrderMirror: ClinicalOrderMirrorService,
     private readonly encounterWorkflow: EncounterWorkflowService,
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
@@ -176,6 +178,16 @@ export class LaboratoryService {
       ),
     );
     await this.encounterWorkflow.markAwaitingResults(encounter.id, request);
+    labRequest.patient = patient;
+    labRequest.encounter = encounter;
+    labRequest.admission = admission;
+    await this.clinicalOrderMirror.mirrorLabRequest(labRequest, request, {
+      testCount: itemRows.length,
+    });
+    this.realtime.publish(request.tenant?.code ?? 'demo', 'lab.updated', {
+      requestId: labRequest.id,
+      action: 'created',
+    });
     return this.detail(labRequest.id);
   }
 
@@ -205,14 +217,29 @@ export class LaboratoryService {
     }));
   }
 
-  listRequests(status?: string) {
+  async listRequests(status?: string, limit?: number, offset?: number) {
     const where: { status?: LabRequest['status'] } = {};
     if (status) where.status = status as LabRequest['status'];
-    return this.requests.find({
+    const usePagination = limit !== undefined || offset !== undefined;
+
+    if (!usePagination) {
+      return this.requests.find({
+        where,
+        relations: { patient: true, encounter: true },
+        order: { createdAt: 'DESC' },
+      });
+    }
+
+    const take = Math.min(limit ?? 50, 200);
+    const skip = offset ?? 0;
+    const [items, total] = await this.requests.findAndCount({
       where,
       relations: { patient: true, encounter: true },
       order: { createdAt: 'DESC' },
+      take,
+      skip,
     });
+    return { items, total, limit: take, offset: skip };
   }
 
   async detail(id: string) {
@@ -397,6 +424,7 @@ export class LaboratoryService {
       },
     );
     this.realtime.publish(request.tenant?.code ?? 'demo', 'lab.updated', { requestId: id });
+    await this.clinicalOrderMirror.syncSourceStatus('laboratory', id, 'verified', request);
 
     return this.resultsInbox();
   }

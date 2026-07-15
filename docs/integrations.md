@@ -4,15 +4,44 @@
 
 Set `SMS_PROVIDER` to one of:
 
-- `stub` - local development; no external SMS is sent.
-- `africas_talking` - sends through Africa's Talking.
-- `twilio` - sends through Twilio.
+- `stub` — local development; no external SMS is sent (logs succeed).
+- `celcom_africa` (alias `celcom`) — **Celcom Africa ISMS** (recommended for Kenya / Jalaram).
+- `africas_talking` — Africa's Talking.
+- `twilio` — Twilio.
+
+Bulk send from Control Center → Notifications, or `POST /api/v1/notifications/sms/bulk`.
+
+### Celcom Africa (recommended)
+
+1. Log into [Celcom Africa ISMS](https://isms.celcomafrica.com) and copy **API key**, **Partner ID**, and approved **Sender ID / shortcode**.
+2. Put them in `.env` and restart the API:
+
+```env
+SMS_PROVIDER=celcom_africa
+SMS_SENDER_NAME=JALARAM
+CELCOM_API_KEY=your-api-key
+CELCOM_PARTNER_ID=your-partner-id
+CELCOM_SHORTCODE=JALARAM
+# Optional override:
+# CELCOM_SMS_URL=https://isms.celcomafrica.com/api/services/sendsms/
+```
+
+API body (also used by the bulk UI):
+
+```json
+{
+  "mobiles": ["0712345678", "254700000000"],
+  "message": "Dear patient, your appointment is tomorrow at 9am. — Jalaram Hospital"
+}
+```
+
+Numbers are normalized to `254…` before send. Multiple mobiles go in one Celcom request (comma-separated).
 
 ### Africa's Talking
 
 ```env
 SMS_PROVIDER=africas_talking
-SMS_SENDER_NAME=AfyaSasa
+SMS_SENDER_NAME=JALARAM
 AFRICAS_TALKING_USERNAME=sandbox
 AFRICAS_TALKING_API_KEY=...
 ```

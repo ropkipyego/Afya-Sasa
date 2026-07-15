@@ -4,12 +4,17 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import type { NextFunction, Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import type { RequestContext } from '../../common/request-context';
 import { TenancyService } from './tenancy.service';
+import { runWithTenantContext } from './tenant-context.storage';
 
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
-  constructor(private readonly tenancyService: TenancyService) {}
+  constructor(
+    private readonly tenancyService: TenancyService,
+    private readonly config: ConfigService,
+  ) {}
 
   async use(
     request: RequestContext,
@@ -17,7 +22,13 @@ export class TenantMiddleware implements NestMiddleware {
     next: NextFunction,
   ): Promise<void> {
     if (this.isPublicPath(request)) {
-      next();
+      runWithTenantContext(
+        {
+          schemaName: this.config.get<string>('DEFAULT_TENANT_SCHEMA', 'demo'),
+          tenantCode: this.config.get<string>('DEFAULT_TENANT_CODE', 'demo'),
+        },
+        () => next(),
+      );
       return;
     }
 
@@ -31,7 +42,13 @@ export class TenantMiddleware implements NestMiddleware {
     }
 
     request.tenant = await this.tenancyService.resolveTenant(identifier);
-    next();
+    runWithTenantContext(
+      {
+        schemaName: request.tenant.schemaName,
+        tenantCode: request.tenant.code,
+      },
+      () => next(),
+    );
   }
 
   private isPublicPath(request: RequestContext): boolean {

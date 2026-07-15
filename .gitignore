@@ -4,6 +4,7 @@ build/
 coverage/
 .env
 .env.local
+ops/.audit-credentials
 .DS_Store
 npm-debug.log*
 *.tsbuildinfo

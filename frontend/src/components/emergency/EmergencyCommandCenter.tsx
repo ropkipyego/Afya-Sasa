@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Clock, HeartPulse, Users } from 'lucide-react'
@@ -8,6 +8,7 @@ import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSea
 import { EmergencyPatientWorkspace } from './EmergencyPatientWorkspace'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { playEmergencyAlertSound } from '../../lib/emergency-alert-sound'
 
 type EmergencyMetrics = {
   totalToday: number
@@ -45,6 +46,15 @@ type BayBoard = {
     workflowStage: string
     arrivalTime: string
   } | null
+}
+
+type CriticalAlertItem = {
+  id: string
+  type: string
+  severity: string
+  message: string
+  createdAt: string
+  acknowledgedAt: string | null
 }
 
 const triageTone: Record<string, string> = {
@@ -88,6 +98,30 @@ export function EmergencyCommandCenter() {
     queryKey: ['emergency-bays'],
     queryFn: () => apiRequest<BayBoard[]>('/emergency/bays'),
     refetchInterval: 15_000,
+  })
+
+  const { data: alerts = [] } = useQuery({
+    queryKey: ['emergency-alerts'],
+    queryFn: () => apiRequest<CriticalAlertItem[]>('/emergency/alerts'),
+    refetchInterval: 10_000,
+  })
+
+  const previousAlertCount = useRef(0)
+  useEffect(() => {
+    const active = alerts.filter((a) => !a.acknowledgedAt)
+    if (active.length > previousAlertCount.current) {
+      playEmergencyAlertSound()
+      notify('Emergency alert', active[0]?.message ?? 'Critical ED alert', 'critical')
+    }
+    previousAlertCount.current = active.length
+  }, [alerts])
+
+  const acknowledgeAlert = useMutation({
+    mutationFn: (id: string) =>
+      apiRequest(`/emergency/alerts/${id}/acknowledge`, { method: 'POST' }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['emergency-alerts'] })
+    },
   })
 
   const register = useMutation({
@@ -168,6 +202,40 @@ export function EmergencyCommandCenter() {
           </div>
         ))}
       </div>
+
+      {alerts.filter((a) => !a.acknowledgedAt).length ? (
+        <Card className="border-rose-300 bg-rose-50 p-5">
+          <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-rose-900">
+            <AlertTriangle className="h-4 w-4" />
+            Live critical alerts
+          </h3>
+          <ul className="mt-3 space-y-2">
+            {alerts
+              .filter((a) => !a.acknowledgedAt)
+              .map((alert) => (
+                <li
+                  key={alert.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm"
+                >
+                  <div>
+                    <p className="font-semibold text-rose-900">{alert.message}</p>
+                    <p className="text-xs text-rose-700">
+                      {alert.severity} · {alert.type} · {new Date(alert.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="text-xs"
+                    onClick={() => acknowledgeAlert.mutate(alert.id)}
+                  >
+                    Acknowledge
+                  </Button>
+                </li>
+              ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <section className="space-y-4">
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Triage breakdown</h3>

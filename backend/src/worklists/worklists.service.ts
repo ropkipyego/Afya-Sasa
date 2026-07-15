@@ -95,7 +95,7 @@ export class WorklistsService {
       const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
       qb.andWhere(
         `NOT EXISTS (
-          SELECT 1 FROM demo.encounters e
+          SELECT 1 FROM encounters e
           WHERE e.patient_id = patient.id AND e.started_at >= :yearAgo
         )`,
         { yearAgo },
@@ -104,14 +104,14 @@ export class WorklistsService {
       qb.andWhere(
         `(patient.primary_phone IS NULL OR patient.primary_phone = ''
           OR NOT EXISTS (
-            SELECT 1 FROM demo.patient_identifiers pi
+            SELECT 1 FROM patient_identifiers pi
             WHERE pi.patient_id = patient.id AND pi.type = 'national_id' AND pi.deleted_at IS NULL
           ))`,
       );
     } else if (listKey === 'duplicate-candidates') {
       qb.andWhere(
         `EXISTS (
-          SELECT 1 FROM demo.patients p2
+          SELECT 1 FROM patients p2
           WHERE p2.id <> patient.id
             AND p2.deleted_at IS NULL
             AND p2.date_of_birth = patient.date_of_birth

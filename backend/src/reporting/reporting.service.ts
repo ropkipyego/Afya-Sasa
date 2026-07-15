@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository, In, MoreThanOrEqual } from 'typeorm';
+import { Between, IsNull, Not, Repository, In, MoreThanOrEqual } from 'typeorm';
 import { Appointment } from '../appointments/appointment.entities';
 import { CriticalAlert, EmergencyEncounter } from '../emergency/emergency.entities';
 import { Admission, Bed } from '../inpatient/inpatient.entities';
@@ -136,6 +136,272 @@ export class ReportingService {
       revenuePlaceholder: null,
       activeUsers: null,
     };
+  }
+
+  async executiveAnalytics(from: string, to: string) {
+    const start = new Date(`${from}T00:00:00.000Z`);
+    const end = new Date(`${to}T23:59:59.999Z`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      throw new BadRequestException('Invalid date range. Use ISO dates (YYYY-MM-DD).');
+    }
+
+    const dayMs = 86_400_000;
+    const periodDays = Math.max(
+      1,
+      Math.floor((end.getTime() - start.getTime()) / dayMs) + 1,
+    );
+    const priorEnd = new Date(start.getTime() - 1);
+    const priorStart = new Date(priorEnd.getTime() - (periodDays - 1) * dayMs);
+
+    const [
+      opdSeries,
+      patientSeries,
+      admissionSeries,
+      dischargeSeries,
+      labSeries,
+      radiologySeries,
+      emergencySeries,
+      appointmentSeries,
+      surgerySeries,
+      referralSeries,
+      priorOpd,
+      priorPatients,
+      priorAdmissions,
+      priorDischarges,
+      priorLabs,
+      priorRadiology,
+      priorEmergency,
+      opdEncounters,
+      labRequests,
+      radiologyRequests,
+      admissions,
+      emergencies,
+    ] = await Promise.all([
+      this.dailySeries(this.encounters, 'startedAt', start, end, { type: 'opd' }),
+      this.dailySeries(this.patients, 'createdAt', start, end),
+      this.dailySeries(this.admissions, 'admittedAt', start, end),
+      this.dailySeries(this.admissions, 'dischargedAt', start, end, { status: 'discharged' }),
+      this.dailySeries(this.labRequests, 'createdAt', start, end),
+      this.dailySeries(this.radiologyRequests, 'createdAt', start, end),
+      this.dailySeries(this.emergencyEncounters, 'createdAt', start, end),
+      this.dailySeriesByDateColumn(this.appointments, 'appointmentDate', from, to),
+      this.dailySeries(this.surgeries, 'scheduledStartAt', start, end),
+      this.dailySeries(this.referrals, 'createdAt', start, end),
+      this.countBetween(this.encounters, 'startedAt', priorStart, priorEnd, { type: 'opd' }),
+      this.countBetween(this.patients, 'createdAt', priorStart, priorEnd),
+      this.countBetween(this.admissions, 'admittedAt', priorStart, priorEnd),
+      this.countBetween(this.admissions, 'dischargedAt', priorStart, priorEnd, {
+        status: 'discharged',
+      }),
+      this.countBetween(this.labRequests, 'createdAt', priorStart, priorEnd),
+      this.countBetween(this.radiologyRequests, 'createdAt', priorStart, priorEnd),
+      this.countBetween(this.emergencyEncounters, 'createdAt', priorStart, priorEnd),
+      this.encounters.find({
+        where: { type: 'opd', startedAt: Between(start, end) },
+        take: 5000,
+      }),
+      this.labRequests.find({
+        where: { createdAt: Between(start, end) },
+        take: 5000,
+      }),
+      this.radiologyRequests.find({
+        where: { createdAt: Between(start, end) },
+        take: 5000,
+      }),
+      this.admissions.find({
+        where: { admittedAt: Between(start, end) },
+        relations: { ward: true },
+        take: 5000,
+      }),
+      this.emergencyEncounters.find({
+        where: { createdAt: Between(start, end) },
+        take: 5000,
+      }),
+    ]);
+
+    const totalOpd = this.sumSeries(opdSeries);
+    const totalPatients = this.sumSeries(patientSeries);
+    const totalAdmissions = this.sumSeries(admissionSeries);
+    const totalDischarges = this.sumSeries(dischargeSeries);
+    const totalLabs = this.sumSeries(labSeries);
+    const totalRadiology = this.sumSeries(radiologySeries);
+    const totalEmergency = this.sumSeries(emergencySeries);
+    const totalAppointments = this.sumSeries(appointmentSeries);
+    const totalSurgeries = this.sumSeries(surgerySeries);
+    const totalReferrals = this.sumSeries(referralSeries);
+
+    const [totalBeds, occupiedBeds] = await Promise.all([
+      this.beds.count(),
+      this.beds.count({ where: { status: 'occupied' } }),
+    ]);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      range: { from, to, days: periodDays },
+      comparisonRange: {
+        from: priorStart.toISOString().slice(0, 10),
+        to: priorEnd.toISOString().slice(0, 10),
+      },
+      summary: {
+        opdVisits: totalOpd,
+        newPatients: totalPatients,
+        admissions: totalAdmissions,
+        discharges: totalDischarges,
+        labRequests: totalLabs,
+        radiologyRequests: totalRadiology,
+        emergencyCases: totalEmergency,
+        appointments: totalAppointments,
+        surgeries: totalSurgeries,
+        referrals: totalReferrals,
+        avgDailyOpd: Math.round((totalOpd / periodDays) * 10) / 10,
+        bedOccupancyPercent:
+          totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0,
+        occupiedBeds,
+        totalBeds,
+      },
+      comparison: {
+        opdVisits: this.compareDelta(totalOpd, priorOpd),
+        newPatients: this.compareDelta(totalPatients, priorPatients),
+        admissions: this.compareDelta(totalAdmissions, priorAdmissions),
+        discharges: this.compareDelta(totalDischarges, priorDischarges),
+        labRequests: this.compareDelta(totalLabs, priorLabs),
+        radiologyRequests: this.compareDelta(totalRadiology, priorRadiology),
+        emergencyCases: this.compareDelta(totalEmergency, priorEmergency),
+      },
+      trends: {
+        opdVisits: opdSeries,
+        newPatients: patientSeries,
+        admissions: admissionSeries,
+        discharges: dischargeSeries,
+        labRequests: labSeries,
+        radiologyRequests: radiologySeries,
+        emergencyCases: emergencySeries,
+        appointments: appointmentSeries,
+        surgeries: surgerySeries,
+        referrals: referralSeries,
+      },
+      breakdowns: {
+        opdByVisitType: this.countBy(opdEncounters, (item) => item.visitType ?? 'unknown'),
+        opdByStatus: this.countBy(opdEncounters, (item) => item.status),
+        labByStatus: this.countBy(labRequests, (item) => item.status),
+        radiologyByStatus: this.countBy(radiologyRequests, (item) => item.status),
+        radiologyByPriority: this.countBy(radiologyRequests, (item) => item.priority),
+        admissionsByType: this.countBy(admissions, (item) => item.type),
+        admissionsByWard: this.countBy(
+          admissions,
+          (item) => item.ward?.name ?? 'unknown',
+        ),
+        emergencyByTriage: this.countBy(
+          emergencies,
+          (item) => item.triageCategory ?? 'unknown',
+        ),
+        emergencyByDisposition: this.countBy(
+          emergencies,
+          (item) => item.disposition ?? 'pending',
+        ),
+      },
+    };
+  }
+
+  private async dailySeries(
+    repository: Repository<object>,
+    column: string,
+    start: Date,
+    end: Date,
+    filters: Record<string, string> = {},
+  ) {
+    const alias = 'row';
+    const qb = repository.createQueryBuilder(alias);
+    qb.select(`DATE(${alias}.${column})`, 'day')
+      .addSelect('COUNT(*)', 'count')
+      .where(`${alias}.${column} BETWEEN :start AND :end`, { start, end });
+    for (const [key, value] of Object.entries(filters)) {
+      qb.andWhere(`${alias}.${key} = :${key}`, { [key]: value });
+    }
+    qb.groupBy(`DATE(${alias}.${column})`).orderBy('day', 'ASC');
+    const rows = await qb.getRawMany<{ day: string; count: string }>();
+    return this.fillDailySeries(
+      start,
+      end,
+      rows.map((row) => ({
+        date: this.formatDay(row.day),
+        count: Number(row.count),
+      })),
+    );
+  }
+
+  private async dailySeriesByDateColumn(
+    repository: Repository<{ appointmentDate: string }>,
+    column: 'appointmentDate',
+    from: string,
+    to: string,
+  ) {
+    const rows = await repository
+      .createQueryBuilder('row')
+      .select(`row.${column}`, 'day')
+      .addSelect('COUNT(*)', 'count')
+      .where(`row.${column} BETWEEN :from AND :to`, { from, to })
+      .groupBy(`row.${column}`)
+      .orderBy('day', 'ASC')
+      .getRawMany<{ day: string; count: string }>();
+    const start = new Date(`${from}T00:00:00.000Z`);
+    const end = new Date(`${to}T00:00:00.000Z`);
+    return this.fillDailySeries(
+      start,
+      end,
+      rows.map((row) => ({
+        date: this.formatDay(row.day),
+        count: Number(row.count),
+      })),
+    );
+  }
+
+  private async countBetween(
+    repository: Repository<object>,
+    column: string,
+    start: Date,
+    end: Date,
+    filters: Record<string, string> = {},
+  ) {
+    const where: Record<string, unknown> = {
+      [column]: Between(start, end),
+      ...filters,
+    };
+    return repository.count({ where: where as never });
+  }
+
+  private fillDailySeries(
+    start: Date,
+    end: Date,
+    points: Array<{ date: string; count: number }>,
+  ) {
+    const byDate = new Map(points.map((point) => [point.date, point.count]));
+    const series: Array<{ date: string; count: number }> = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const date = cursor.toISOString().slice(0, 10);
+      series.push({ date, count: byDate.get(date) ?? 0 });
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return series;
+  }
+
+  private sumSeries(series: Array<{ count: number }>) {
+    return series.reduce((sum, point) => sum + point.count, 0);
+  }
+
+  private compareDelta(current: number, previous: number) {
+    const delta = current - previous;
+    const percent =
+      previous > 0 ? Math.round(((current - previous) / previous) * 1000) / 10 : null;
+    return { current, previous, delta, percent };
+  }
+
+  private formatDay(value: string | Date) {
+    if (value instanceof Date) {
+      return value.toISOString().slice(0, 10);
+    }
+    return String(value).slice(0, 10);
   }
 
   async opdSummary(): Promise<ReportResult<unknown>> {

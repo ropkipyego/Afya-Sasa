@@ -1,11 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Queue } from 'bullmq';
 import { IsNull, Repository } from 'typeorm';
 import { Patient } from '../patients/patient.entities';
 import { RealtimeService } from '../realtime/realtime.service';
-import { InternalNotification, NotificationQueueEntry, NotificationTemplate } from './notification.entities';
+import { InternalNotification, NotificationQueueEntry, NotificationTemplate, SmsLog } from './notification.entities';
+import { SMS_GATEWAY } from './sms.gateway';
+import type { SmsGateway } from './sms.gateway';
 
 @Injectable()
 export class NotificationsService {
@@ -19,6 +21,10 @@ export class NotificationsService {
     @InjectQueue('notifications')
     private readonly queue: Queue,
     private readonly realtime: RealtimeService,
+    @InjectRepository(SmsLog)
+    private readonly smsLogs: Repository<SmsLog>,
+    @Inject(SMS_GATEWAY)
+    private readonly smsGateway: SmsGateway,
   ) {}
 
   async queuePatientRegistered(patient: Patient): Promise<void> {
@@ -26,7 +32,7 @@ export class NotificationsService {
       this.entries.create({
         recipient: patient.primaryPhone,
         channel: 'sms',
-        content: `Welcome to AfyaSasa. Your patient number is ${patient.patientNo}.`,
+        content: `Welcome to Jalaram Hospital. Your patient number is ${patient.patientNo}.`,
       }),
     );
     await this.queue.add(
@@ -150,5 +156,58 @@ export class NotificationsService {
     admittingDoctorId?: string | null;
   }) {
     return [input.createdBy, input.attendingDoctorId, input.admittingDoctorId];
+  }
+
+  /** Immediate single or bulk SMS via configured provider (Celcom Africa, etc.). */
+  async sendBulkSms(input: {
+    mobiles: string[];
+    message: string;
+    createdBy?: string | null;
+  }) {
+    const mobiles = [...new Set(input.mobiles.map((m) => m.trim()).filter(Boolean))];
+    if (!mobiles.length) {
+      throw new BadRequestException('Provide at least one mobile number');
+    }
+    const message = input.message.trim();
+    if (!message) {
+      throw new BadRequestException('Message text is required');
+    }
+
+    const result = this.smsGateway.sendBulkSms
+      ? await this.smsGateway.sendBulkSms(mobiles, message)
+      : await this.smsGateway.sendSms(mobiles.join(','), message);
+
+    await Promise.all(
+      mobiles.map((mobile) =>
+        this.smsLogs.save(
+          this.smsLogs.create({
+            destination: mobile,
+            text: message,
+            provider: result.provider,
+            providerMessageId: result.providerMessageId,
+            deliveryStatus: result.status,
+            cost: result.cost,
+            sentAt: new Date(),
+            createdBy: input.createdBy ?? null,
+            updatedBy: input.createdBy ?? null,
+          }),
+        ),
+      ),
+    );
+
+    return {
+      ok: true,
+      provider: result.provider,
+      recipients: result.recipients ?? mobiles.length,
+      providerMessageId: result.providerMessageId,
+      status: result.status,
+    };
+  }
+
+  listRecentSmsLogs(limit = 50) {
+    return this.smsLogs.find({
+      order: { createdAt: 'DESC' },
+      take: Math.min(limit, 200),
+    });
   }
 }

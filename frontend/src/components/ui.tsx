@@ -1,7 +1,16 @@
 import type { FormEvent, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { useState } from 'react'
 import clsx from 'clsx'
-import { AlertTriangle, CheckCircle2, Info, Loader2, XCircle } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Info,
+  Loader2,
+  XCircle,
+} from 'lucide-react'
 
 /* ── Primitives ───────────────────────────────────────────── */
 
@@ -10,6 +19,33 @@ const inputBase =
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={clsx(inputBase, props.className)} />
+}
+
+/** Password input with show/hide toggle (works with controlled or uncontrolled fields). */
+export function PasswordInput({
+  className,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div className="relative">
+      <Input
+        {...props}
+        type={visible ? 'text' : 'password'}
+        className={clsx('pr-11', className)}
+        autoComplete={props.autoComplete ?? 'current-password'}
+      />
+      <button
+        type="button"
+        className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+        onClick={() => setVisible((value) => !value)}
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        tabIndex={-1}
+      >
+        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  )
 }
 
 export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -88,7 +124,11 @@ export function Field({
         {label}
         {required ? <span className="ml-0.5 text-red-500">*</span> : null}
       </span>
-      <Input name={name} type={type} required={required} {...props} />
+      {type === 'password' ? (
+        <PasswordInput name={name} required={required} {...props} />
+      ) : (
+        <Input name={name} type={type} required={required} {...props} />
+      )}
       {hint ? <span className="mt-1 block text-xs text-slate-500">{hint}</span> : null}
     </label>
   )
@@ -177,6 +217,7 @@ export function CollapsibleSection({
         type="button"
         className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50"
         onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
       >
         <div>
           <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
@@ -184,7 +225,13 @@ export function CollapsibleSection({
             <p className="mt-0.5 text-xs text-slate-500">{description}</p>
           ) : null}
         </div>
-        <span className="text-xs font-bold text-teal-600">{open ? 'Hide' : 'Show'}</span>
+        <ChevronDown
+          className={clsx(
+            'h-5 w-5 shrink-0 text-teal-600 transition-transform duration-200',
+            open ? 'rotate-180' : 'rotate-0',
+          )}
+          aria-hidden
+        />
       </button>
       {open ? (
         <div className={clsx('grid gap-4 border-t border-slate-100 bg-slate-50/40 p-5', colClass)}>
@@ -200,12 +247,17 @@ export function FormSection({
   description,
   children,
   columns = 2,
+  defaultOpen = true,
+  collapsible = true,
 }: {
   title: string
   description?: string
   children: ReactNode
   columns?: 1 | 2 | 3
+  defaultOpen?: boolean
+  collapsible?: boolean
 }) {
+  const [open, setOpen] = useState(defaultOpen)
   const colClass =
     columns === 1
       ? 'grid-cols-1'
@@ -213,15 +265,49 @@ export function FormSection({
         ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
         : 'grid-cols-1 md:grid-cols-2'
 
+  const heading = title ? (
+    <div>
+      <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+      {description ? (
+        <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+      ) : null}
+    </div>
+  ) : description ? (
+    <p className="text-xs text-slate-500">{description}</p>
+  ) : null
+
   return (
-    <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
-      <div className="mb-4">
-        <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
-        {description ? (
-          <p className="mt-0.5 text-xs text-slate-500">{description}</p>
-        ) : null}
-      </div>
-      <div className={clsx('grid gap-4', colClass)}>{children}</div>
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/60">
+      {collapsible && heading ? (
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50/80"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+        >
+          {heading}
+          <ChevronDown
+            className={clsx(
+              'h-5 w-5 shrink-0 text-teal-600 transition-transform duration-200',
+              open ? 'rotate-180' : 'rotate-0',
+            )}
+            aria-hidden
+          />
+        </button>
+      ) : heading ? (
+        <div className="px-5 pt-5">{heading}</div>
+      ) : null}
+      {(!collapsible || open || !heading) ? (
+        <div
+          className={clsx(
+            'grid gap-4 px-5 pb-5',
+            heading && collapsible ? 'pt-1' : 'pt-5',
+            colClass,
+          )}
+        >
+          {children}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -676,9 +762,16 @@ export function NavGroup({
         type="button"
         className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-400 transition hover:text-slate-600"
         onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
       >
         {title}
-        <span className="text-[10px]">{open ? '▾' : '▸'}</span>
+        <ChevronDown
+          className={clsx(
+            'h-3.5 w-3.5 shrink-0 transition-transform duration-200',
+            open ? 'rotate-180' : 'rotate-0',
+          )}
+          aria-hidden
+        />
       </button>
       {open ? <div className="space-y-0.5">{children}</div> : null}
     </div>

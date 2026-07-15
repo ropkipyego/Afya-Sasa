@@ -42,17 +42,58 @@ npm run db:restore -- backups/your-backup.sql
 
 ## Demo login
 
-- Tenant for all demo accounts: `demo`
+- Tenant for all demo accounts: `demo` (can be hidden — see **Single-hospital mode** below)
 - Password for all demo accounts: `ChangeMe123!`
 
 | Role | Email | Notes |
 |---|---|---|
-| Administrator | `admin@demo.afyasasa.local` | Forced to change password on first login |
-| Doctor | `doctor@demo.afyasasa.local` | OPD, inpatient, emergency workflows |
-| Nurse | `nurse@demo.afyasasa.local` | Triage, emergency, nursing workflows |
-| Records Officer | `records@demo.afyasasa.local` | Registration and check-in workflows |
-| Lab Technician | `lab@demo.afyasasa.local` | Reserved for Phase 3 lab workflows |
-| Radiology Technician | `radiology@demo.afyasasa.local` | Reserved for Phase 3 radiology workflows |
+| Administrator | `it@jalaram.co.ke` | Forced to change password on first login |
+| Doctor | `doctor@jalaram.co.ke` | OPD, inpatient, emergency workflows |
+| Nurse | `nurse@jalaram.co.ke` | Triage, emergency, nursing workflows |
+| Records Officer | `records@jalaram.co.ke` | Registration and check-in workflows |
+| Lab Technician | `lab@jalaram.co.ke` | Lab workflows |
+| Radiology Technician | `radiology@jalaram.co.ke` | Radiology workflows |
+
+If admin login fails after a password experiment, reset the demo admin:
+
+```bash
+npm run db:reset-admin
+```
+
+Then sign in again with `ChangeMe123!`.
+
+## Single-hospital mode (hide tenant / hospital code)
+
+For one hospital, you do **not** need the “Hospital code” field on login. The backend still uses tenant `demo` internally — you just hide it from users.
+
+**Docker** — add to your root `.env`:
+
+```env
+VITE_DEFAULT_TENANT=demo
+VITE_HIDE_TENANT_SELECTOR=true
+DEFAULT_TENANT_CODE=demo
+```
+
+Then rebuild the frontend:
+
+```bash
+docker compose up -d --build frontend
+```
+
+**Local Vite dev** — copy `frontend/.env.example` to `frontend/.env`:
+
+```env
+VITE_DEFAULT_TENANT=demo
+VITE_HIDE_TENANT_SELECTOR=true
+```
+
+| Setting | Effect |
+|---------|--------|
+| `VITE_HIDE_TENANT_SELECTOR=true` | Removes “Hospital code” on login; hides tenant badge in nav |
+| `VITE_DEFAULT_TENANT=demo` | Value sent as `X-Tenant` on every API call |
+| `DEFAULT_TENANT_CODE=demo` | Backend default when no header/subdomain (localhost) |
+
+Multi-hospital later: set `VITE_HIDE_TENANT_SELECTOR=false` and use subdomains (`knh.yourdomain.com`) or the hospital code field.
 
 ## Seeded demo data
 
@@ -101,5 +142,6 @@ The demo migration seeds:
 - **Free test hosting guide:** `docs/free-test-hosting-guide.md`
 - Lab, hospital documents & catalog onboarding: `docs/lab-documents-progress-report.md`
 - **Enterprise backend refactor plan:** `docs/enterprise-backend-refactor-plan.md`
+- **Enterprise migration plan (architecture review + safe upgrade path):** `docs/enterprise-migration-plan.md`
 - Go-live checklist: `docs/go-live-checklist.md`
 - Role manuals: `docs/user-manuals/`

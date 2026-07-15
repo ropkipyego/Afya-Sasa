@@ -4,6 +4,7 @@ import {
   AuditLog,
   Department,
   Permission,
+  RefreshToken,
   Role,
   RolePermission,
   TenantSettings,
@@ -13,9 +14,11 @@ import {
 } from '../core.entities';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
+    AuthModule,
     TypeOrmModule.forFeature([
       User,
       Role,
@@ -26,6 +29,7 @@ import { AdminService } from './admin.service';
       RolePermission,
       AuditLog,
       TenantSettings,
+      RefreshToken,
     ]),
   ],
   controllers: [AdminController],

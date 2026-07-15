@@ -1,0 +1,286 @@
+{
+  "generatedAt": "20260709T140252Z",
+  "summary": {
+    "pass": 43,
+    "fail": 0,
+    "warn": 3
+  },
+  "results": [
+    {
+      "area": "Infrastructure",
+      "test": "Backend health",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "area": "Infrastructure",
+      "test": "Frontend (Nginx)",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "area": "Infrastructure",
+      "test": "Swagger docs",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "area": "Infrastructure",
+      "test": "Template: lab-catalog-import-template.csv",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "area": "Infrastructure",
+      "test": "Template: radiology-catalog-import-template.csv",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "area": "Authentication",
+      "test": "Demo admin login",
+      "status": "PASS",
+      "detail": "Token received"
+    },
+    {
+      "area": "Authentication",
+      "test": "GET /auth/me",
+      "status": "PASS",
+      "detail": "admin@demo.afyasasa.local"
+    },
+    {
+      "area": "Reception",
+      "test": "GET /patients?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Reception",
+      "test": "GET /appointments?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Reception",
+      "test": "GET /referrals?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Outpatient",
+      "test": "GET /opd/encounters?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Outpatient",
+      "test": "GET /opd/triage/queue",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Outpatient",
+      "test": "GET /opd/doctor/queue",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Investigations",
+      "test": "GET /laboratory/panels",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Investigations",
+      "test": "GET /laboratory/tests?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Investigations",
+      "test": "GET /laboratory/requests?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Investigations",
+      "test": "GET /radiology/modalities",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Investigations",
+      "test": "GET /radiology/studies",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Investigations",
+      "test": "GET /radiology/requests?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Inpatient",
+      "test": "GET /inpatient/wards",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Inpatient",
+      "test": "GET /inpatient/admissions?limit=5",
+      "status": "WARN",
+      "detail": ""
+    },
+    {
+      "area": "Inpatient",
+      "test": "GET /inpatient/beds",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Emergency",
+      "test": "GET /emergency/queue?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Emergency",
+      "test": "GET /emergency/bays",
+      "status": "WARN",
+      "detail": ""
+    },
+    {
+      "area": "Emergency",
+      "test": "GET /emergency/dashboard",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Specialty",
+      "test": "GET /theatre/procedures",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Specialty",
+      "test": "GET /theatre/bookings?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Specialty",
+      "test": "GET /maternity/pregnancies?limit=5",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Reports",
+      "test": "GET /reports/dashboard",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Reports",
+      "test": "GET /reports/operations",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Reports",
+      "test": "GET /reports/executive-analytics?from=2026-06-09&to=2026-07-09",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Reports",
+      "test": "GET /reports/opd-summary",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Reports",
+      "test": "GET /reports/laboratory",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Administration",
+      "test": "GET /admin/users/summary",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Administration",
+      "test": "GET /admin/users",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Administration",
+      "test": "GET /admin/users/role-options",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Administration",
+      "test": "GET /admin/clinical-staff",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Administration",
+      "test": "GET /admin/settings",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Administration",
+      "test": "GET /admin/clinical-catalog",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Administration",
+      "test": "GET /admin/departments",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "area": "Account Center",
+      "test": "Clinical staff directory",
+      "status": "PASS",
+      "detail": "1 clinician(s) listed"
+    },
+    {
+      "area": "Radiology Catalog",
+      "test": "Modalities configured",
+      "status": "PASS",
+      "detail": "3 modality(ies)"
+    },
+    {
+      "area": "Radiology Catalog",
+      "test": "Study protocols in catalog",
+      "status": "WARN",
+      "detail": "0 study protocol(s)"
+    },
+    {
+      "area": "Executive Analytics",
+      "test": "BI dashboard API",
+      "status": "PASS",
+      "detail": "summary + trends returned"
+    },
+    {
+      "area": "UI",
+      "test": "Page /",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "area": "UI",
+      "test": "Page /index.html",
+      "status": "PASS",
+      "detail": "HTTP 200"
+    }
+  ]
+}

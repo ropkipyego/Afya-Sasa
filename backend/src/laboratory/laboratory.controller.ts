@@ -52,8 +52,16 @@ export class LaboratoryController {
 
   @Get('requests')
   @RequirePermissions('lab_requests:read')
-  listRequests(@Query('status') status?: string) {
-    return this.laboratoryService.listRequests(status);
+  listRequests(
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.laboratoryService.listRequests(
+      status,
+      limit !== undefined ? Number(limit) : undefined,
+      offset !== undefined ? Number(offset) : undefined,
+    );
   }
 
   @Post('requests')

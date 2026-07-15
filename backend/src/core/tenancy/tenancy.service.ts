@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { TenantContext } from '../../common/request-context';
@@ -6,10 +7,15 @@ import { Tenant } from '../core.entities';
 
 @Injectable()
 export class TenancyService {
+  private readonly defaultTenantCode: string;
+
   constructor(
     @InjectRepository(Tenant)
     private readonly tenants: Repository<Tenant>,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.defaultTenantCode = config.get<string>('DEFAULT_TENANT_CODE', 'demo');
+  }
 
   async resolveTenant(identifier: string): Promise<TenantContext> {
     const normalized = identifier.trim().toLowerCase();
@@ -37,10 +43,10 @@ export class TenancyService {
 
     const hostname = host?.split(':')[0]?.toLowerCase() ?? '';
     if (!hostname || hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'demo';
+      return this.defaultTenantCode;
     }
 
     const [subdomain] = hostname.split('.');
-    return subdomain || 'demo';
+    return subdomain || this.defaultTenantCode;
   }
 }

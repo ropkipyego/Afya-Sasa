@@ -15,12 +15,14 @@ import type {
   AuthenticatedUserContext,
   RequestContext,
 } from '../../common/request-context';
+import { TokenRevocationService } from './token-revocation.service';
 
 @Injectable()
 export class JwtAccessGuard implements CanActivate {
   constructor(
     private readonly jwtService: JwtService,
     private readonly reflector: Reflector,
+    private readonly tokenRevocation: TokenRevocationService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -42,11 +44,19 @@ export class JwtAccessGuard implements CanActivate {
     }
 
     try {
-      request.user = await this.jwtService.verifyAsync<AuthenticatedUserContext>(
+      const payload = await this.jwtService.verifyAsync<AuthenticatedUserContext>(
         token,
       );
+      if (
+        payload.iat &&
+        (await this.tokenRevocation.isAccessTokenRevoked(payload.sub, payload.iat))
+      ) {
+        throw new UnauthorizedException('Session expired — please sign in again');
+      }
+      request.user = payload;
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Invalid or expired access token');
     }
   }

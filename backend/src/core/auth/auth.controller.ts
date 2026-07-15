@@ -1,5 +1,6 @@
-import { Body, Controller, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { RequestContext } from '../../common/request-context';
 import { AuthService } from './auth.service';
 import {
@@ -13,11 +14,19 @@ import {
 import { Public } from './auth.decorators';
 
 @ApiTags('Auth')
+@UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @ApiBearerAuth()
+  @Get('me')
+  me(@Req() request: RequestContext) {
+    return this.authService.getMe(request.user?.sub ?? '');
+  }
+
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('login')
   login(@Body() dto: LoginDto, @Req() request: RequestContext) {
     return this.authService.login(
@@ -30,18 +39,25 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('refresh')
   refresh(@Body() dto: RefreshDto) {
     return this.authService.refresh(dto.refreshToken);
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('forgot-password')
   forgotPassword(@Body() dto: ForgotPasswordDto, @Req() request: RequestContext) {
-    return this.authService.requestPasswordReset(dto.email, request.ip);
+    return this.authService.requestPasswordReset(
+      dto.email,
+      request.ip,
+      request.tenant?.code ?? 'demo',
+    );
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('reset-password')
   resetPassword(@Body() dto: ResetPasswordDto, @Req() request: RequestContext) {
     return this.authService.resetPassword(dto.token, dto.newPassword, request.ip);
@@ -74,6 +90,8 @@ export class AuthController {
       request.user?.sub ?? '',
       dto.currentPassword,
       dto.newPassword,
+      'web',
+      request.ip,
     );
   }
 }

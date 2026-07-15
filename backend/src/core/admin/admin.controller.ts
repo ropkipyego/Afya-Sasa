@@ -7,8 +7,10 @@ import {
   Post,
   Query,
   Req,
+  Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import type { RequestContext } from '../../common/request-context';
 import { RequirePermissions } from '../auth/auth.decorators';
 import {
@@ -18,6 +20,7 @@ import {
   CreateRoleDto,
   CreateUserDto,
   UpdateRolePermissionsDto,
+  ResetUserPasswordDto,
   UpdateSettingsDto,
   UpdateUserDto,
 } from './admin.dto';
@@ -39,6 +42,12 @@ export class AdminController {
   @RequirePermissions('users:manage')
   usersSummary() {
     return this.adminService.getUsersSummary();
+  }
+
+  @Get('users/role-options')
+  @RequirePermissions('users:manage')
+  listUserRoleOptions() {
+    return this.adminService.listUserRoleOptions();
   }
 
   @Post('users')
@@ -73,6 +82,22 @@ export class AdminController {
   @RequirePermissions('users:manage')
   unlockUser(@Param('id') id: string) {
     return this.adminService.unlockUser(id);
+  }
+
+  @Post('users/:id/reset-password')
+  @RequirePermissions('users:manage')
+  resetUserPassword(
+    @Param('id') id: string,
+    @Body() dto: ResetUserPasswordDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.adminService.resetUserPassword(id, dto.temporaryPassword, request);
+  }
+
+  @Get('clinical-staff')
+  @RequirePermissions('users:manage')
+  listClinicalStaff() {
+    return this.adminService.listClinicalStaff();
   }
 
   @Post('users/:id/roles')
@@ -153,6 +178,48 @@ export class AdminController {
       userId,
       action,
       recordType,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @Get('audit-logs/export')
+  @RequirePermissions('audit_logs:read')
+  async exportAuditLogs(
+    @Query('action') action?: string,
+    @Query('recordType') recordType?: string,
+    @Res() res?: Response,
+  ) {
+    const csv = await this.adminService.exportAuditLogsCsv({ action, recordType });
+    res!.setHeader('Content-Type', 'text/csv');
+    res!.setHeader(
+      'Content-Disposition',
+      `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
+    );
+    res!.send(csv);
+  }
+
+  @Post('audit-logs/import')
+  @RequirePermissions('audit_logs:read')
+  importAuditLogs(@Body() body: { csv: string }) {
+    return this.adminService.importAuditLogsCsv(body.csv ?? '');
+  }
+
+  @Get('phi-access-report')
+  @RequirePermissions('audit_logs:read')
+  phiAccessReport(
+    @Query('patientId') patientId?: string,
+    @Query('userId') userId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.adminService.phiAccessReport({
+      patientId,
+      userId,
+      from,
+      to,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });

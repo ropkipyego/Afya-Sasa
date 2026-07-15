@@ -81,12 +81,12 @@ Demo users:
 
 | Role | Email | Password |
 |---|---|---|
-| Administrator | `admin@demo.afyasasa.local` | `ChangeMe123!` |
-| Doctor | `doctor@demo.afyasasa.local` | `ChangeMe123!` |
-| Nurse | `nurse@demo.afyasasa.local` | `ChangeMe123!` |
-| Records Officer | `records@demo.afyasasa.local` | `ChangeMe123!` |
-| Lab Technician | `lab@demo.afyasasa.local` | `ChangeMe123!` |
-| Radiology Technician | `radiology@demo.afyasasa.local` | `ChangeMe123!` |
+| Administrator | `it@jalaram.co.ke` | `ChangeMe123!` |
+| Doctor | `doctor@jalaram.co.ke` | `ChangeMe123!` |
+| Nurse | `nurse@jalaram.co.ke` | `ChangeMe123!` |
+| Records Officer | `records@jalaram.co.ke` | `ChangeMe123!` |
+| Lab Technician | `lab@jalaram.co.ke` | `ChangeMe123!` |
+| Radiology Technician | `radiology@jalaram.co.ke` | `ChangeMe123!` |
 
 Smoke test after startup:
 
