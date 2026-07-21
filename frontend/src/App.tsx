@@ -127,14 +127,23 @@ function SessionLoadingScreen() {
 function App() {
   const { user, accessToken, tenant, setTenant, clearSession } = useAuthStore()
   const { hydrated } = useAuthSession()
-  const [activeScreen, setActiveScreen] = useState(
-    () => sessionStorage.getItem('afyasasa.activeScreen') ?? 'Patient Search',
-  )
+  const [activeScreen, setActiveScreen] = useState(() => {
+    const saved = sessionStorage.getItem('afyasasa.activeScreen')?.trim()
+    return saved || 'Patient Search'
+  })
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
 
+  const goToScreen = (screen: string) => {
+    const next = screen?.trim()
+    if (!next) return
+    setActiveScreen(next)
+  }
+
   useEffect(() => {
-    sessionStorage.setItem('afyasasa.activeScreen', activeScreen)
+    if (activeScreen.trim()) {
+      sessionStorage.setItem('afyasasa.activeScreen', activeScreen)
+    }
   }, [activeScreen])
 
   const { data: notificationSummary } = useQuery({
@@ -210,7 +219,7 @@ function App() {
                         ? 'bg-teal-600 text-white shadow-sm'
                         : 'text-slate-600 hover:bg-slate-100'
                     }`}
-                    onClick={() => setActiveScreen(item.label)}
+                    onClick={() => goToScreen(item.label)}
                   >
                     <Icon size={17} />
                     {item.label}
@@ -228,7 +237,7 @@ function App() {
             <AppMobileNav
               items={allowedNavigation}
               activeScreen={activeScreen}
-              onNavigate={setActiveScreen}
+              onNavigate={goToScreen}
               tenant={tenant}
             />
             <div className="hidden min-w-0 flex-1 xl:block">
@@ -251,7 +260,7 @@ function App() {
               <button
                 type="button"
                 className="relative rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
-                onClick={() => setActiveScreen('Notifications')}
+                onClick={() => goToScreen('Notifications')}
                 aria-label="Notifications"
               >
                 <Bell size={18} />
@@ -335,7 +344,7 @@ function App() {
           {activeScreen === 'Operations Center' ? <OperationsCommandCenter /> : null}
           {activeScreen === 'Worklists' ? <OperationalWorklists /> : null}
           {activeScreen === 'Notifications' ? (
-            <NotificationInbox onNavigate={setActiveScreen} />
+            <NotificationInbox onNavigate={goToScreen} />
           ) : null}
           {activeScreen === 'Hospital Control Center' ? <HospitalControlCenter /> : null}
           {activeScreen !== 'Patient Search' &&
@@ -1281,36 +1290,43 @@ function DoctorQueue() {
   })
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.75fr_1.75fr] animate-fade-in">
-      <div className="space-y-3">
-        <PageHeader title="Doctor queue" description="Sorted by triage urgency. Colour shows throughout consultation." />
-        {queue.map((encounter) => (
-          <button
-            key={encounter.id}
-            type="button"
-            className={`w-full rounded-xl border-l-4 p-4 text-left shadow-sm transition duration-150 hover:shadow-md ${triageCardAccent(encounter.triage?.colour)} ${
-              selected?.id === encounter.id ? 'ring-2 ring-teal-500' : ''
-            }`}
-            onClick={() => setSelected(encounter)}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <TriageIndicator colour={encounter.triage?.colour} label="Triage" size="lg" />
-              <TriageBadge colour={encounter.triage?.colour} />
-            </div>
-            <h3 className="mt-3 text-lg font-bold">
-              {encounter.patient.firstName} {encounter.patient.lastName}
-            </h3>
-            <p className="text-sm text-slate-600">
-              {encounter.triage?.chiefComplaint ?? encounter.presentingComplaint}
-            </p>
-          </button>
-        ))}
-        {!queue.length ? (
-          <Card><p className="py-10 text-center text-slate-500">No patients in queue.</p></Card>
-        ) : null}
+    <div className="grid gap-4 lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)] animate-fade-in">
+      <div className="space-y-2">
+        <PageHeader
+          title="Doctor queue"
+          description={`${queue.length} waiting · triage colour = urgency`}
+        />
+        <div className="max-h-[min(70vh,36rem)] space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100dvh-10rem)]">
+          {queue.map((encounter) => (
+            <button
+              key={encounter.id}
+              type="button"
+              className={`w-full rounded-lg border-l-4 px-3 py-2.5 text-left shadow-sm transition duration-150 hover:shadow-md ${triageCardAccent(encounter.triage?.colour)} ${
+                selected?.id === encounter.id ? 'ring-2 ring-teal-500' : ''
+              }`}
+              onClick={() => setSelected(encounter)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <TriageIndicator colour={encounter.triage?.colour} label="Triage" size="sm" />
+                <TriageBadge colour={encounter.triage?.colour} />
+              </div>
+              <h3 className="mt-1.5 truncate text-sm font-bold leading-tight">
+                {encounter.patient.firstName} {encounter.patient.lastName}
+              </h3>
+              <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">
+                {encounter.triage?.chiefComplaint ?? encounter.presentingComplaint ?? '—'}
+              </p>
+            </button>
+          ))}
+          {!queue.length ? (
+            <Card className="p-4">
+              <p className="py-6 text-center text-sm text-slate-500">No patients in queue.</p>
+            </Card>
+          ) : null}
+        </div>
       </div>
 
-      <div className="min-w-0 xl:col-span-2">
+      <div className="min-w-0">
         {selected ? (
           <DoctorConsultationWorkspace
             selected={selected}

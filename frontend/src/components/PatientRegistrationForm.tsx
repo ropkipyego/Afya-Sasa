@@ -46,6 +46,7 @@ export function PatientRegistrationForm() {
   const [message, setMessage] = useState<string | null>(null)
   const [identifierType, setIdentifierType] = useState('national_id')
   const [includeId, setIncludeId] = useState(false)
+  const [birthInputMode, setBirthInputMode] = useState<'dob' | 'age'>('dob')
 
   const mutation = useMutation({
     mutationFn: async (formElement: HTMLFormElement) => {
@@ -54,12 +55,28 @@ export function PatientRegistrationForm() {
       const allergyName = form.get('allergyName')?.toString().trim()
       const conditionName = form.get('conditionName')?.toString().trim()
       const idValue = form.get('identifierValue')?.toString().trim()
+      const enteredDob = form.get('dateOfBirth')?.toString()
+      const enteredAge = Number(form.get('ageYears'))
+      let dateOfBirth = enteredDob
+
+      if (birthInputMode === 'age') {
+        if (!Number.isInteger(enteredAge) || enteredAge < 0 || enteredAge > 130) {
+          throw new Error('Enter a valid age between 0 and 130 years.')
+        }
+        const estimatedDob = new Date()
+        estimatedDob.setFullYear(estimatedDob.getFullYear() - enteredAge)
+        dateOfBirth = estimatedDob.toISOString().slice(0, 10)
+      }
+
+      if (!dateOfBirth) {
+        throw new Error('Enter the patient date of birth or age.')
+      }
 
       const payload: Record<string, unknown> = {
         firstName: form.get('firstName'),
         middleName: form.get('middleName') || undefined,
         lastName: form.get('lastName'),
-        dateOfBirth: form.get('dateOfBirth'),
+        dateOfBirth,
         gender: form.get('gender'),
         primaryPhone: form.get('primaryPhone'),
         secondaryPhone: form.get('secondaryPhone') || undefined,
@@ -89,6 +106,7 @@ export function PatientRegistrationForm() {
             name: kinName,
             relationship: form.get('kinRelationship'),
             primaryPhone: form.get('kinPhone'),
+            idNumber: form.get('kinIdNumber') || undefined,
             isEmergencyContact: true,
           },
         ]
@@ -211,7 +229,52 @@ export function PatientRegistrationForm() {
               <option value="intersex">Intersex</option>
               <option value="unknown">Unknown</option>
             </SelectField>
-            <Field name="dateOfBirth" label="Date of birth" type="date" required />
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                Birth information <span className="text-red-500">*</span>
+              </span>
+              <div className="mb-3 grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                    birthInputMode === 'dob'
+                      ? 'bg-white text-teal-700 shadow-sm'
+                      : 'text-slate-600 hover:bg-white/60'
+                  }`}
+                  onClick={() => setBirthInputMode('dob')}
+                  aria-pressed={birthInputMode === 'dob'}
+                >
+                  Date of birth
+                </button>
+                <button
+                  type="button"
+                  className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                    birthInputMode === 'age'
+                      ? 'bg-white text-teal-700 shadow-sm'
+                      : 'text-slate-600 hover:bg-white/60'
+                  }`}
+                  onClick={() => setBirthInputMode('age')}
+                  aria-pressed={birthInputMode === 'age'}
+                >
+                  Age in years
+                </button>
+              </div>
+              {birthInputMode === 'dob' ? (
+                <Field name="dateOfBirth" label="Date of birth" type="date" required />
+              ) : (
+                <Field
+                  name="ageYears"
+                  label="Current age"
+                  type="number"
+                  min={0}
+                  max={130}
+                  step={1}
+                  placeholder="e.g. 42"
+                  hint="The system estimates the date of birth from today's date."
+                  required
+                />
+              )}
+            </div>
           </FormSection>
         </section>
 
@@ -290,6 +353,12 @@ export function PatientRegistrationForm() {
           <Field name="kinName" label="Contact name" />
           <Field name="kinRelationship" label="Relationship" placeholder="Spouse, parent, sibling" />
           <Field name="kinPhone" label="Contact phone" />
+          <Field
+            name="kinIdNumber"
+            label="Next-of-kin ID number"
+            placeholder="National ID, passport, or other ID"
+            hint="Optional"
+          />
         </CollapsibleSection>
 
         <CollapsibleSection title="Medical alerts" description="Allergies and chronic conditions — optional">

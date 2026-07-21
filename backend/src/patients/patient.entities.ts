@@ -149,6 +149,9 @@ export class PatientNextOfKin extends SoftDeleteClinicalEntity {
   @Column({ type: 'varchar' })
   name!: string;
 
+  @Column({ type: 'varchar', name: 'id_number', nullable: true })
+  idNumber!: string | null;
+
   @Column({ type: 'varchar' })
   relationship!: string;
 

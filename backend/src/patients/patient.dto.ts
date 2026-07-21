@@ -39,6 +39,13 @@ export class PatientNextOfKinDto {
   @IsString()
   name!: string;
 
+  @ApiPropertyOptional({
+    description: 'National ID, passport, or another identity number',
+  })
+  @IsOptional()
+  @IsString()
+  idNumber?: string;
+
   @ApiProperty()
   @IsString()
   relationship!: string;

@@ -28,6 +28,16 @@ const linkToScreen: Record<string, string> = {
   '/radiology': 'Radiology',
   '/referrals': 'Referrals',
   '/appointments': 'Appointments',
+  '/opd': 'Doctor Queue',
+  '/doctor': 'Doctor Queue',
+  '/doctor-queue': 'Doctor Queue',
+  '/results': 'Results Inbox',
+  '/results-inbox': 'Results Inbox',
+  '/notifications': 'Notifications',
+  '/pharmacy': 'Pharmacy',
+  '/clinical-orders': 'Clinical Orders',
+  '/emergency': 'Emergency',
+  '/inpatient': 'Inpatient (IPD)',
 }
 
 export function NotificationInbox({ onNavigate }: { onNavigate?: (screen: string) => void }) {
@@ -132,14 +142,22 @@ export function NotificationInbox({ onNavigate }: { onNavigate?: (screen: string
                 tabIndex={item.link && onNavigate ? 0 : undefined}
                 onClick={() => {
                   if (item.link && onNavigate) {
-                    const screen = linkToScreen[item.link]
-                    if (screen) onNavigate(screen)
+                    const raw = item.link.trim()
+                    const screen =
+                      linkToScreen[raw] ||
+                      linkToScreen[raw.replace(/\/$/, '')] ||
+                      (raw && !raw.startsWith('/') ? raw : undefined)
+                    if (screen?.trim()) onNavigate(screen.trim())
                   }
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && item.link && onNavigate) {
-                    const screen = linkToScreen[item.link]
-                    if (screen) onNavigate(screen)
+                    const raw = item.link.trim()
+                    const screen =
+                      linkToScreen[raw] ||
+                      linkToScreen[raw.replace(/\/$/, '')] ||
+                      (raw && !raw.startsWith('/') ? raw : undefined)
+                    if (screen?.trim()) onNavigate(screen.trim())
                   }
                 }}
                 className={clsx(

@@ -172,10 +172,24 @@ nav::-webkit-scrollbar-thumb {
 @media (max-width: 1023px) {
   select.input,
   select,
-  .input {
+  .input,
+  .form-control,
+  textarea.form-control {
     font-size: 1rem;
     padding: 0.875rem 1rem;
     min-height: 48px;
+  }
+
+  textarea.form-control,
+  textarea.input {
+    min-height: 7rem;
+  }
+
+  .workspace-tab {
+    min-height: 48px;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    font-size: 0.95rem;
   }
 }
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ClipboardList, FileText, FlaskConical, Stethoscope } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ClipboardList, FileText, FlaskConical, Pill, Stethoscope } from 'lucide-react'
 import {
   Alert,
   Button,
@@ -10,6 +10,7 @@ import {
   FormActions,
   FormSection,
   PageHeader,
+  SelectField,
   TextareaField,
 } from './ui'
 import { PatientContextHeader } from './PatientContextHeader'
@@ -18,6 +19,7 @@ import { TriageSummaryPanel } from './VitalsFields'
 import { ClinicalInvestigationOrders } from './investigations/ClinicalInvestigationOrders'
 import { WorkspaceTabs } from './ui/WorkspaceTabs'
 import { apiRequest } from '../lib/api'
+import { notify } from '../lib/notify'
 import type { WorkflowStep } from '../lib/workflow-status'
 import { mapEncounterStatusToWorkflow } from '../lib/workflow-status'
 
@@ -54,7 +56,15 @@ export type ConsultationEncounter = {
   } | null
 }
 
-type DoctorTab = 'context' | 'soap' | 'orders' | 'referrals'
+type DoctorTab = 'context' | 'soap' | 'orders' | 'meds' | 'referrals'
+
+type PharmacyOrder = {
+  id: string
+  orderNo: string
+  status: string
+  orderedAt: string
+  metadata?: Record<string, unknown> | null
+}
 
 export function DoctorConsultationWorkspace({
   selected,
@@ -74,7 +84,13 @@ export function DoctorConsultationWorkspace({
   createReferral: { mutate: (form: HTMLFormElement) => void; isPending: boolean }
   recentSoap: Array<{ id: string; patient: string; savedAt: string }>
 }) {
+  const queryClient = useQueryClient()
   const [tab, setTab] = useState<DoctorTab>('soap')
+  const [medication, setMedication] = useState('')
+  const [dose, setDose] = useState('')
+  const [route, setRoute] = useState('oral')
+  const [frequency, setFrequency] = useState('')
+  const [priority, setPriority] = useState('routine')
 
   const { data: timeline } = useQuery({
     queryKey: ['consultation-timeline', selected.patient.id],
@@ -92,7 +108,50 @@ export function DoctorConsultationWorkspace({
       }>(`/patients/${selected.patient.id}/journey`),
   })
 
+  const { data: pharmacyOrders = [] } = useQuery({
+    queryKey: ['consultation-pharmacy', selected.patient.id, selected.id],
+    queryFn: () =>
+      apiRequest<PharmacyOrder[]>(
+        `/clinical-orders?module=pharmacy&patientId=${selected.patient.id}&limit=20`,
+      ),
+    enabled: tab === 'meds',
+  })
+
+  const orderMedication = useMutation({
+    mutationFn: () => {
+      const name = medication.trim()
+      if (!name) throw new Error('Enter a medication name.')
+      return apiRequest('/clinical-orders/pharmacy', {
+        method: 'POST',
+        body: JSON.stringify({
+          patientId: selected.patient.id,
+          encounterId: selected.id,
+          medication: name,
+          dose: dose.trim() || undefined,
+          route: route.trim() || undefined,
+          frequency: frequency.trim() || undefined,
+          priority,
+        }),
+      })
+    },
+    onSuccess: async () => {
+      notify('Medication ordered', `${medication.trim()} sent to pharmacy.`, 'success')
+      setMedication('')
+      setDose('')
+      setFrequency('')
+      setPriority('routine')
+      await queryClient.invalidateQueries({ queryKey: ['consultation-pharmacy'] })
+      await queryClient.invalidateQueries({ queryKey: ['clinical-orders'] })
+    },
+    onError: (error: Error) => notify('Medication order failed', error.message, 'critical'),
+  })
+
   const workflowStep = journey?.step ?? mapEncounterStatusToWorkflow('in_consultation')
+
+  function changeTab(next: DoctorTab) {
+    if (!next) return
+    setTab(next)
+  }
 
   return (
     <div className="workspace-shell">
@@ -105,11 +164,12 @@ export function DoctorConsultationWorkspace({
 
       <WorkspaceTabs
         active={tab}
-        onChange={setTab}
+        onChange={changeTab}
         tabs={[
           { id: 'context', label: 'Context', icon: <ClipboardList className="h-4 w-4" /> },
           { id: 'soap', label: 'Consultation', icon: <Stethoscope className="h-4 w-4" /> },
-          { id: 'orders', label: 'Investigations', icon: <FlaskConical className="h-4 w-4" /> },
+          { id: 'orders', label: 'Lab & imaging', icon: <FlaskConical className="h-4 w-4" /> },
+          { id: 'meds', label: 'Medications', icon: <Pill className="h-4 w-4" /> },
           { id: 'referrals', label: 'Referrals', icon: <FileText className="h-4 w-4" /> },
         ]}
       />
@@ -145,8 +205,16 @@ export function DoctorConsultationWorkspace({
               <Field name="followUpInstructions" label="Follow-up instructions" />
             </FormSection>
             <FormActions>
-              <Button type="submit" loading={createConsultation.isPending}>Save SOAP</Button>
-              <Button type="button" variant="secondary" loading={completeEncounter.isPending} onClick={() => completeEncounter.mutate()}>
+              <Button type="submit" loading={createConsultation.isPending} className="min-h-12">
+                Save SOAP
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={completeEncounter.isPending}
+                className="min-h-12"
+                onClick={() => completeEncounter.mutate()}
+              >
                 Complete visit
               </Button>
             </FormActions>
@@ -164,15 +232,16 @@ export function DoctorConsultationWorkspace({
             <Field name="icd10Code" label="ICD-10 code" />
             <Field name="description" label="Diagnosis" required />
             <div className="md:col-span-2">
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Type</label>
-              <select name="type" className="input" required>
+              <SelectField name="type" label="Type" required defaultValue="primary">
                 <option value="primary">Primary</option>
                 <option value="secondary">Secondary</option>
                 <option value="differential">Differential</option>
-              </select>
+              </SelectField>
             </div>
             <div className="md:col-span-2">
-              <Button type="submit" loading={addDiagnosis.isPending}>Add diagnosis</Button>
+              <Button type="submit" loading={addDiagnosis.isPending} className="min-h-12">
+                Add diagnosis
+              </Button>
             </div>
           </form>
 
@@ -197,6 +266,111 @@ export function DoctorConsultationWorkspace({
         />
       ) : null}
 
+      {tab === 'meds' ? (
+        <Card className="p-5 md:p-8">
+          <PageHeader
+            title="Medications"
+            description="Prescribe for this encounter — sent to the pharmacy / clinical orders feed."
+          />
+          <form
+            className="mt-6 grid gap-4 md:grid-cols-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              orderMedication.mutate()
+            }}
+          >
+            <div className="md:col-span-2">
+              <Field
+                name="medication"
+                label="Medication"
+                placeholder="e.g. Amoxicillin"
+                value={medication}
+                onChange={(e) => setMedication(e.target.value)}
+                required
+              />
+            </div>
+            <Field
+              name="dose"
+              label="Dose"
+              placeholder="e.g. 500 mg"
+              value={dose}
+              onChange={(e) => setDose(e.target.value)}
+            />
+            <SelectField
+              name="route"
+              label="Route"
+              value={route}
+              onChange={(e) => setRoute(e.target.value)}
+            >
+              <option value="oral">Oral</option>
+              <option value="iv">IV</option>
+              <option value="im">IM</option>
+              <option value="sc">SC</option>
+              <option value="topical">Topical</option>
+              <option value="inhalation">Inhalation</option>
+              <option value="other">Other</option>
+            </SelectField>
+            <Field
+              name="frequency"
+              label="Frequency"
+              placeholder="e.g. TDS × 5 days"
+              value={frequency}
+              onChange={(e) => setFrequency(e.target.value)}
+            />
+            <SelectField
+              name="priority"
+              label="Priority"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            >
+              <option value="routine">Routine</option>
+              <option value="urgent">Urgent</option>
+              <option value="stat">STAT</option>
+            </SelectField>
+            <div className="md:col-span-2">
+              <Button
+                type="submit"
+                loading={orderMedication.isPending}
+                disabled={!medication.trim()}
+                className="min-h-12"
+              >
+                Order medication
+              </Button>
+            </div>
+          </form>
+
+          <div className="mt-8">
+            <p className="text-sm font-semibold text-slate-800">Recent pharmacy orders for this patient</p>
+            <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto">
+              {pharmacyOrders.map((order) => (
+                <li key={order.id} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold">{order.orderNo}</p>
+                      <p className="text-slate-600">
+                        {String(order.metadata?.medication ?? 'Medication')}
+                        {order.metadata?.dose ? ` · ${String(order.metadata.dose)}` : ''}
+                        {order.metadata?.route ? ` · ${String(order.metadata.route)}` : ''}
+                        {order.metadata?.frequency ? ` · ${String(order.metadata.frequency)}` : ''}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {new Date(order.orderedAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold">
+                      {order.status}
+                    </span>
+                  </div>
+                </li>
+              ))}
+              {!pharmacyOrders.length ? (
+                <p className="py-6 text-center text-sm text-slate-500">No pharmacy orders yet.</p>
+              ) : null}
+            </ul>
+          </div>
+        </Card>
+      ) : null}
+
       {tab === 'referrals' ? (
         <Card className="p-5 md:p-8">
           <PageHeader title="Referral" description="Internal or external — letter stored on patient record." />
@@ -208,18 +382,17 @@ export function DoctorConsultationWorkspace({
               event.currentTarget.reset()
             }}
           >
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Referral type</label>
-              <select name="type" className="input" required>
-                <option value="internal">Internal</option>
-                <option value="external">External</option>
-              </select>
-            </div>
+            <SelectField name="type" label="Referral type" required defaultValue="internal">
+              <option value="internal">Internal</option>
+              <option value="external">External</option>
+            </SelectField>
             <Field name="targetDepartment" label="Department" />
             <Field name="targetFacility" label="External facility" />
             <Field name="reason" label="Reason" required />
             <TextareaField name="letter" label="Clinical summary / letter" required />
-            <Button type="submit" loading={createReferral.isPending}>Create referral</Button>
+            <Button type="submit" loading={createReferral.isPending} className="min-h-12">
+              Create referral
+            </Button>
           </form>
         </Card>
       ) : null}

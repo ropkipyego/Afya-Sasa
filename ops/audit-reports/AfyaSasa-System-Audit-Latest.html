@@ -1,278 +1,371 @@
 <!DOCTYPE html>
-<html><head><meta charset='utf-8'>
-<title>AfyaSasa System Audit</title>
+<html lang="en"><head><meta charset="utf-8">
+<title>AfyaSasa — System Audit &amp; Readiness Report</title>
 <style>
-  @page { size: A4; margin: 18mm 15mm; }
+  @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
   @media print {
     body { max-width: none; }
-    h2, h3 { page-break-after: avoid; }
+    h2 { page-break-after: avoid; }
+    h3 { page-break-after: avoid; }
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; }
   }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11pt; color: #1e293b; line-height: 1.5; width: 100%; margin: 0; padding: 24px; box-sizing: border-box; }
-  h1 { color: #0f766e; border-bottom: 3px solid #14b8a6; padding-bottom: 8px; }
-  h2 { color: #334155; margin-top: 28px; }
-  h3 { color: #475569; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 10pt; }
-  th, td { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; }
-  th { background: #f1f5f9; font-weight: 700; }
+  body {
+    font-family: 'Segoe UI', Calibri, system-ui, sans-serif;
+    font-size: 10.5pt;
+    color: #1e293b;
+    line-height: 1.55;
+    width: 100%;
+    margin: 0;
+    padding: 18px 22px 28px;
+    box-sizing: border-box;
+  }
+  h1 {
+    color: #0f766e;
+    font-size: 20pt;
+    border-bottom: 3px solid #14b8a6;
+    padding-bottom: 10px;
+    margin-top: 0;
+    line-height: 1.25;
+  }
+  h2 {
+    color: #0f172a;
+    font-size: 14pt;
+    margin-top: 26px;
+    border-left: 4px solid #14b8a6;
+    padding-left: 10px;
+  }
+  h3 {
+    color: #334155;
+    font-size: 11.5pt;
+    margin-top: 18px;
+  }
+  p { margin: 6px 0 10px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 18px;
+    font-size: 9.2pt;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #ecfdf5; font-weight: 700; color: #115e59; }
   tr:nth-child(even) td { background: #f8fafc; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.92em;
+    background: #f1f5f9;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  ul, ol { margin: 6px 0 14px 22px; padding: 0; }
+  li { margin: 4px 0; }
+  ul.checklist { list-style: none; margin-left: 8px; }
+  .check { margin: 3px 0; }
   .PASS { color: #047857; font-weight: 700; }
   .FAIL { color: #b91c1c; font-weight: 700; }
   .WARN { color: #b45309; font-weight: 700; }
-  .check { margin: 4px 0; }
-  .muted { color: #64748b; font-size: 9pt; }
-  li { margin: 4px 0; }
-  ul { margin: 8px 0 16px 20px; padding: 0; }
-  hr { border: none; border-top: 1px solid #e2e8f0; margin: 24px 0; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 22px 0; }
+  strong { color: #0f172a; }
+  em { color: #475569; }
+  .footer-note {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 8.5pt;
+    color: #64748b;
+  }
 </style></head><body>
-<h1>AfyaSasa — Complete System &amp; Module Audit</h1>
+<h1>AfyaSasa — System Audit &amp; Readiness Report</h1>
 
-<p>**Report date:** 9 July 2026  </p>
-<p>**Environment:** http://localhost:8080 (app) · http://localhost:3000/api/v1 (API)  </p>
-<p>**Tenant:** demo (single-hospital mode)  </p>
-<p>**Automated test result:** 43 PASS · 3 WARN · 0 FAIL</p>
+<p><strong>Report date:</strong> 15 July 2026 (updated)  </p>
+<p><strong>Environment:</strong> http://localhost:8080 (app) · http://localhost:3000/api/v1 (API)  </p>
+<p><strong>Tenant:</strong> demo (single-hospital / Jalaram profile)  </p>
+<p><strong>Primary admin:</strong> <code>it@jalaram.co.ke</code>  </p>
+<p><strong>Companion guide:</strong> <code>AfyaSasa-System-Functionality-Guide.pdf</code> (step-by-step functionality + strength assessment)</p>
 
 <hr/>
 
 <h2>1. Executive summary</h2>
 
-<p>AfyaSasa is a hospital EMR covering reception, outpatient, investigations, inpatient, emergency, specialty services, reporting, and administration. The platform runs on **Docker** (PostgreSQL, Redis, MinIO, NestJS API, React frontend, Nginx).</p>
+<p>AfyaSasa is a Docker-hosted hospital EMR covering reception, outpatient, laboratory, imaging, inpatient, emergency, specialty services, reporting, notifications, and hospital administration.</p>
 
-<p><strong>Recent delivery (this cycle):</strong></p>
-<li>Account Center — create/edit users, doctor quick-add, specialisation, password reset, clinical staff directory</li>
-<li>Radiology catalog — CSV template + bulk import (modalities + study protocols)</li>
-<li>Executive Analytics — BI dashboard with date ranges, trends, comparisons, widget config, CSV export</li>
-<li>Auth/session hardening — refresh tokens, cross-tab sync, forced password change without logout</li>
-<li>Single-hospital UX — hospital code hidden on login</li>
+<p><strong>Overall readiness (15 Jul 2026):</strong> Suitable for <strong>demo, structured UAT, and controlled clinical pilot</strong>. Production VPS go-live is recommended after TLS, backups, credential rotation, Celcom live keys, and the Priority-1 checklist in §6.</p>
 
-<p>**Overall readiness:** Suitable for **demo, pilot, and structured user acceptance testing**. Not yet certified for full production at national scale without addressing items in §6 (Improvement roadmap).</p>
+<p><strong>Strength snapshot:</strong> Module breadth <strong>high</strong>; core OPD/lab/imaging/IPD/ED journeys <strong>operational</strong>; pharmacy and national multi-tenant schema work remain <strong>foundational / enterprise backlog</strong>.</p>
+
+<h3>Delivery since earlier July audit</h3>
+
+<ul>
+<li>Navigation regrouped (Referrals/Sick Sheets → Outpatient; Lab &amp; Imaging dashboards; Nursing nav)</li>
+<li>Realtime publish expanded (lab/radiology create+status, discharge, ED alerts)</li>
+<li>Facilities: Jalaram Hospital + City Clinic; ED permissions hardened</li>
+<li>Audit logs: before/after snapshots + CSV export/import</li>
+<li>Clinical orders mirror + pharmacy scaffold UI</li>
+<li>IPD admissions HTTP 500 fixed; IPD / Lab / Imaging dashboards improved</li>
+<li>Offline catalog cache + mutation queue foundations</li>
+<li>Jalaram identity emails (<code>it@jalaram.co.ke</code> and staff <code>@jalaram.co.ke</code>)</li>
+<li>Celcom Africa SMS gateway + bulk SMS admin UI</li>
+<li>Login password show/hide; larger animated welcome header; collapse arrows on form/nav sections</li>
+</ul>
 
 <hr/>
 
-<h2>2. Platform &amp; infrastructure modules</h2>
+<h2>2. Platform &amp; infrastructure</h2>
 
 <table>
 <tr><th>Module</th><th>What it does</th><th>Status</th><th>Recommended improvements</th></tr>
-<tr><td>**PostgreSQL**</td><td>Primary clinical and admin data store (demo schema)</td><td>Working</td><td>Full multi-tenant `search_path` on all ORM queries; backup automation</td></tr>
-<tr><td>**Redis**</td><td>Session/cache layer</td><td>Working</td><td>Wire caching for catalog, settings, and report aggregates</td></tr>
-<tr><td>**MinIO (S3)**</td><td>Clinical file storage (lab PDFs, radiology attachments, DOCX templates)</td><td>Working</td><td>Complete `file_registry` integration per enterprise plan</td></tr>
-<tr><td>**Nginx reverse proxy**</td><td>Serves frontend on :8080, proxies API</td><td>Working</td><td>TLS certificates for production; rate limiting</td></tr>
-<tr><td>**NestJS API**</td><td>REST API `/api/v1`, Swagger at `/docs`</td><td>Working</td><td>Global pagination; structured error codes on all list endpoints</td></tr>
-<tr><td>**React frontend**</td><td>SPA worklists, forms, control center</td><td>Working</td><td>Code-split large bundle (&gt;500 KB); deeper mobile QA</td></tr>
-<tr><td>**Realtime (Socket.IO)**</td><td>Live settings/worklist updates</td><td>Partial</td><td>Expand to lab/radiology queue live refresh</td></tr>
-<tr><td>**Docker Compose**</td><td>Local and pilot deployment</td><td>Working</td><td>Production compose + health checks documented</td></tr>
+<tr><td><strong>PostgreSQL</strong></td><td>Clinical + admin data (<code>demo</code> schema)</td><td>Working</td><td>Nightly encrypted backups; restore drills</td></tr>
+<tr><td><strong>Redis</strong></td><td>Cache / BullMQ queues</td><td>Working</td><td>Cache catalogs + report aggregates</td></tr>
+<tr><td><strong>MinIO (S3)</strong></td><td>Clinical files &amp; templates</td><td>Working</td><td>Full <code>file_registry</code> consistency checks</td></tr>
+<tr><td><strong>Nginx</strong></td><td>UI :8080 + API proxy</td><td>Working</td><td>TLS termination on VPS</td></tr>
+<tr><td><strong>NestJS API</strong></td><td>REST <code>/api/v1</code>, Swagger <code>/docs</code></td><td>Working</td><td>Uniform pagination + error codes</td></tr>
+<tr><td><strong>React frontend</strong></td><td>Clinical SPA + Control Center</td><td>Working</td><td>Code-split large bundle; device matrix QA</td></tr>
+<tr><td><strong>Realtime (Socket.IO)</strong></td><td>Live worklist / ED / settings sync</td><td>Working</td><td>Authenticate socket handshake with JWT</td></tr>
+<tr><td><strong>Docker Compose</strong></td><td>Pilot packaging</td><td>Working</td><td>Production compose + resource limits</td></tr>
 </table>
 
 <hr/>
 
-<h2>3. Core platform services (backend)</h2>
+<h2>3. Core platform services</h2>
 
 <table>
 <tr><th>Module</th><th>What it does</th><th>Status</th><th>Recommended improvements</th></tr>
-<tr><td>**Authentication**</td><td>Login, refresh rotation, lockout, forced password change</td><td>Working</td><td>Email password reset in production; MFA enrollment UI</td></tr>
-<tr><td>**RBAC**</td><td>Roles, permissions, token revocation on role change</td><td>Working</td><td>Role templates per job title (nurse, doctor, records)</td></tr>
-<tr><td>**Tenancy**</td><td>`X-Tenant` header, pool-level `search_path`</td><td>Demo OK</td><td>Provisioned tenant schemas for true multi-hospital</td></tr>
-<tr><td>**Admin / Settings**</td><td>Hospital profile, clinical catalog, departments</td><td>Working</td><td>Version history for catalog changes</td></tr>
-<tr><td>**Audit logs**</td><td>User action trail, PHI access report</td><td>Partial</td><td>Before/after JSON snapshots on clinical mutations</td></tr>
-<tr><td>**Notifications**</td><td>In-app inbox, SMS config</td><td>Working</td><td>Delivery status dashboard; push notifications</td></tr>
-<tr><td>**Clinical orders mirror**</td><td>Lab + radiology dual-write to unified orders table</td><td>Partial</td><td>Single order UI for clinicians; pharmacy orders</td></tr>
-<tr><td>**Worklists API**</td><td>Cross-department patient queues</td><td>Working</td><td>Saved filters per user; export</td></tr>
-<tr><td>**Documents / templates**</td><td>DOCX render, hospital library</td><td>Working</td><td>PDF generation parity for all template types</td></tr>
-<tr><td>**Health check**</td><td>`/api/v1/health` for ops</td><td>Working</td><td>Deep checks (DB latency, MinIO, Redis)</td></tr>
+<tr><td><strong>Authentication</strong></td><td>Login, refresh, lockout, forced password change, show/hide password</td><td>Working</td><td>Email reset in production; MFA for admins</td></tr>
+<tr><td><strong>RBAC</strong></td><td>Roles, permissions, revocation</td><td>Working</td><td>Job-title role templates</td></tr>
+<tr><td><strong>Tenancy / facilities</strong></td><td><code>X-Tenant</code> + facilities JSON (Jalaram + City Clinic)</td><td>Working for single hospital</td><td>Multi-schema only when expanding customers</td></tr>
+<tr><td><strong>Admin / Settings</strong></td><td>Profile, catalogs, departments</td><td>Working</td><td>Catalog change history</td></tr>
+<tr><td><strong>Audit logs</strong></td><td>Mutation trail + export/import</td><td>Working</td><td>SIEM shipping optional later</td></tr>
+<tr><td><strong>Notifications / SMS</strong></td><td>Inbox + Celcom/AT/Twilio + bulk SMS UI</td><td>Working (stub until keys)</td><td>Live Celcom credentials + delivery dashboard</td></tr>
+<tr><td><strong>Clinical orders mirror</strong></td><td>Lab/imaging/pharmacy unified view</td><td>Partial</td><td>Deeper pharmacy dispense</td></tr>
+<tr><td><strong>Worklists</strong></td><td>Cross-department queues</td><td>Working</td><td>Saved filters per user</td></tr>
+<tr><td><strong>Documents / templates</strong></td><td>DOCX / library / medical docs</td><td>Working</td><td>PDF parity for every template</td></tr>
+<tr><td><strong>Health check</strong></td><td><code>/api/v1/health</code></td><td>Working</td><td>Deep dependency latency probes</td></tr>
 </table>
 
 <hr/>
 
-<h2>4. Clinical workflow modules (main navigation)</h2>
+<h2>4. Clinical modules (main navigation)</h2>
 
 <h3>4.1 Reception</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Patient Search**</td><td>Find existing patients before registration or visit; opens safety banner and profile.</td><td>Working</td><td>Duplicate detection hints; national ID lookup</td></tr>
-<tr><td>**Register Patient**</td><td>Progressive registration with demographics, next of kin, identifiers.</td><td>Working</td><td>Bulk import from CSV; photo capture</td></tr>
-<tr><td>**Patient Timeline**</td><td>Chronological view of encounters, orders, documents, admissions.</td><td>Working</td><td>PDF export of timeline; filter by module</td></tr>
-<tr><td>**OPD Check-In**</td><td>Stepwise check-in: patient → clinic → visit type → confirm encounter.</td><td>Working</td><td>Queue number printing; appointment auto check-in</td></tr>
-<tr><td>**Appointments**</td><td>Schedule, status workflow, calendar views.</td><td>Working</td><td>SMS reminders; wait-list</td></tr>
-<tr><td>**Referrals**</td><td>Internal/external referrals with letter generation and tracking.</td><td>Working</td><td>eReferral integration; status webhooks</td></tr>
-<tr><td>**Medical Documents**</td><td>Patient-linked document repository.</td><td>Working</td><td>OCR search; category tagging</td></tr>
-<tr><td>**Sick Sheets**</td><td>Issue, print, store sick leave certificates.</td><td>Working</td><td>Digital signature; employer verification QR</td></tr>
+<tr><td><strong>Patient Search</strong></td><td>Find patient; open safety banner/profile</td><td>Working</td><td>National ID / duplicate scoring</td></tr>
+<tr><td><strong>Register Patient</strong></td><td>Progressive registration; collapsible optional steps</td><td>Working</td><td>Photo capture; CSV import</td></tr>
+<tr><td><strong>Patient Timeline</strong></td><td>Chronological journey</td><td>Working</td><td>Timeline PDF export</td></tr>
+<tr><td><strong>OPD Check-In</strong></td><td>Patient → clinic → visit type → confirm</td><td>Working</td><td>Appointment auto check-in</td></tr>
+<tr><td><strong>Appointments</strong></td><td>Schedule + status workflow</td><td>Working</td><td>SMS reminders</td></tr>
 </table>
 
-<h3>4.2 Outpatient (OPD)</h3>
+<h3>4.2 Outpatient</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Triage Queue**</td><td>Nurse workspace: vitals, triage colour, alerts, prior visits.</td><td>Working</td><td>NEWS2/MEWS auto-score; device vitals import</td></tr>
-<tr><td>**OPD Patients**</td><td>Active outpatients by queue; open chart from worklist.</td><td>Working</td><td>Panel view by clinic/room</td></tr>
-<tr><td>**Doctor Queue**</td><td>Prioritised consultations: SOAP notes, ICD-10 diagnosis, complete visit.</td><td>Working</td><td>Order sets; e-prescribing module</td></tr>
-<tr><td>**OPD Reports**</td><td>Visit summaries and OPD operational reports.</td><td>Working</td><td>Tie to Executive Analytics drill-down</td></tr>
+<tr><td><strong>Triage Queue</strong></td><td>Vitals, colour triage, alerts</td><td>Working</td><td>NEWS2/MEWS auto-score</td></tr>
+<tr><td><strong>OPD Patients</strong></td><td>Clinic patient directory</td><td>Working</td><td>Room/panel view</td></tr>
+<tr><td><strong>Doctor Queue</strong></td><td>SOAP, diagnosis, complete visit</td><td>Working</td><td>Order sets; e-Rx</td></tr>
+<tr><td><strong>Referrals</strong></td><td>Referral letters + tracking</td><td>Working</td><td>External eReferral</td></tr>
+<tr><td><strong>Sick Sheets</strong></td><td>Issue/print/store certificates</td><td>Working</td><td>Employer QR verify</td></tr>
 </table>
 
-<h3>4.3 Investigations</h3>
+<h3>4.3 Documents</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Laboratory**</td><td>Full lab worklist: request → sample → result → verify; PDF upload.</td><td>Working</td><td>Analyzer HL7 feed; critical result escalation rules</td></tr>
-<tr><td>**Lab Patients**</td><td>Patients with active lab requests (department worklist).</td><td>Working</td><td>Batch sample collection mode</td></tr>
-<tr><td>**Lab catalog (admin)**</td><td>Panels, tests, reference ranges; **CSV bulk import** with template.</td><td>Working</td><td>LOINC code mapping; price list per test</td></tr>
-<tr><td>**Radiology**</td><td>Imaging worklist: request → schedule → report → verify; attachments.</td><td>Working</td><td>DICOM viewer integration; PACS worklist sync</td></tr>
-<tr><td>**Imaging Patients**</td><td>Patients with active radiology requests.</td><td>Working</td><td>Modality room assignment</td></tr>
-<tr><td>**Radiology catalog (admin)**</td><td>Modalities + study protocols; **CSV template import**.</td><td>Working</td><td>**Import study CSV now** (0 protocols in demo DB)</td></tr>
-<tr><td>**Results Inbox**</td><td>Clinician inbox for verified lab/radiology results.</td><td>Working</td><td>Acknowledge/read receipt; push alert</td></tr>
+<tr><td><strong>Medical Documents</strong></td><td>Patient document repository</td><td>Working</td><td>OCR search</td></tr>
+<tr><td><strong>Hospital Library</strong></td><td>Policies / SOPs / circulars</td><td>Working</td><td>Staff acknowledgement tracking</td></tr>
 </table>
 
-<h3>4.4 Inpatient (IPD)</h3>
+<h3>4.4 Laboratory</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Inpatient (IPD)**</td><td>Ward board, admissions, transfers, bed assignment, discharge.</td><td>Working</td><td>**Fix admissions list API (HTTP 500)** — priority bug</td></tr>
-<tr><td>**IPD Patients**</td><td>Current admissions and discharge-ready patients.</td><td>Working</td><td>Expected discharge date; bed cleaning workflow</td></tr>
-<tr><td>**ICU**</td><td>ICU ward view filtered from IPD module.</td><td>Working</td><td>Ventilator charting; hourly observation grid</td></tr>
-<tr><td>**HDU**</td><td>High-dependency unit view.</td><td>Working</td><td>Step-down criteria checklist</td></tr>
-<tr><td>**Wards &amp; beds (admin)**</td><td>Configure wards, bed inventory, occupancy.</td><td>Working</td><td>Visual bed map designer</td></tr>
+<tr><td><strong>Lab Dashboard</strong></td><td>Pending/TAT command view</td><td>Working</td><td>TV wallboard mode</td></tr>
+<tr><td><strong>Laboratory</strong></td><td>Request → sample → result → verify</td><td>Working</td><td>HL7 analyzer feed</td></tr>
+<tr><td><strong>Lab Patients</strong></td><td>Active lab patients</td><td>Working</td><td>Batch collection</td></tr>
+<tr><td><strong>Results Inbox</strong></td><td>Clinician verified inbox</td><td>Working</td><td>Acknowledge receipts</td></tr>
+<tr><td><strong>Lab catalog (admin)</strong></td><td>Panels/tests + CSV import</td><td>Working</td><td>LOINC + pricing</td></tr>
 </table>
 
-<h3>4.5 Emergency</h3>
+<h3>4.5 Imaging</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Emergency**</td><td>ED command center: triage, bays, observation, disposition.</td><td>Working</td><td>Real-time ED dashboard TV mode</td></tr>
-<tr><td>**ED Patients**</td><td>ED queue by triage and disposition.</td><td>Working</td><td>Ambulance pre-alert intake</td></tr>
-<tr><td>**Emergency API**</td><td>Queue, dashboard, metrics, bays, alerts.</td><td>Partial</td><td>Bays endpoint requires ED permission (403 for admin — expected)</td></tr>
+<tr><td><strong>Imaging Dashboard</strong></td><td>Pending studies overview</td><td>Working</td><td>Modality utilisation charts</td></tr>
+<tr><td><strong>Radiology</strong></td><td>Worklist, report, PDF attach</td><td>Working</td><td>DICOM / PACS</td></tr>
+<tr><td><strong>Imaging Patients</strong></td><td>Active imaging patients</td><td>Working</td><td>Room assignment</td></tr>
+<tr><td><strong>Radiology catalog</strong></td><td>Modalities + studies CSV import</td><td>Working</td><td>Keep study templates current</td></tr>
 </table>
 
-<h3>4.6 Specialty</h3>
+<h3>4.6 Inpatient</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Theatre**</td><td>Surgical bookings, procedures, scheduling.</td><td>Working</td><td>WHO checklist; implant tracking</td></tr>
-<tr><td>**Maternity**</td><td>ANC, labour, delivery, nursery service line.</td><td>Working</td><td>Partograph; neonatal integration</td></tr>
-<tr><td>**Nursing module (API)**</td><td>Nursing notes and observations (backend).</td><td>Partial</td><td>Dedicated nursing UI in main nav</td></tr>
+<tr><td><strong>Inpatient (IPD)</strong></td><td>Ward board, beds, workspace</td><td>Working</td><td>Visual bed map designer</td></tr>
+<tr><td><strong>IPD Patients</strong></td><td>Admissions directory</td><td>Working</td><td>Expected discharge dates</td></tr>
+<tr><td><strong>ICU / HDU</strong></td><td>Critical / step-down views</td><td>Working</td><td>Ventilator / hourly grids</td></tr>
+<tr><td><strong>Nursing</strong></td><td>Nursing command (notes/obs)</td><td>Working</td><td>Full MAR UI</td></tr>
 </table>
 
-<h3>4.7 Reports &amp; analytics</h3>
+<h3>4.7 Emergency</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Clinical Reports**</td><td>Metric cards, MOH report library (705/706/717), CSV export.</td><td>Working</td><td>Scheduled email reports</td></tr>
-<tr><td>**Executive Analytics**</td><td>BI dashboard: date presets, KPIs, trend charts, period comparison, widget config, CSV export.</td><td>Working</td><td>Interactive chart library; ward-level drill-down</td></tr>
-<tr><td>**Operations Center**</td><td>Today&#x27;s ops snapshot: OPD, beds, pending labs/radiology, ED.</td><td>Working</td><td>Auto-refresh intervals configurable</td></tr>
-<tr><td>**OPD Reports**</td><td>OPD-specific reporting view.</td><td>Working</td><td>Merge into unified analytics hub</td></tr>
-<tr><td>**Worklists**</td><td>Cross-department operational queues with search.</td><td>Working</td><td>Role-default landing pages</td></tr>
+<tr><td><strong>Emergency</strong></td><td>Queue, bays, metrics, alerts + sound</td><td>Working</td><td>Dedicated ED TV mode</td></tr>
+<tr><td><strong>ED Patients</strong></td><td>ED directory</td><td>Working</td><td>Ambulance pre-alert</td></tr>
 </table>
 
-<h3>4.8 Administration</h3>
+<h3>4.8 Specialty</h3>
 
 <table>
 <tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Hospital Control Center**</td><td>Central admin: profile, catalogs, users, security, ops.</td><td>Working</td><td>Guided setup wizard for new hospitals</td></tr>
-<tr><td>**Hospital Library**</td><td>Policies, SOPs, circulars for all staff.</td><td>Working</td><td>Version control and acknowledgement tracking</td></tr>
-<tr><td>**Notifications**</td><td>Staff notification inbox.</td><td>Working</td><td>Priority levels; mark-all-read</td></tr>
+<tr><td><strong>Theatre</strong></td><td>Bookings / procedures</td><td>Working</td><td>WHO checklist</td></tr>
+<tr><td><strong>Maternity</strong></td><td>ANC → labour → delivery → nursery</td><td>Working</td><td>Partograph</td></tr>
+<tr><td><strong>Pharmacy</strong></td><td>Orders / dispense pilot</td><td>Partial</td><td>Stock &amp; batches</td></tr>
+</table>
+
+<h3>4.9 Reports &amp; administration</h3>
+
+<table>
+<tr><th>Screen</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
+<tr><td><strong>Executive Analytics</strong></td><td>BI KPIs, trends, widgets, CSV</td><td>Working</td><td>Interactive drill-down</td></tr>
+<tr><td><strong>Operations Center</strong></td><td>Today’s ops command view</td><td>Working</td><td>Configurable refresh</td></tr>
+<tr><td><strong>Clinical Reports / OPD Reports</strong></td><td>Clinical &amp; OPD reporting</td><td>Working</td><td>Scheduled emails</td></tr>
+<tr><td><strong>Clinical Orders</strong></td><td>Unified order board</td><td>Working</td><td>Closer pharmacy loop</td></tr>
+<tr><td><strong>Worklists</strong></td><td>Cross-department queues</td><td>Working</td><td>Role landing pages</td></tr>
+<tr><td><strong>Notifications</strong></td><td>Staff inbox</td><td>Working</td><td>Priority filters</td></tr>
+<tr><td><strong>Hospital Control Center</strong></td><td>Full hospital OS</td><td>Working</td><td>Guided go-live wizard</td></tr>
 </table>
 
 <hr/>
 
-<h2>5. Hospital Control Center modules (detailed)</h2>
+<h2>5. Control Center modules</h2>
 
 <table>
-<tr><th>Section</th><th>Explanation</th><th>Status</th><th>Improvements</th></tr>
-<tr><td>**Hospital profile**</td><td>Facility name, MOH code, contacts, locale — drives letterhead and defaults.</td><td>Working</td><td>Multiple sites under one group</td></tr>
-<tr><td>**Facilities &amp; modules**</td><td>Enable OPD/IPD/lab/etc. per satellite clinic.</td><td>Working</td><td>Per-facility go-live checklist</td></tr>
-<tr><td>**User &amp; access management**</td><td>Create/edit users, roles, departments, **quick-add doctor**, specialisation, password reset, search.</td><td>Working</td><td>Bulk user import; SSO/LDAP</td></tr>
-<tr><td>**Roles &amp; permissions**</td><td>RBAC bundles, permission matrix.</td><td>Working</td><td>Permission simulator (&quot;view as role&quot;)</td></tr>
-<tr><td>**Departments &amp; clinics**</td><td>Clinical departments for OPD routing and reporting.</td><td>Working</td><td>Link departments to wards and theatres</td></tr>
-<tr><td>**Clinical catalog**</td><td>Visit types, payment methods, identifiers, triage defaults.</td><td>Working</td><td>Import/export catalog JSON</td></tr>
-<tr><td>**Wards &amp; beds**</td><td>IPD bed inventory.</td><td>Working</td><td>Maintenance scheduling</td></tr>
-<tr><td>**Laboratory catalog**</td><td>Panels/tests + CSV import template.</td><td>Working</td><td>Interface to national lab master</td></tr>
-<tr><td>**Radiology catalog**</td><td>Modalities + study protocols + CSV import.</td><td>Working</td><td>Import demo study protocols from template</td></tr>
-<tr><td>**Theatre configuration**</td><td>Theatres and procedure catalog.</td><td>Working</td><td>Block time scheduling rules</td></tr>
-<tr><td>**Maternity configuration**</td><td>ANC and delivery templates.</td><td>Working</td><td>MOH maternity register auto-fill</td></tr>
-<tr><td>**Document templates**</td><td>DOCX templates with merge fields.</td><td>Working</td><td>In-browser template preview</td></tr>
-<tr><td>**Printing &amp; QR**</td><td>Patient cards, QR defaults.</td><td>Working</td><td>National HIE patient ID QR standard</td></tr>
-<tr><td>**Branding &amp; theme**</td><td>Logo, colors, favicon.</td><td>Working</td><td>Dark mode</td></tr>
-<tr><td>**Notification center**</td><td>SMS sender, templates.</td><td>Working</td><td>Africa&#x27;s Talking / Twilio live credentials</td></tr>
-<tr><td>**Reports (admin)**</td><td>Admin entry to reporting tools.</td><td>Working</td><td>Report permission per director role</td></tr>
-<tr><td>**Audit logs**</td><td>Compliance trail.</td><td>Partial</td><td>Immutable log export to SIEM</td></tr>
-<tr><td>**Security**</td><td>Role guidelines reference.</td><td>Working</td><td>Periodic access review report</td></tr>
-<tr><td>**Backup &amp; restore**</td><td>Ops scripts documentation.</td><td>Working</td><td>Automated nightly backup job</td></tr>
-<tr><td>**System health**</td><td>DB, Redis, storage status.</td><td>Working</td><td>Alerting when service down</td></tr>
-<tr><td>**Super admin**</td><td>Platform operator tools.</td><td>Working</td><td>Restrict to separate super-admin role only</td></tr>
+<tr><th>Section</th><th>Status</th><th>Notes</th></tr>
+<tr><td>Hospital profile</td><td>Working</td><td>Drives letterhead / branding defaults</td></tr>
+<tr><td>Facilities &amp; modules</td><td>Working</td><td>Jalaram + City Clinic pattern</td></tr>
+<tr><td>User &amp; access (Account Center)</td><td>Working</td><td>Doctor quick-add, specialisation, reset password</td></tr>
+<tr><td>Roles &amp; permissions</td><td>Working</td><td>Fine-grained RBAC</td></tr>
+<tr><td>Departments &amp; clinics</td><td>Working</td><td>Feeds OPD routing</td></tr>
+<tr><td>Clinical / Lab / Radiology catalogs</td><td>Working</td><td>CSV import for lab &amp; radiology</td></tr>
+<tr><td>Wards &amp; beds</td><td>Working</td><td>IPD occupancy source</td></tr>
+<tr><td>Theatre / Maternity config</td><td>Working</td><td>Specialty catalogs</td></tr>
+<tr><td>Templates / Printing / Branding</td><td>Working</td><td>Identity package</td></tr>
+<tr><td>Notification center (bulk SMS)</td><td>Working</td><td>Celcom-ready</td></tr>
+<tr><td>Audit / Security / Backup / Health</td><td>Working</td><td>Ops governance</td></tr>
+<tr><td>Super admin</td><td>Working</td><td>Restrict tightly in production</td></tr>
 </table>
 
 <hr/>
 
-<h2>6. Improvement roadmap (prioritised)</h2>
+<h2>6. Improvement roadmap</h2>
 
-<h3>Priority 1 — Before pilot go-live</h3>
-<p>1. **Fix IPD admissions list** — `GET /inpatient/admissions` returns HTTP 500; blocks IPD patient worklist reliability.</p>
-<p>2. **Import radiology study protocols** — use Control Center → Radiology → download CSV template → upload.</p>
-<p>3. **Add clinical staff** — ensure all doctors have `doctor` role + specialisation in Account Center.</p>
-<p>4. **Mobile/tablet QA** — verify sidebar, drawer, and full-width content on phones and tablets.</p>
-<p>5. **Production secrets** — rotate demo passwords; remove `ops/.audit-credentials` from workstations.</p>
+<h3>Priority 1 — Before broader pilot users</h3>
 
-<h3>Priority 2 — Next development sprint</h3>
-<p>1. Executive Analytics — ward/clinic drill-down and chart interactivity.</p>
-<p>2. Complete `file_registry` wiring for all uploads.</p>
-<p>3. Audit before/after snapshots on clinical writes.</p>
-<p>4. Pagination on all list APIs (admissions, encounters, orders).</p>
-<p>5. Email password reset and MFA enrollment.</p>
+<ol>
+<li>Create real clinical users in Account Center (roles + specialisation)</li>
+<li>Import radiology study protocols CSV if empty</li>
+<li>Complete one full UAT journey with director sign-off</li>
+<li>Rotate demo passwords for any shared accounts</li>
+<li>Keep production secrets out of chat logs / git</li>
+</ol>
 
-<h3>Priority 3 — Enterprise scale (per migration plan)</h3>
-<p>1. Full multi-tenant ORM (no hardcoded `demo` schema).</p>
-<p>2. Unified clinical order engine UI.</p>
-<p>3. Redis caching for dashboards and catalogs.</p>
-<p>4. Table partitioning for high-volume tenants.</p>
-<p>5. National MOH report auto-submission pipelines.</p>
+<h3>Priority 2 — Before Truehost / Contabo VPS go-live</h3>
+
+<ol>
+<li>TLS + HTTPS-only reverse proxy</li>
+<li>Nightly Postgres backup + restore test</li>
+<li>Celcom Africa live keys smoke-test</li>
+<li>Firewall / SSH hardening / non-root deploy user</li>
+<li>Resource sizing: 4 vCPU / 8 GB RAM / 80+ GB SSD</li>
+</ol>
+
+<h3>Priority 3 — Product depth</h3>
+
+<ol>
+<li>Pharmacy warehouse and MAR</li>
+<li>MFA for admins; email reset</li>
+<li>Socket JWT auth</li>
+<li>Chart drill-down for Executive Analytics</li>
+<li>Maternity partograph / theatre WHO checklist</li>
+</ol>
+
+<h3>Priority 4 — Enterprise scale (later)</h3>
+
+<ol>
+<li>Multi-schema ORM (remove hardcoded <code>demo</code> schema)</li>
+<li>Redis report/catalog cache</li>
+<li>Deep entity audit snapshots</li>
+<li>HL7 / PACS integrations</li>
+<li>National report auto-submission</li>
+</ol>
+
+<p><strong>Hosting recommendation:</strong> Prefer <strong>Truehost (Kenya)</strong> for Jalaram primary production latency and local support; Contabo as optional secondary / DR capacity.</p>
 
 <hr/>
 
-<h2>7. Automated test results (9 Jul 2026)</h2>
+<h2>7. Automated / previous test posture</h2>
+
+<p>Earlier automated run (9 Jul 2026): <strong>43 PASS · 3 WARN · 0 FAIL</strong>.</p>
+
+<p>Notable WARN items since addressed or clarified:</p>
 
 <table>
-<tr><th>Area</th><th>Result</th></tr>
-<tr><td>Infrastructure</td><td>5/5 PASS</td></tr>
-<tr><td>Authentication</td><td>2/2 PASS</td></tr>
-<tr><td>Reception</td><td>3/3 PASS</td></tr>
-<tr><td>Outpatient</td><td>3/3 PASS</td></tr>
-<tr><td>Investigations</td><td>6/6 PASS</td></tr>
-<tr><td>Inpatient</td><td>2 PASS, 1 WARN (admissions 500)</td></tr>
-<tr><td>Emergency</td><td>2 PASS, 1 WARN (bays 403 for admin)</td></tr>
-<tr><td>Specialty</td><td>3/3 PASS</td></tr>
-<tr><td>Reports</td><td>5/5 PASS</td></tr>
-<tr><td>Administration</td><td>7/7 PASS</td></tr>
-<tr><td>New features</td><td>Account center, radiology API, executive analytics — PASS</td></tr>
-<tr><td>UI assets</td><td>2/2 PASS</td></tr>
+<tr><th>Previous WARN</th><th>Current posture</th></tr>
+<tr><td>IPD admissions HTTP 500</td><td><strong>Fixed</strong> (listAdmissions where clause)</td></tr>
+<tr><td>ED bays 403 for admin</td><td>Expected without ED bay perms; admin ED perms improved via migration</td></tr>
+<tr><td>Empty radiology study protocols</td><td>Resolved by CSV import when run; keep catalog maintained</td></tr>
 </table>
 
-<hr/>
-
-<h2>8. Manual audit checklist (for director sign-off)</h2>
-
-<p class='check'>☐ Login — hospital code hidden (single-tenant)</p>
-<p class='check'>☐ Reception — register patient → check-in → timeline</p>
-<p class='check'>☐ OPD — triage → doctor queue → complete consultation</p>
-<p class='check'>☐ Lab — order test → enter result → clinician sees Results Inbox</p>
-<p class='check'>☐ Radiology — request imaging → report → verify</p>
-<p class='check'>☐ IPD — admit patient → ward board (verify admissions list loads)</p>
-<p class='check'>☐ ED — triage patient → disposition</p>
-<p class='check'>☐ Account Center — add doctor with specialisation → appears in clinical workflows</p>
-<p class='check'>☐ Radiology catalog — import CSV template</p>
-<p class='check'>☐ Executive Analytics — 30-day range, charts, CSV export</p>
-<p class='check'>☐ Operations Center — today&#x27;s figures match floor reality</p>
-<p class='check'>☐ Mobile — navigation usable on small screen</p>
+<p>Re-run <code>ops/full-system-audit.sh</code> after major releases for an updated pass matrix.</p>
 
 <hr/>
 
-<h2>9. How to open this report</h2>
+<h2>8. Manual audit checklist (director sign-off)</h2>
 
-<li>**PDF:** `ops/audit-reports/AfyaSasa-System-Audit-Latest.pdf`</li>
-<li>**HTML (best in browser):** `ops/audit-reports/AfyaSasa-System-Audit-Latest.html`</li>
-<li>**Chrome:** `google-chrome ops/audit-reports/AfyaSasa-System-Audit-Latest.html`</li>
+<ul class='checklist'>
+<li class='check'>☐ Login as <code>it@jalaram.co.ke</code> — hospital code hidden; password toggle works</li>
+<li class='check'>☐ Welcome header visible and animated</li>
+<li class='check'>☐ Reception — register → check-in → timeline</li>
+<li class='check'>☐ OPD — triage → doctor queue → complete</li>
+<li class='check'>☐ Lab — order → result → Results Inbox</li>
+<li class='check'>☐ Radiology — request → report → verify</li>
+<li class='check'>☐ IPD — admit → ward board loads; nursing notes</li>
+<li class='check'>☐ ED — red triage → alert visible</li>
+<li class='check'>☐ Account Center — add doctor with specialisation</li>
+<li class='check'>☐ Radiology catalog CSV import verified</li>
+<li class='check'>☐ Executive Analytics date range + CSV export</li>
+<li class='check'>☐ Notifications bulk SMS page opens (stub OK)</li>
+<li class='check'>☐ Collapse arrows shrink form / nav sections</li>
+<li class='check'>☐ Mobile drawer nav groups collapse</li>
+</ul>
 
 <hr/>
 
-<p>*AfyaSasa system audit — modules, status, and improvement recommendations.*  </p>
-<p class='muted'>Regenerated for director review.</p>
+<h2>9. How to open these reports</h2>
+
+<table>
+<tr><th>File</th><th>Purpose</th></tr>
+<tr><td><code>AfyaSasa-System-Functionality-Guide.pdf</code></td><td>Detailed step-by-step functionality + strength assessment</td></tr>
+<tr><td><code>AfyaSasa-System-Audit-Latest.pdf</code></td><td>This status/audit report</td></tr>
+<tr><td>Matching <code>.html</code> / <code>.md</code></td><td>Browser-friendly / editable sources</td></tr>
+</table>
+
+<p>Generate PDFs:</p>
+
+<p>```bash</p>
+<p>bash ops/generate-audit-pdf.sh ops/audit-reports/AfyaSasa-System-Functionality-Guide.md</p>
+<p>bash ops/generate-audit-pdf.sh ops/audit-reports/AfyaSasa-System-Audit-Latest.md</p>
+<p>```</p>
+
+<hr/>
+
+<p><em>AfyaSasa system audit — Jalaram Hospital profile — updated 15 July 2026.</em></p>
+<div class="footer-note">AfyaSasa · Jalaram Hospital profile · Generated from markdown · Confidential hospital operations document</div>
 </body></html>
