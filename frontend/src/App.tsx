@@ -697,50 +697,67 @@ function NotificationCenter() {
   useEffect(() => {
     const handler = (event: Event) => {
       const notification = (event as CustomEvent<AppNotification>).detail
-      setNotifications((current) => [notification, ...current].slice(0, 5))
+      const duration = notification.severity === 'critical' ? 10000 : 6000
+      setNotifications((current) =>
+        [{ ...notification, _duration: duration } as AppNotification & { _duration?: number }, ...current].slice(
+          0,
+          5,
+        ),
+      )
       window.setTimeout(() => {
         setNotifications((current) =>
           current.filter((item) => item.id !== notification.id),
         )
-      }, notification.severity === 'critical' ? 10000 : 6000)
+      }, duration)
     }
     window.addEventListener('afyasasa-notification', handler)
     return () => window.removeEventListener('afyasasa-notification', handler)
   }, [])
 
   return (
-    <div className="pointer-events-none fixed right-3 top-3 z-50 flex w-auto max-w-[min(100vw-1.5rem,24rem)] flex-col gap-3 sm:right-4 sm:top-4">
-      {notifications.map((notification) => (
-        <div
-          key={notification.id}
-          className={`pointer-events-auto rounded-2xl border p-4 shadow-2xl ${
-            notification.severity === 'critical'
-              ? 'border-red-200 bg-red-50 text-red-900'
-              : notification.severity === 'warning'
-                ? 'border-amber-200 bg-amber-50 text-amber-900'
-                : notification.severity === 'success'
-                  ? 'border-green-200 bg-green-50 text-green-900'
-                  : 'border-blue-200 bg-blue-50 text-blue-900'
-          }`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-bold">{notification.title}</p>
-              <p className="mt-1 text-sm">{notification.body}</p>
+    <div className="pointer-events-none fixed inset-x-3 bottom-3 z-[130] flex flex-col gap-3 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-full sm:max-w-md">
+      {notifications.map((notification) => {
+        const duration =
+          (notification as AppNotification & { _duration?: number })._duration ??
+          (notification.severity === 'critical' ? 10000 : 6000)
+        return (
+          <div
+            key={notification.id}
+            className={`toast-slide-in pointer-events-auto overflow-hidden rounded-2xl border shadow-2xl ${
+              notification.severity === 'critical'
+                ? 'border-red-200 bg-red-50 text-red-900'
+                : notification.severity === 'warning'
+                  ? 'border-amber-200 bg-amber-50 text-amber-900'
+                  : notification.severity === 'success'
+                    ? 'border-green-200 bg-green-50 text-green-900'
+                    : 'border-blue-200 bg-blue-50 text-blue-900'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3 p-4">
+              <div>
+                <p className="font-bold">{notification.title}</p>
+                <p className="mt-1 text-sm">{notification.body}</p>
+              </div>
+              <button
+                className="text-sm font-bold opacity-70"
+                onClick={() =>
+                  setNotifications((current) =>
+                    current.filter((item) => item.id !== notification.id),
+                  )
+                }
+              >
+                ×
+              </button>
             </div>
-            <button
-              className="text-sm font-bold opacity-70"
-              onClick={() =>
-                setNotifications((current) =>
-                  current.filter((item) => item.id !== notification.id),
-                )
-              }
-            >
-              x
-            </button>
+            <div className="h-1 w-full bg-black/5">
+              <div
+                className="toast-countdown h-full bg-current opacity-40"
+                style={{ animationDuration: `${duration}ms` }}
+              />
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

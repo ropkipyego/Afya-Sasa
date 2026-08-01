@@ -43,7 +43,8 @@ export function OpdCheckInWorkspace() {
     departmentName: '',
     visitType: 'new',
     referralSource: '',
-    preferredDoctor: '',
+    preferredDoctorId: '',
+    preferredDoctorName: '',
   })
   const doctorOptions = doctorSelectOptions(catalogData)
 
@@ -112,11 +113,15 @@ export function OpdCheckInWorkspace() {
             onSubmit={(event) => {
               event.preventDefault()
               const form = formDataFromElement(event.currentTarget)
+              const doctorId = String(form.get('preferredDoctor') ?? '')
+              const doctorName =
+                doctorOptions.find((doctor) => doctor.value === doctorId)?.label ?? ''
               setVisitDraft({
                 departmentName: String(form.get('departmentName') ?? ''),
                 visitType: String(form.get('visitType') ?? 'new'),
                 referralSource: String(form.get('referralSource') ?? ''),
-                preferredDoctor: String(form.get('preferredDoctor') ?? ''),
+                preferredDoctorId: doctorId,
+                preferredDoctorName: doctorName,
               })
               setStep(2)
             }}
@@ -149,7 +154,12 @@ export function OpdCheckInWorkspace() {
                 ))}
               </SelectField>
               {doctorOptions.length ? (
-                <SelectField name="preferredDoctor" label="Preferred doctor" hint="Optional">
+                <SelectField
+                  name="preferredDoctor"
+                  label="Preferred doctor"
+                  hint="Optional"
+                  defaultValue={visitDraft.preferredDoctorId}
+                >
                   <option value="">Any available</option>
                   {doctorOptions.map((doctor) => (
                     <option key={doctor.value} value={doctor.value}>
@@ -191,7 +201,7 @@ export function OpdCheckInWorkspace() {
                 {
                   icon: User,
                   label: 'Doctor',
-                  value: visitDraft.preferredDoctor || 'Any available',
+                  value: visitDraft.preferredDoctorName || 'Any available',
                 },
               ].map((item) => (
                 <div
@@ -200,7 +210,7 @@ export function OpdCheckInWorkspace() {
                 >
                   <item.icon className="mb-2 h-5 w-5 text-teal-600" />
                   <p className="text-[10px] font-bold uppercase text-slate-500">{item.label}</p>
-                  <p className="mt-1 font-semibold capitalize text-slate-900">{item.value}</p>
+                  <p className="mt-1 font-semibold text-slate-900">{item.value}</p>
                 </div>
               ))}
             </div>

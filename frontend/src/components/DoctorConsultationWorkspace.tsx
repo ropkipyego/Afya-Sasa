@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ClipboardList, FileText, FlaskConical, Pill, Stethoscope } from 'lucide-react'
 import {
@@ -85,12 +85,16 @@ export function DoctorConsultationWorkspace({
   recentSoap: Array<{ id: string; patient: string; savedAt: string }>
 }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<DoctorTab>('soap')
+  const [tab, setTab] = useState<DoctorTab>('context')
   const [medication, setMedication] = useState('')
   const [dose, setDose] = useState('')
   const [route, setRoute] = useState('oral')
   const [frequency, setFrequency] = useState('')
   const [priority, setPriority] = useState('routine')
+
+  useEffect(() => {
+    setTab('context')
+  }, [selected.id])
 
   const { data: timeline } = useQuery({
     queryKey: ['consultation-timeline', selected.patient.id],
@@ -175,13 +179,51 @@ export function DoctorConsultationWorkspace({
       />
 
       {tab === 'context' ? (
-        <div className="grid gap-5 lg:grid-cols-2">
-          {selected.triage ? <TriageSummaryPanel triage={selected.triage} /> : null}
-          <PatientTimeline
-            events={timeline?.events ?? []}
-            title="Patient timeline"
-            description="Lab, visits, referrals — full journey."
-          />
+        <div className="space-y-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              {
+                label: 'Chief complaint',
+                value:
+                  selected.triage?.chiefComplaint ??
+                  selected.presentingComplaint ??
+                  'Not recorded',
+              },
+              {
+                label: 'Triage colour',
+                value: selected.triage?.colour?.toUpperCase() ?? '—',
+              },
+              {
+                label: 'Category',
+                value: selected.triage?.category ?? '—',
+              },
+              {
+                label: 'Pain score',
+                value:
+                  selected.triage?.painScore != null
+                    ? String(selected.triage.painScore)
+                    : '—',
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  {item.label}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-slate-900">{item.value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            {selected.triage ? <TriageSummaryPanel triage={selected.triage} /> : null}
+            <PatientTimeline
+              events={timeline?.events ?? []}
+              title="Patient timeline"
+              description="Lab, visits, referrals — full journey."
+            />
+          </div>
         </div>
       ) : null}
 

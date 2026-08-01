@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { formatHospitalNumber } from '../common/hospital-numbering';
 import { Admission } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
@@ -135,16 +136,14 @@ export class ClinicalOrderContextService {
   }
 
   private async generateInpatientEncounterNo() {
-    const year = new Date().getFullYear();
     const total = await this.encounters.count({ where: { type: 'inpatient' } });
-    return `IPD-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('ipd', total + 1);
   }
 
   private async generateLabWalkInNo() {
-    const year = new Date().getFullYear();
     const total = await this.encounters.count({
       where: { departmentName: 'Laboratory' },
     });
-    return `LAB-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('lab', total + 1);
   }
 }

@@ -14,6 +14,7 @@ import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import { AdminService } from '../core/admin/admin.service';
 import { TemplateRenderService } from '../documents/template-render.service';
+import { MohAutoReportService } from './moh-auto-report.service';
 import { MohReportsService } from './moh-reports.service';
 import { ReportingService } from './reporting.service';
 
@@ -31,6 +32,7 @@ export class ReportingController {
   constructor(
     private readonly reportingService: ReportingService,
     private readonly mohReports: MohReportsService,
+    private readonly mohAuto: MohAutoReportService,
     private readonly adminService: AdminService,
     private readonly templateRender: TemplateRenderService,
   ) {}
@@ -44,15 +46,9 @@ export class ReportingController {
   }
 
   private async facilityContext(request: RequestContext) {
-    const settings = await this.adminService.getSettings(request);
-    const catalog = (settings.clinicalCatalog ?? {}) as {
-      hospitalProfile?: { facilityName?: string; mohFacilityCode?: string }
-    };
-    return {
-      name: catalog.hospitalProfile?.facilityName ?? settings.tenant?.name ?? '',
-      mohCode:
-        catalog.hospitalProfile?.mohFacilityCode ?? settings.tenant?.mohFacilityCode ?? '',
-    };
+    return this.adminService.resolveFacilityContext(
+      request.tenant?.code ?? undefined,
+    );
   }
 
   private async renderMohDocx(
@@ -148,6 +144,12 @@ export class ReportingController {
   @RequirePermissions('reports:read')
   diseaseRegister() {
     return this.reportingService.diseaseRegister();
+  }
+
+  @Get('moh/auto-run')
+  @RequirePermissions('reports:read')
+  autoRunMoh() {
+    return this.mohAuto.runForCurrentMonth();
   }
 
   @Get('moh-705')

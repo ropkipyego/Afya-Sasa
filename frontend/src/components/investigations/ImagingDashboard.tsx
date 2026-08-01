@@ -34,10 +34,17 @@ function Tile({
   )
 }
 
+async function fetchRadRequests(): Promise<RadRequest[]> {
+  const res = await apiRequest<{ items: RadRequest[] } | RadRequest[]>(
+    '/radiology/requests?limit=100',
+  )
+  return Array.isArray(res) ? res : (res.items ?? [])
+}
+
 export function ImagingDashboard() {
-  const { data: requests = [], isLoading } = useQuery({
+  const { data: requests = [], isLoading, isError, error } = useQuery({
     queryKey: ['radiology-requests', 'dashboard'],
-    queryFn: () => apiRequest<RadRequest[]>('/radiology/requests?limit=100'),
+    queryFn: fetchRadRequests,
     refetchInterval: 20_000,
   })
 
@@ -57,6 +64,17 @@ export function ImagingDashboard() {
           <div key={i} className="h-28 animate-skeleton rounded-2xl" />
         ))}
       </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Card className="p-8">
+        <p className="text-sm text-red-700">
+          Imaging dashboard failed to load:{' '}
+          {(error as Error)?.message ?? 'Unknown error'}
+        </p>
+      </Card>
     )
   }
 

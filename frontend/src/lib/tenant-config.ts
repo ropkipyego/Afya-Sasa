@@ -1,5 +1,5 @@
 /** Default hospital code sent as X-Tenant on every API call. */
-export const DEFAULT_TENANT = import.meta.env.VITE_DEFAULT_TENANT?.trim() || 'demo'
+export const DEFAULT_TENANT = import.meta.env.VITE_DEFAULT_TENANT?.trim() || 'jalaram'
 
 /**
  * When true, the login screen hides "Hospital code" and always uses DEFAULT_TENANT.

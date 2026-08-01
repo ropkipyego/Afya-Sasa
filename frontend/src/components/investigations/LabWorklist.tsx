@@ -54,7 +54,12 @@ export function LabWorklist() {
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['lab-requests'],
-    queryFn: () => apiRequest<LabRequestRow[]>('/laboratory/requests'),
+    queryFn: async () => {
+      const res = await apiRequest<{ items: LabRequestRow[] } | LabRequestRow[]>(
+        '/laboratory/requests',
+      )
+      return Array.isArray(res) ? res : (res.items ?? [])
+    },
     refetchInterval: 20_000,
   })
 

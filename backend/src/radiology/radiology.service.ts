@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, IsNull } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { formatHospitalNumber } from '../common/hospital-numbering';
 import { ClinicalOrderContextService } from '../clinical-order/clinical-order-context.service';
 import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
 import { Admission } from '../inpatient/inpatient.entities';
@@ -424,9 +425,8 @@ export class RadiologyService {
   }
 
   private async generateRequestNo() {
-    const year = new Date().getFullYear();
     const total = await this.requests.count();
-    return `RAD-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('rad', total + 1);
   }
 }
 

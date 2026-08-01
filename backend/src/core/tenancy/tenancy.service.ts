@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { TenantContext } from '../../common/request-context';
+import { defaultTenantCode, tenantLookupCodes } from '../../common/tenant-defaults';
 import { Tenant } from '../core.entities';
 
 @Injectable()
@@ -14,13 +15,15 @@ export class TenancyService {
     private readonly tenants: Repository<Tenant>,
     config: ConfigService,
   ) {
-    this.defaultTenantCode = config.get<string>('DEFAULT_TENANT_CODE', 'demo');
+    this.defaultTenantCode = config.get<string>('DEFAULT_TENANT_CODE', defaultTenantCode());
   }
 
   async resolveTenant(identifier: string): Promise<TenantContext> {
-    const normalized = identifier.trim().toLowerCase();
     const tenant = await this.tenants.findOne({
-      where: [{ subdomain: normalized }, { code: normalized }],
+      where: tenantLookupCodes(identifier).flatMap((code) => [
+        { subdomain: code },
+        { code },
+      ]),
     });
 
     if (!tenant || !tenant.active) {

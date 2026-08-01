@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { formatHospitalNumber } from '../common/hospital-numbering';
 import { Admission } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { Patient, PatientNextOfKin } from '../patients/patient.entities';
@@ -260,7 +261,7 @@ export class MaternityService {
     const nameParts = displayName.split(' ');
     const babyPatient = await this.patients.save(
       this.patients.create({
-        patientNo: await this.generatePatientNumber(request.tenant?.code ?? 'AFYA'),
+        patientNo: await this.generatePatientNumber(),
         firstName: nameParts.slice(0, -1).join(' ') || displayName,
         lastName: nameParts.length > 1 ? nameParts[nameParts.length - 1]! : mother.lastName,
         middleName: null,
@@ -285,7 +286,7 @@ export class MaternityService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-    babyPatient.qrCode = `afyasasa:patient:${babyPatient.patientNo}`;
+    babyPatient.qrCode = `jalaram:patient:${babyPatient.patientNo}`;
     await this.patients.save(babyPatient);
 
     const motherKin = await this.nextOfKin.find({ where: { patient: { id: mother.id } } });
@@ -474,15 +475,13 @@ export class MaternityService {
   }
 
   private async generatePregnancyNo() {
-    const year = new Date().getFullYear();
     const total = await this.pregnancies.count();
-    return `PREG-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('preg', total + 1);
   }
 
-  private async generatePatientNumber(tenantCode: string) {
-    const prefix = tenantCode.slice(0, 4).toUpperCase();
+  private async generatePatientNumber() {
     const total = await this.patients.count();
-    return `${prefix}-${String(total + 1).padStart(6, '0')}`;
+    return formatHospitalNumber('patient', total + 1);
   }
 
   private calculateEdd(lmpDate?: string) {

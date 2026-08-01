@@ -64,14 +64,15 @@ Then sign in again with `ChangeMe123!`.
 
 ## Single-hospital mode (hide tenant / hospital code)
 
-For one hospital, you do **not** need the “Hospital code” field on login. The backend still uses tenant `demo` internally — you just hide it from users.
+For one hospital (Jalaram), you do **not** need the “Hospital code” field on login. Clinical numbers use the `JH` prefix (patient `JH-2026-00001`, visit `JH-OPD-2026-00001`, admission `JH-ADM-2026-00001`).
 
 **Docker** — add to your root `.env`:
 
 ```env
-VITE_DEFAULT_TENANT=demo
+VITE_DEFAULT_TENANT=jalaram
 VITE_HIDE_TENANT_SELECTOR=true
-DEFAULT_TENANT_CODE=demo
+DEFAULT_TENANT_CODE=jalaram
+HOSPITAL_NUMBER_PREFIX=JH
 ```
 
 Then rebuild the frontend:
@@ -83,21 +84,22 @@ docker compose up -d --build frontend
 **Local Vite dev** — copy `frontend/.env.example` to `frontend/.env`:
 
 ```env
-VITE_DEFAULT_TENANT=demo
+VITE_DEFAULT_TENANT=jalaram
 VITE_HIDE_TENANT_SELECTOR=true
 ```
 
 | Setting | Effect |
 |---------|--------|
 | `VITE_HIDE_TENANT_SELECTOR=true` | Removes “Hospital code” on login; hides tenant badge in nav |
-| `VITE_DEFAULT_TENANT=demo` | Value sent as `X-Tenant` on every API call |
-| `DEFAULT_TENANT_CODE=demo` | Backend default when no header/subdomain (localhost) |
+| `VITE_DEFAULT_TENANT=jalaram` | Value sent as `X-Tenant` on every API call |
+| `DEFAULT_TENANT_CODE=jalaram` | Backend default when no header/subdomain (localhost) |
+| `HOSPITAL_NUMBER_PREFIX=JH` | Prefix for patient / OPD / IPD / lab reference numbers |
 
 Multi-hospital later: set `VITE_HIDE_TENANT_SELECTOR=false` and use subdomains (`knh.yourdomain.com`) or the hospital code field.
 
 ## Seeded demo data
 
-The demo migration seeds:
+The seed migration includes:
 
 - 3 patients with identifiers and clinical flags
 - General Ward, HDU, and Maternity Ward

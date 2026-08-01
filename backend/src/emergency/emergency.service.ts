@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { formatHospitalNumber } from '../common/hospital-numbering';
 import { RealtimeService } from '../realtime/realtime.service';
 import { PatientAllergy, PatientChronicCondition } from '../patients/patient.entities';
 import { Patient } from '../patients/patient.entities';
@@ -381,8 +382,7 @@ export class EmergencyService {
   }
 
   private async generateEmergencyNo() {
-    const year = new Date().getFullYear();
     const total = await this.encounters.count({ where: { type: 'emergency' } });
-    return `ED-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('ed', total + 1);
   }
 }

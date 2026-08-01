@@ -25,7 +25,7 @@ export class TenantMiddleware implements NestMiddleware {
       runWithTenantContext(
         {
           schemaName: this.config.get<string>('DEFAULT_TENANT_SCHEMA', 'demo'),
-          tenantCode: this.config.get<string>('DEFAULT_TENANT_CODE', 'demo'),
+          tenantCode: this.config.get<string>('DEFAULT_TENANT_CODE', 'jalaram'),
         },
         () => next(),
       );

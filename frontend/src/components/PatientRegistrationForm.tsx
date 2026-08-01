@@ -45,7 +45,6 @@ export function PatientRegistrationForm() {
   const [duplicateFound, setDuplicateFound] = useState<PatientSummary | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [identifierType, setIdentifierType] = useState('national_id')
-  const [includeId, setIncludeId] = useState(false)
   const [birthInputMode, setBirthInputMode] = useState<'dob' | 'age'>('dob')
 
   const mutation = useMutation({
@@ -55,6 +54,10 @@ export function PatientRegistrationForm() {
       const allergyName = form.get('allergyName')?.toString().trim()
       const conditionName = form.get('conditionName')?.toString().trim()
       const idValue = form.get('identifierValue')?.toString().trim()
+      if (!idValue) {
+        throw new Error('Patient identification document is required.')
+      }
+
       const enteredDob = form.get('dateOfBirth')?.toString()
       const enteredAge = Number(form.get('ageYears'))
       let dateOfBirth = enteredDob
@@ -88,16 +91,13 @@ export function PatientRegistrationForm() {
         maritalStatus: form.get('maritalStatus') || undefined,
         occupation: form.get('occupation') || undefined,
         religion: form.get('religion') || undefined,
-      }
-
-      if (includeId && idValue) {
-        payload.identifiers = [
+        identifiers: [
           {
             type: form.get('identifierType'),
             value: idValue,
             isPrimary: true,
           },
-        ]
+        ],
       }
 
       if (kinName) {
@@ -290,6 +290,36 @@ export function PatientRegistrationForm() {
           </FormSection>
         </section>
 
+        <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="border-b border-slate-100 pb-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-teal-700">Identification</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Required for SHA / payer workflows. Use National ID, SHA number, passport, or birth certificate.
+            </p>
+          </div>
+          <FormSection title="" columns={2}>
+            <SelectField
+              name="identifierType"
+              label="Document type"
+              required
+              value={identifierType}
+              onChange={(event) => setIdentifierType(event.target.value)}
+            >
+              <option value="national_id">National ID</option>
+              <option value="sha">SHA member number</option>
+              <option value="passport">Passport</option>
+              <option value="birth_certificate">Birth certificate</option>
+              <option value="refugee_id">Alien ID</option>
+            </SelectField>
+            <Field
+              name="identifierValue"
+              label={identifierFieldLabel(identifierType, catalog)}
+              required
+              placeholder="Enter ID / SHA number"
+            />
+          </FormSection>
+        </section>
+
         <CollapsibleSection title="Optional demographics" description="Additional patient details">
           <Field name="middleName" label="Middle name" />
           <Field name="occupation" label="Occupation" />
@@ -315,38 +345,6 @@ export function PatientRegistrationForm() {
             <option value="O-">O-</option>
           </SelectField>
           <Field name="religion" label="Religion" />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Identification"
-          description="Optional at registration — can be added later"
-          defaultOpen={includeId}
-        >
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={includeId}
-              onChange={(event) => setIncludeId(event.target.checked)}
-            />
-            Capture ID document now
-          </label>
-          {includeId ? (
-            <>
-              <SelectField
-                name="identifierType"
-                label="Document type"
-                value={identifierType}
-                onChange={(event) => setIdentifierType(event.target.value)}
-              >
-                <option value="national_id">National ID</option>
-                <option value="sha">SHA</option>
-                <option value="passport">Passport</option>
-                <option value="birth_certificate">Birth certificate</option>
-                <option value="refugee_id">Alien ID</option>
-              </SelectField>
-              <Field name="identifierValue" label={identifierFieldLabel(identifierType, catalog)} />
-            </>
-          ) : null}
         </CollapsibleSection>
 
         <CollapsibleSection title="Next of kin" description="Optional emergency contact">

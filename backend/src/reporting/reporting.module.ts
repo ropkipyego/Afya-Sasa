@@ -17,6 +17,8 @@ import { Referral } from '../referrals/referral.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import { DocumentsModule } from '../documents/documents.module';
 import { AdminModule } from '../core/admin/admin.module';
+import { InternalNotification } from '../notifications/notification.entities';
+import { MohAutoReportService } from './moh-auto-report.service';
 import { MohReportsService } from './moh-reports.service';
 import { ReportingController } from './reporting.controller';
 import { ReportingService } from './reporting.service';
@@ -41,11 +43,12 @@ import { ReportingService } from './reporting.service';
       Pregnancy,
       Delivery,
       Referral,
+      InternalNotification,
     ]),
     DocumentsModule,
     AdminModule,
   ],
   controllers: [ReportingController],
-  providers: [ReportingService, MohReportsService],
+  providers: [ReportingService, MohReportsService, MohAutoReportService],
 })
 export class ReportingModule {}

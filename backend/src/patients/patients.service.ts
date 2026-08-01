@@ -4,9 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { RequestContext } from '../common/request-context';
+import { formatHospitalNumber } from '../common/hospital-numbering';
 import QRCode from 'qrcode';
 import { Repository, Not, In } from 'typeorm';
-import type { RequestContext } from '../common/request-context';
 import { Appointment } from '../appointments/appointment.entities';
 import { HduAdmission } from '../hdu/hdu.entities';
 import { IcuAdmission } from '../icu/icu.entities';
@@ -141,9 +142,7 @@ export class PatientsService {
       await this.ensureNoDuplicateIdentifier(identifiers);
     }
 
-    const patientNo = await this.generatePatientNumber(
-      request.tenant?.code ?? 'AFYA',
-    );
+    const patientNo = await this.generatePatientNumber();
     const patient = this.patients.create({
       firstName: dto.firstName,
       lastName: dto.lastName,
@@ -161,7 +160,7 @@ export class PatientsService {
       occupation: dto.occupation ?? null,
       religion: dto.religion ?? null,
       patientNo,
-      qrCode: `afyasasa:patient:${patientNo}`,
+      qrCode: `jalaram:patient:${patientNo}`,
       registeredBy: request.user?.sub ?? null,
       createdBy: request.user?.sub ?? null,
       updatedBy: request.user?.sub ?? null,
@@ -814,10 +813,9 @@ export class PatientsService {
     }
   }
 
-  private async generatePatientNumber(prefix: string): Promise<string> {
-    const year = new Date().getFullYear();
+  private async generatePatientNumber(): Promise<string> {
     const total = await this.patients.count();
-    return `${prefix.toUpperCase()}-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('patient', total + 1);
   }
 
   private filterBySecondarySearch(

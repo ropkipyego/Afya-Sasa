@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { formatHospitalNumber } from '../common/hospital-numbering';
 import { Patient } from '../patients/patient.entities';
 import {
   ClinicalNote,
@@ -440,8 +441,7 @@ export class OpdService {
   }
 
   private async generateEncounterNo() {
-    const year = new Date().getFullYear();
     const total = await this.encounters.count();
-    return `OPD-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('opd', total + 1);
   }
 }

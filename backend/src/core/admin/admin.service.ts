@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../../common/request-context';
+import { defaultTenantCode, tenantChannel } from '../../common/tenant-defaults';
 import {
   AuditLog,
   Department,
@@ -230,6 +231,44 @@ export class AdminService {
     return { ...catalog, staffClinicians };
   }
 
+  async listActiveAdministrators() {
+    return this.users
+      .createQueryBuilder('user')
+      .innerJoin(UserRole, 'ur', 'ur.user_id = user.id')
+      .innerJoin(Role, 'role', 'role.id = ur.role_id')
+      .where('LOWER(role.name) = :role', { role: 'administrator' })
+      .andWhere('user.active = true')
+      .getMany();
+  }
+
+  /** Facility name + MOH code for reports (works without an HTTP request context). */
+  async resolveFacilityContext(tenantCode = defaultTenantCode()) {
+    const settings = await this.settings
+      .createQueryBuilder('settings')
+      .innerJoinAndSelect('settings.tenant', 'tenant')
+      .where('tenant.code = :code OR tenant.subdomain = :code', { code: tenantCode })
+      .getOne();
+
+    if (!settings) {
+      return { name: 'Jalaram Hospital', mohCode: '' };
+    }
+
+    const catalog = (settings.clinicalCatalog ?? {}) as {
+      hospitalProfile?: { facilityName?: string; mohFacilityCode?: string };
+    };
+
+    return {
+      name:
+        catalog.hospitalProfile?.facilityName?.trim() ||
+        settings.tenant?.name ||
+        'Jalaram Hospital',
+      mohCode:
+        catalog.hospitalProfile?.mohFacilityCode?.trim() ||
+        settings.tenant?.mohFacilityCode ||
+        '',
+    };
+  }
+
   async listClinicalStaff() {
     const assignments = await this.userRoles
       .createQueryBuilder('assignment')
@@ -284,7 +323,7 @@ export class AdminService {
       ...(mergedCatalog ? { clinicalCatalog: mergedCatalog as never } : {}),
       updatedBy: request.user?.sub ?? null,
     });
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'settings.updated', {});
+    this.realtime.publish(tenantChannel(request), 'settings.updated', {});
     return this.getSettings(request);
   }
 

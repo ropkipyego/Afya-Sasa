@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { formatHospitalNumber } from '../common/hospital-numbering';
 import { ClinicalOrderContextService } from '../clinical-order/clinical-order-context.service';
 import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
@@ -544,14 +545,13 @@ export class LaboratoryService {
   }
 
   private async generateRequestNo() {
-    const year = new Date().getFullYear();
     const total = await this.requests.count();
-    return `LAB-${year}-${String(total + 1).padStart(5, '0')}`;
+    return formatHospitalNumber('lab', total + 1);
   }
 
   private async generateBarcode() {
     const total = await this.samples.count();
-    return `SMP-${new Date().getFullYear()}-${String(total + 1).padStart(6, '0')}`;
+    return formatHospitalNumber('smp', total + 1);
   }
 }
 

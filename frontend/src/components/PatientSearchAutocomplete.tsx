@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { QrCode, Search, User } from 'lucide-react'
+import { QrCode, Search, User, X } from 'lucide-react'
 import { apiRequest } from '../lib/api'
 import { Input, Button } from './ui'
 import { useClinicalCatalog } from '../hooks/useClinicalCatalog'
@@ -36,7 +37,9 @@ export function PatientSearchAutocomplete({
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const inputWrapRef = useRef<HTMLDivElement>(null)
 
   const { data, isFetching } = useQuery({
     queryKey: ['patient-autocomplete', query],
@@ -47,18 +50,59 @@ export function PatientSearchAutocomplete({
     enabled: query.trim().length >= 2,
   })
 
+  const updateCoords = () => {
+    const el = inputWrapRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setCoords({
+      top: rect.bottom + 8,
+      left: rect.left,
+      width: rect.width,
+    })
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    updateCoords()
+  }, [open, query, data])
+
   useEffect(() => {
-    const handleClick = (event: MouseEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        setOpen(false)
-      }
+    if (!open) return
+    const onScroll = () => {
+      // Auto-close on page scroll so staff never hunt for Close
+      setOpen(false)
     }
+    const onResize = () => updateCoords()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (containerRef.current?.contains(target)) return
+      const portal = document.getElementById('patient-search-portal')
+      if (portal?.contains(target)) return
+      setOpen(false)
+    }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+    document.addEventListener('keydown', onKey)
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', handleClick)
+    }
+  }, [open])
 
   const suggestions = data?.items ?? []
-  const showDropdown = open && query.trim().length >= 2
+  const showDropdown = open && query.trim().length >= 2 && coords
+
+  function pickPatient(patient: PatientSearchItem) {
+    onSelect(patient)
+    setQuery('')
+    setOpen(false)
+  }
 
   return (
     <div ref={containerRef} className={clsx('relative', className)}>
@@ -90,10 +134,10 @@ export function PatientSearchAutocomplete({
         </div>
       ) : (
         <>
-          <div className="relative">
+          <div ref={inputWrapRef} className="relative">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
-              className="pl-10"
+              className="pl-10 pr-10"
               value={query}
               placeholder={placeholder}
               onChange={(event) => {
@@ -103,47 +147,66 @@ export function PatientSearchAutocomplete({
               onFocus={() => setOpen(true)}
               autoComplete="off"
             />
-            {isFetching ? (
+            {query ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+                aria-label="Clear search"
+                onClick={() => {
+                  setQuery('')
+                  setOpen(false)
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : isFetching ? (
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
                 Searching…
               </span>
             ) : null}
           </div>
 
-          {showDropdown ? (
-            <ul className="animate-fade-in absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-              {suggestions.length ? (
-                suggestions.map((patient) => (
-                  <li key={patient.id}>
-                    <button
-                      type="button"
-                      className="w-full px-4 py-3 text-left transition hover:bg-teal-50"
-                      onClick={() => {
-                        onSelect(patient)
-                        setQuery('')
-                        setOpen(false)
-                      }}
-                    >
-                      <p className="font-semibold text-slate-900">
-                        {patient.firstName} {patient.lastName}
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        {patient.patientNo} · DOB {patient.dateOfBirth} · {patient.primaryPhone}
-                      </p>
-                    </button>
-                  </li>
-                ))
-              ) : (
-                <li className="px-4 py-6 text-center text-sm text-slate-500">
-                  No patients match &ldquo;{query}&rdquo;
-                </li>
-              )}
-            </ul>
-          ) : null}
-
           {query.trim().length === 1 ? (
             <p className="mt-2 text-xs text-slate-500">Type one more character for suggestions</p>
           ) : null}
+
+          {showDropdown && typeof document !== 'undefined'
+            ? createPortal(
+                <ul
+                  id="patient-search-portal"
+                  className="animate-fade-in fixed z-[200] max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-2xl"
+                  style={{
+                    top: coords.top,
+                    left: coords.left,
+                    width: coords.width,
+                  }}
+                >
+                  {suggestions.length ? (
+                    suggestions.map((patient) => (
+                      <li key={patient.id}>
+                        <button
+                          type="button"
+                          className="w-full px-4 py-3 text-left transition hover:bg-teal-50"
+                          onClick={() => pickPatient(patient)}
+                        >
+                          <p className="font-semibold text-slate-900">
+                            {patient.firstName} {patient.lastName}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {patient.patientNo} · DOB {patient.dateOfBirth} · {patient.primaryPhone}
+                          </p>
+                        </button>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="px-4 py-6 text-center text-sm text-slate-500">
+                      No patients match &ldquo;{query}&rdquo;
+                    </li>
+                  )}
+                </ul>,
+                document.body,
+              )
+            : null}
         </>
       )}
     </div>
@@ -206,7 +269,7 @@ export function PatientSearchBrowse({
   const qrEnabled = isFeatureEnabled(catalog, 'qrPatientScan')
   const [query, setQuery] = useState('')
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isError, error } = useQuery({
     queryKey: ['patient-browse', query],
     queryFn: () =>
       apiRequest<PatientSearchResponse>(
@@ -240,6 +303,12 @@ export function PatientSearchBrowse({
         <p className="text-xs text-slate-500">Type one more character to see matches</p>
       ) : null}
 
+      {isError ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {(error as Error)?.message ?? 'Patient search failed. Check your connection and try again.'}
+        </p>
+      ) : null}
+
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {patients.length ? (
           <ul className="divide-y divide-slate-100">
@@ -270,7 +339,7 @@ export function PatientSearchBrowse({
               </li>
             ))}
           </ul>
-        ) : query.trim().length >= 2 ? (
+        ) : query.trim().length >= 2 && !isFetching ? (
           <p className="py-12 text-center text-sm text-slate-500">
             No patients found. Register only after confirming no duplicate exists.
           </p>

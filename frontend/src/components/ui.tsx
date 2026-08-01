@@ -277,7 +277,7 @@ export function FormSection({
   ) : null
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/60">
+    <section className="overflow-visible rounded-xl border border-slate-200 bg-slate-50/60">
       {collapsible && heading ? (
         <button
           type="button"
