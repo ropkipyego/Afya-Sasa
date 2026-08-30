@@ -64,7 +64,7 @@ export const HOSPITAL_MODULES: {
   { key: 'radiology', label: 'Radiology', description: 'Imaging requests and reports' },
   { key: 'maternity', label: 'Maternity', description: 'ANC, labour, delivery, postnatal' },
   { key: 'emergency', label: 'Emergency', description: 'Emergency department command center' },
-  { key: 'pharmacy', label: 'Pharmacy', description: 'Dispensing (future module)' },
+  { key: 'pharmacy', label: 'Pharmacy', description: 'Prescribing, dispensing, and inventory' },
   { key: 'documents', label: 'Documents', description: 'Medical documents and certificates' },
   { key: 'reporting', label: 'Reporting', description: 'Clinical and operational reports' },
 ]

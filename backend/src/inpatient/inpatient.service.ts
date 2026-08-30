@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
+import { tenantChannel } from '../common/tenant-defaults';
+import { formatClinicianName } from '../common/clinician.util';
 import { LabRequest } from '../laboratory/laboratory.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { Encounter } from '../opd/opd.entities';
@@ -27,6 +29,7 @@ import {
   UpdateWardDto,
 } from './inpatient.dto';
 import { RealtimeService } from '../realtime/realtime.service';
+import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
 
 @Injectable()
 export class InpatientService {
@@ -43,6 +46,7 @@ export class InpatientService {
     @InjectRepository(RadiologyRequest)
     private readonly radiologyRequests: Repository<RadiologyRequest>,
     private readonly realtime: RealtimeService,
+    private readonly encounterWorkflow: EncounterWorkflowService,
   ) {}
 
   createWard(dto: CreateWardDto, request: RequestContext) {
@@ -141,14 +145,17 @@ export class InpatientService {
       updatedBy: request.user?.sub ?? null,
     });
     if (encounter) {
-      await this.encounters.update(encounter.id, { status: 'admitted' });
+      await this.encounterWorkflow.requireTransition(encounter.id, 'admitted', request);
     }
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'admission.created', {
+    this.realtime.publish(tenantChannel(request), 'admission.created', {
       admissionId: admission.id,
       patientId: patient.id,
       bedId: bed.id,
     });
-    return admission;
+    return this.admissions.findOneOrFail({
+      where: { id: admission.id },
+      relations: { patient: true, bed: true, ward: true, admittingDoctor: true },
+    });
   }
 
   listAdmissions(status?: 'active' | 'discharged', wardId?: string) {
@@ -247,10 +254,17 @@ export class InpatientService {
       version: admission.bed.version + 1,
       updatedBy: request.user?.sub ?? null,
     });
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'admission.discharged', {
+    if (admission.encounter?.id) {
+      await this.encounterWorkflow.requireTransition(
+        admission.encounter.id,
+        'completed',
+        request,
+      );
+    }
+    this.realtime.publish(tenantChannel(request), 'admission.discharged', {
       admissionId: id,
     });
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'bed.updated', {
+    this.realtime.publish(tenantChannel(request), 'bed.updated', {
       bedId: admission.bed.id,
     });
     return this.getAdmission(id);
@@ -369,7 +383,12 @@ export class InpatientService {
       }),
       this.admissions.find({
         where: { status: 'active', ward: { id: wardId } },
-        relations: { patient: { allergies: true, chronicConditions: true }, bed: true, ward: true },
+        relations: {
+          patient: { allergies: true, chronicConditions: true },
+          bed: true,
+          ward: true,
+          admittingDoctor: true,
+        },
       }),
       this.notes.find({
         where: { admission: { ward: { id: wardId }, status: 'active' } },
@@ -404,7 +423,7 @@ export class InpatientService {
         admission,
         patient: admission?.patient ?? null,
         clinicalStatus,
-        consultant: admission?.admittingDoctor ? 'Assigned' : '—',
+        consultant: formatClinicianName(admission?.admittingDoctor),
       };
     });
 
@@ -470,7 +489,7 @@ export class InpatientService {
   private async getAdmission(id: string) {
     const admission = await this.admissions.findOne({
       where: { id },
-      relations: { patient: true, bed: true, ward: true },
+      relations: { patient: true, bed: true, ward: true, encounter: true },
     });
     if (!admission) throw new NotFoundException('Admission not found');
     return admission;

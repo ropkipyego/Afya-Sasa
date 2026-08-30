@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
+import { tenantChannel } from '../common/tenant-defaults';
 import { ClinicalOrderContextService } from '../clinical-order/clinical-order-context.service';
 import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
@@ -185,7 +186,7 @@ export class LaboratoryService {
     await this.clinicalOrderMirror.mirrorLabRequest(labRequest, request, {
       testCount: itemRows.length,
     });
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'lab.updated', {
+    this.realtime.publish(tenantChannel(request), 'lab.updated', {
       requestId: labRequest.id,
       action: 'created',
     });
@@ -278,7 +279,14 @@ export class LaboratoryService {
   }
 
   async addAttachment(id: string, dto: CreateLabAttachmentDto, request: RequestContext) {
-    const labRequest = await this.requests.findOne({ where: { id } });
+    const labRequest = await this.requests.findOne({
+      where: { id },
+      relations: {
+        patient: true,
+        encounter: { attendingDoctor: true },
+        admission: { admittingDoctor: true },
+      },
+    });
     if (!labRequest) throw new NotFoundException('Lab request not found');
     const attachment = await this.attachments.save(
       this.attachments.create({
@@ -292,6 +300,23 @@ export class LaboratoryService {
       }),
     );
     await this.requests.update(id, { status: 'resulted', updatedBy: request.user?.sub ?? null });
+
+    await this.notifications.notifyInvestigationStakeholders(
+      this.notifications.investigationRecipients({
+        createdBy: labRequest.createdBy,
+        attendingDoctorId: labRequest.encounter?.attendingDoctor?.id,
+        admittingDoctorId: labRequest.admission?.admittingDoctor?.id,
+      }),
+      {
+        title: 'Lab report PDF uploaded',
+        body: `${labRequest.requestNo} for ${labRequest.patient.firstName} ${labRequest.patient.lastName} — PDF report attached and awaiting verification.`,
+        severity: 'info',
+        link: '/laboratory',
+        actorId: request.user?.sub ?? null,
+      },
+    );
+    this.realtime.publish(tenantChannel(request), 'lab.updated', { requestId: id });
+
     return attachment;
   }
 
@@ -424,7 +449,7 @@ export class LaboratoryService {
         actorId: request.user?.sub ?? null,
       },
     );
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'lab.updated', { requestId: id });
+    this.realtime.publish(tenantChannel(request), 'lab.updated', { requestId: id });
     await this.clinicalOrderMirror.syncSourceStatus('laboratory', id, 'verified', request);
 
     return this.resultsInbox();
@@ -449,11 +474,42 @@ export class LaboratoryService {
   }
 
   async reviewResult(id: string, request: RequestContext) {
+    const result = await this.results.findOne({
+      where: { id },
+      relations: {
+        requestItem: { request: { encounter: true } },
+      },
+    });
+    if (!result) {
+      throw new NotFoundException('Lab result not found');
+    }
+
     await this.results.update(id, {
       reviewedBy: request.user?.sub ?? null,
       reviewedAt: new Date(),
       updatedBy: request.user?.sub ?? null,
     });
+
+    const encounter = result.requestItem?.request?.encounter;
+    if (encounter?.id && encounter.status === 'awaiting_results') {
+      const pendingReview = await this.results
+        .createQueryBuilder('result')
+        .innerJoin('result.requestItem', 'item')
+        .innerJoin('item.request', 'request')
+        .where('request.encounter_id = :encounterId', { encounterId: encounter.id })
+        .andWhere('result.verified_at IS NOT NULL')
+        .andWhere('result.reviewed_at IS NULL')
+        .getCount();
+
+      if (pendingReview === 0) {
+        await this.encounterWorkflow.requireTransition(
+          encounter.id,
+          'in_consultation',
+          request,
+        );
+      }
+    }
+
     return this.results.findOneOrFail({ where: { id } });
   }
 

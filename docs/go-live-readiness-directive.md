@@ -4,7 +4,7 @@ This document maps the **Final Go-Live Readiness & Production Hardening Directiv
 
 **Principle:** No new clinical modules. Complete, polish, test, and harden what exists until the platform is genuinely production-ready.
 
-**Current overall readiness:** ~55–60% for full hospital go-live; **supervised reception + OPD pilot** is supported after checklist sign-off (`docs/pre-live-analyst-brief.md`).
+**Current overall readiness:** ~55–60% for full hospital go-live; **supervised reception + OPD pilot** is supported after checklist sign-off (`docs/go-live-checklist.md`, `docs/core-workflow-test-plan.md`).
 
 ---
 
@@ -254,7 +254,7 @@ Unified design language improved (workspace-shell, mobile nav, card worklists). 
 
 | Document | Purpose |
 |----------|---------|
-| `docs/pre-live-analyst-brief.md` | Short supervised-live sign-off |
+| `docs/core-workflow-test-plan.md` | Automated + manual acceptance tests for pilot sign-off |
 | `docs/onboarding-self-assessment-guide.md` | Hands-on 22-section assessment |
 | `docs/go-live-checklist.md` | Pre-deployment checklist |
 | `ops/onboarding-tests/results/ONBOARDING-REPORT.md` | Latest automated QA log |

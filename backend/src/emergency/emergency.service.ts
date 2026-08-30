@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, IsNull, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
+import { tenantChannel } from '../common/tenant-defaults';
 import { RealtimeService } from '../realtime/realtime.service';
 import { PatientAllergy, PatientChronicCondition } from '../patients/patient.entities';
 import { Patient } from '../patients/patient.entities';
@@ -25,6 +26,7 @@ import {
   EmergencyTriageDto,
   UpdateEmergencyWorkflowDto,
 } from './emergency.dto';
+import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
 
 const TRIAGE_ORDER: Record<EmergencyTriageCategory, number> = {
   red: 0,
@@ -49,6 +51,7 @@ export class EmergencyService {
     private readonly observationLogs: Repository<EmergencyObservationLog>,
     @InjectRepository(CriticalAlert) private readonly alerts: Repository<CriticalAlert>,
     private readonly realtime: RealtimeService,
+    private readonly encounterWorkflow: EncounterWorkflowService,
   ) {}
 
   async register(dto: CreateEmergencyEncounterDto, request: RequestContext) {
@@ -218,6 +221,11 @@ export class EmergencyService {
         request,
       );
     }
+    await this.encounterWorkflow.requireTransition(
+      emergency.encounter.id,
+      'triaged',
+      request,
+    );
     return this.workspace(id);
   }
 
@@ -302,6 +310,9 @@ export class EmergencyService {
       relations: { encounter: true, bay: true },
     });
     if (!emergency) throw new NotFoundException('Emergency encounter not found');
+    if (emergency.status === 'disposed' || emergency.workflowStage === 'disposed') {
+      throw new BadRequestException('Emergency episode already closed');
+    }
     await this.emergencies.update(id, {
       status: 'disposed',
       workflowStage: 'disposed',
@@ -317,11 +328,12 @@ export class EmergencyService {
         updatedBy: request.user?.sub ?? null,
       });
     }
-    await this.encounters.update(emergency.encounter.id, {
-      status: 'completed',
-      endedAt: new Date(),
-      updatedBy: request.user?.sub ?? null,
-    });
+    const encounterId = emergency.encounter.id;
+    const encounter = await this.encounters.findOne({ where: { id: encounterId } });
+    if (encounter?.status === 'registered') {
+      await this.encounterWorkflow.requireTransition(encounterId, 'triaged', request);
+    }
+    await this.encounterWorkflow.requireTransition(encounterId, 'completed', request);
     return this.emergencies.findOneOrFail({ where: { id } });
   }
 
@@ -346,7 +358,7 @@ export class EmergencyService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'emergency.alert', {
+    this.realtime.publish(tenantChannel(request), 'emergency.alert', {
       alertId: alert.id,
       severity: alert.severity,
       message: alert.message,

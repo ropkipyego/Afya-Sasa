@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>AfyaSasa — Contabo VPS Deployment Guide (Detailed)</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+  @media print {
+    body { max-width: none; }
+    h2 { page-break-after: avoid; }
+    h3 { page-break-after: avoid; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+  }
+  body {
+    font-family: 'Segoe UI', Calibri, system-ui, sans-serif;
+    font-size: 10.5pt;
+    color: #1e293b;
+    line-height: 1.55;
+    width: 100%;
+    margin: 0;
+    padding: 18px 22px 28px;
+    box-sizing: border-box;
+  }
+  h1 {
+    color: #0f766e;
+    font-size: 20pt;
+    border-bottom: 3px solid #14b8a6;
+    padding-bottom: 10px;
+    margin-top: 0;
+    line-height: 1.25;
+  }
+  h2 {
+    color: #0f172a;
+    font-size: 14pt;
+    margin-top: 26px;
+    border-left: 4px solid #14b8a6;
+    padding-left: 10px;
+  }
+  h3 {
+    color: #334155;
+    font-size: 11.5pt;
+    margin-top: 18px;
+  }
+  p { margin: 6px 0 10px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 18px;
+    font-size: 9.2pt;
+  }
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #ecfdf5; font-weight: 700; color: #115e59; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.92em;
+    background: #f1f5f9;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  ul, ol { margin: 6px 0 14px 22px; padding: 0; }
+  li { margin: 4px 0; }
+  ul.checklist { list-style: none; margin-left: 8px; }
+  .check { margin: 3px 0; }
+  .PASS { color: #047857; font-weight: 700; }
+  .FAIL { color: #b91c1c; font-weight: 700; }
+  .WARN { color: #b45309; font-weight: 700; }
+  hr { border: none; border-top: 1px solid #e2e8f0; margin: 22px 0; }
+  strong { color: #0f172a; }
+  em { color: #475569; }
+  .footer-note {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 8.5pt;
+    color: #64748b;
+  }
+</style></head><body>
+<h1>AfyaSasa — Contabo VPS Deployment Guide (Detailed)</h1>
+
+<p><strong>Document version:</strong> 1.1  </p>
+<p><strong>Date:</strong> 28 August 2026  </p>
+<p><strong>Hospital:</strong> Jalaram Hospital (single-tenant supervised pilot)  </p>
+<p><strong>Stack:</strong> Docker Compose — PostgreSQL 16, Redis 7, MinIO, NestJS backend, React frontend, Nginx reverse proxy  </p>
+<p><strong>Audience:</strong> IT administrators and DevOps engineers deploying AfyaSasa for supervised clinical use</p>
+
+<hr/>
+
+<h2>Table of contents</h2>
+
+<ol>
+<li>Purpose and scope  </li>
+<li>Architecture overview  </li>
+<li>Prerequisites checklist  </li>
+<li>Contabo VPS selection and ordering  </li>
+<li>Domain name and DNS  </li>
+<li>Initial server setup  </li>
+<li>Install Docker  </li>
+<li>Deploy application code  </li>
+<li>Production environment configuration  </li>
+<li>Build and start the stack  </li>
+<li>Verify migrations and tenant  </li>
+<li>HTTPS with Let&#x27;s Encrypt  </li>
+<li>First login and account hardening  </li>
+<li>Post-deploy testing  </li>
+<li>Backups and disaster recovery  </li>
+<li>Updates, redeploy, and rollback  </li>
+<li>Monitoring and maintenance  </li>
+<li>Celcom SMS integration  </li>
+<li>Security hardening  </li>
+<li>Troubleshooting reference  </li>
+<li>Post-deploy sign-off checklist  </li>
+<li>Quick command reference  </li>
+<li>Related documents  </li>
+</ol>
+
+<hr/>
+
+<h2>1. Purpose and scope</h2>
+
+<p>This guide walks through deploying AfyaSasa on a <strong>Contabo VPS</strong> (or any Ubuntu 22.04 LTS VPS) for <strong>Jalaram Hospital</strong> as a <strong>supervised clinical pilot</strong>.</p>
+
+<h3>What this guide covers</h3>
+
+<ul>
+<li>Full server provisioning from empty VPS to HTTPS-accessible EMR  </li>
+<li>Production Docker Compose configuration  </li>
+<li>TLS termination with host Nginx and Certbot  </li>
+<li>Database and file storage backups  </li>
+<li>Post-deploy API verification  </li>
+<li>Security baseline for internet-facing pilot  </li>
+</ul>
+
+<h3>What this guide does not cover</h3>
+
+<ul>
+<li>Full clinical UAT (see <code>docs/go-live-checklist.md</code>)  </li>
+<li>SHA/HIE national integration (future phase)  </li>
+<li>Multi-hospital SaaS tenancy (single-hospital Jalaram mode only)  </li>
+<li>Load testing at scale  </li>
+</ul>
+
+<h3>Important pilot principle</h3>
+
+<p>Do <strong>not</strong> enter real patient data until:</p>
+
+<ol>
+<li>HTTPS is working  </li>
+<li>Daily PostgreSQL backups are scheduled and a restore has been tested once  </li>
+<li>All staff passwords have been changed from defaults  </li>
+<li>Clinical and IT sign-off on the go-live checklist  </li>
+</ol>
+
+<hr/>
+
+<h2>2. Architecture overview</h2>
+
+<p>AfyaSasa runs as <strong>six Docker containers</strong> on a single VPS:</p>
+
+<table>
+<tr><th>Container</th><th>Image / build</th><th>Role</th><th>Internet exposure</th></tr>
+<tr><td><strong>nginx</strong></td><td>nginx:1.27-alpine</td><td>Public entry — serves UI and proxies <code>/api/</code> to backend</td><td><strong>Yes</strong> — via host Nginx on 443 → Docker on <code>127.0.0.1:8080</code></td></tr>
+<tr><td><strong>frontend</strong></td><td>Built from <code>frontend/</code></td><td>React single-page application</td><td>Internal Docker network only</td></tr>
+<tr><td><strong>backend</strong></td><td>Built from <code>backend/</code></td><td>NestJS REST API + WebSocket (notifications)</td><td>Internal only</td></tr>
+<tr><td><strong>postgres</strong></td><td>postgres:16</td><td>Clinical database (schema <code>demo</code>, tenant code <code>jalaram</code>)</td><td>Internal only — <strong>never publish 5432</strong></td></tr>
+<tr><td><strong>redis</strong></td><td>redis:7</td><td>Cache and job queue</td><td>Internal only — <strong>never publish 6379</strong></td></tr>
+<tr><td><strong>minio</strong></td><td>minio/minio</td><td>S3-compatible clinical file storage</td><td>Internal only — <strong>never publish 9000/9001</strong></td></tr>
+</table>
+
+<h3>Traffic flow (production)</h3>
+
+<p>```</p>
+<p>Browser (Kenya)</p>
+<p>    │</p>
+<p>    ▼ HTTPS :443</p>
+<p>Host Nginx (TLS termination, Certbot)</p>
+<p>    │</p>
+<p>    ▼ HTTP 127.0.0.1:8080</p>
+<p>Docker Nginx container</p>
+<p>    ├── /          → frontend:80  (React UI)</p>
+<p>    ├── /api/      → backend:3000/api/</p>
+<p>    └── /socket.io/ → backend:3000/socket.io/  (real-time notifications)</p>
+<p>```</p>
+
+<h3>Production compose files</h3>
+
+<p>Always use <strong>both</strong> compose files together:</p>
+
+<p>```bash</p>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build</p>
+<p>```</p>
+
+<p><code>docker-compose.prod.yml</code> removes public ports from Postgres, Redis, MinIO, backend, and frontend. It binds Docker Nginx to <strong><code>127.0.0.1:8080:80</code></strong> so only the host reverse proxy is internet-facing.</p>
+
+<h3>Recommended directory layout on VPS</h3>
+
+<p>```</p>
+<p>/opt/afyasasa/          ← application root (git clone)</p>
+<p>├── .env                ← production secrets (never commit)</p>
+<p>├── backups/            ← PostgreSQL dumps</p>
+<p>├── docker-compose.yml</p>
+<p>├── docker-compose.prod.yml</p>
+<p>├── backend/</p>
+<p>├── frontend/</p>
+<p>├── infra/nginx.conf</p>
+<p>└── ops/                ← backup, test, reset scripts</p>
+<p>```</p>
+
+<hr/>
+
+<h2>3. Prerequisites checklist</h2>
+
+<p>Complete before ordering the VPS or starting deployment.</p>
+
+<table>
+<tr><th>#</th><th>Item</th><th>Owner</th><th>Done</th></tr>
+<tr><td>1</td><td>Domain or subdomain decided (e.g. <code>emr.jalaram.co.ke</code>)</td><td>IT</td><td>☐</td></tr>
+<tr><td>2</td><td>DNS access to create A record</td><td>IT</td><td>☐</td></tr>
+<tr><td>3</td><td>Git repository access or release tarball</td><td>Dev</td><td>☐</td></tr>
+<tr><td>4</td><td>Contabo account (or alternative VPS provider)</td><td>IT</td><td>☐</td></tr>
+<tr><td>5</td><td>SSH key pair for server access</td><td>IT</td><td>☐</td></tr>
+<tr><td>6</td><td>Strong passwords plan (Postgres, JWT, MinIO)</td><td>IT</td><td>☐</td></tr>
+<tr><td>7</td><td>Celcom SMS keys (optional — stub mode OK for pilot)</td><td>IT</td><td>☐</td></tr>
+<tr><td>8</td><td>Staff account list for Jalaram (<code>@jalaram.co.ke</code>)</td><td>Admin</td><td>☐</td></tr>
+<tr><td>9</td><td>Go-live checklist printed or shared</td><td>Clinical lead</td><td>☐</td></tr>
+<tr><td>10</td><td>Backup storage location (same VPS + offsite copy plan)</td><td>IT</td><td>☐</td></tr>
+</table>
+
+<h3>Minimum skills required</h3>
+
+<ul>
+<li>SSH and basic Linux administration  </li>
+<li>Editing text files (<code>nano</code> / <code>vim</code>)  </li>
+<li>Understanding of Docker Compose  </li>
+<li>Basic Nginx configuration  </li>
+</ul>
+
+<hr/>
+
+<h2>4. Contabo VPS selection and ordering</h2>
+
+<h3>Recommended specifications</h3>
+
+<table>
+<tr><th>Resource</th><th>Minimum</th><th>Recommended (pilot)</th><th>Notes</th></tr>
+<tr><td>RAM</td><td>4 GB</td><td><strong>8 GB</strong></td><td>Postgres + MinIO + builds need headroom</td></tr>
+<tr><td>vCPU</td><td>2</td><td><strong>4</strong></td><td>Faster Docker builds and concurrent users</td></tr>
+<tr><td>SSD</td><td>80 GB</td><td><strong>160 GB</strong></td><td>Room for DB growth, MinIO files, backups</td></tr>
+<tr><td>OS</td><td>Ubuntu 22.04 LTS</td><td>Ubuntu 22.04 LTS</td><td>Long-term support</td></tr>
+<tr><td>Location</td><td>EU (Germany)</td><td>Measure latency</td><td>Kenya users may prefer local VPS for production</td></tr>
+</table>
+
+<p>Contabo is suitable for <strong>pilot and staging</strong>. After deployment, measure page load times from Jalaram&#x27;s network. If latency is unacceptable, consider a Kenya-region VPS (e.g. Truehost) using this same guide.</p>
+
+<h3>Contabo-specific steps</h3>
+
+<ol>
+<li>Log in to [Contabo Customer Control Panel](https://my.contabo.com/)  </li>
+<li>Order <strong>VPS</strong> with Ubuntu 22.04  </li>
+<li>Note the <strong>public IPv4 address</strong>  </li>
+<li>Set root password or upload SSH public key during setup  </li>
+<li>Optional: enable Contabo <strong>external firewall</strong> — allow only ports 22, 80, 443  </li>
+</ol>
+
+<h3>After VPS is provisioned</h3>
+
+<p>```bash</p>
+<p>ssh root@YOUR_VPS_IP</p>
+<p>```</p>
+
+<p>Verify connectivity and note the IP for DNS.</p>
+
+<hr/>
+
+<h2>5. Domain name and DNS</h2>
+
+<h3>Example domain</h3>
+
+<p>Use a dedicated subdomain for the EMR:</p>
+
+<ul>
+<li><code>emr.jalaram.co.ke</code> (recommended)  </li>
+<li>or <code>afya.jalaramhospital.com</code>  </li>
+</ul>
+
+<h3>DNS records</h3>
+
+<table>
+<tr><th>Type</th><th>Name</th><th>Value</th><th>TTL</th></tr>
+<tr><td>A</td><td><code>emr</code></td><td><code>YOUR_VPS_IP</code></td><td>300–3600</td></tr>
+<tr><td>CNAME (optional)</td><td><code>www.emr</code></td><td><code>emr.jalaram.co.ke</code></td><td>3600</td></tr>
+</table>
+
+<h3>Verify propagation</h3>
+
+<p>```bash</p>
+<p>dig +short emr.jalaram.co.ke</p>
+<h1>Must return YOUR_VPS_IP</h1>
+<p>```</p>
+
+<p>Wait 5–60 minutes after creating the record. Certbot will fail if DNS does not resolve.</p>
+
+<hr/>
+
+<h2>6. Initial server setup</h2>
+
+<h3>6.1 Create deploy user</h3>
+
+<p>SSH as root, then:</p>
+
+<p>```bash</p>
+<p>adduser afyasasa</p>
+<p>usermod -aG sudo afyasasa</p>
+<p>mkdir -p /home/afyasasa/.ssh</p>
+<p>cp ~/.ssh/authorized_keys /home/afyasasa/.ssh/</p>
+<p>chown -R afyasasa:afyasasa /home/afyasasa/.ssh</p>
+<p>chmod 700 /home/afyasasa/.ssh</p>
+<p>chmod 600 /home/afyasasa/.ssh/authorized_keys</p>
+<p>```</p>
+
+<p>Log out and reconnect as the deploy user:</p>
+
+<p>```bash</p>
+<p>ssh afyasasa@YOUR_VPS_IP</p>
+<p>```</p>
+
+<h3>6.2 System updates and essential packages</h3>
+
+<p>```bash</p>
+<p>sudo apt update &amp;&amp; sudo apt upgrade -y</p>
+<p>sudo apt install -y git curl ufw fail2ban htop unzip</p>
+<p>```</p>
+
+<h3>6.3 Firewall (UFW)</h3>
+
+<p>```bash</p>
+<p>sudo ufw allow OpenSSH</p>
+<p>sudo ufw allow 80/tcp</p>
+<p>sudo ufw allow 443/tcp</p>
+<p>sudo ufw enable</p>
+<p>sudo ufw status</p>
+<p>```</p>
+
+<p><strong>Do not</strong> open 5432, 6379, 3000, 8080, 9000, or 9001 to the public internet.</p>
+
+<h3>6.4 SSH hardening (after key login confirmed)</h3>
+
+<p>```bash</p>
+<p>sudo nano /etc/ssh/sshd_config</p>
+<p>```</p>
+
+<p>Set:</p>
+
+<p>```</p>
+<p>PasswordAuthentication no</p>
+<p>PermitRootLogin prohibit-password</p>
+<p>```</p>
+
+<p>Then:</p>
+
+<p>```bash</p>
+<p>sudo systemctl reload sshd</p>
+<p>```</p>
+
+<h3>6.5 Fail2ban</h3>
+
+<p>Installed above. Default jails protect SSH. Verify:</p>
+
+<p>```bash</p>
+<p>sudo systemctl status fail2ban</p>
+<p>```</p>
+
+<h3>6.6 Set timezone (optional but recommended)</h3>
+
+<p>```bash</p>
+<p>sudo timedatectl set-timezone Africa/Nairobi</p>
+<p>timedatectl</p>
+<p>```</p>
+
+<hr/>
+
+<h2>7. Install Docker</h2>
+
+<p>```bash</p>
+<p>curl -fsSL https://get.docker.com | sh</p>
+<p>sudo usermod -aG docker $USER</p>
+<p>newgrp docker</p>
+<p>docker compose version</p>
+<p>```</p>
+
+<p>Expected output includes <code>Docker Compose version v2.x</code>.</p>
+
+<h3>Enable Docker on boot</h3>
+
+<p>```bash</p>
+<p>sudo systemctl enable docker</p>
+<p>sudo systemctl start docker</p>
+<p>```</p>
+
+<hr/>
+
+<h2>8. Deploy application code</h2>
+
+<h3>8.1 Create application directory</h3>
+
+<p>```bash</p>
+<p>sudo mkdir -p /opt/afyasasa</p>
+<p>sudo chown $USER:$USER /opt/afyasasa</p>
+<p>cd /opt/afyasasa</p>
+<p>```</p>
+
+<h3>8.2 Clone repository</h3>
+
+<p>Replace with your actual repository URL:</p>
+
+<p>```bash</p>
+<p>git clone https://github.com/YOUR_ORG/Afya-Sasa.git .</p>
+<p>```</p>
+
+<p>Or upload a release tarball:</p>
+
+<p>```bash</p>
+<h1>From your laptop:</h1>
+<p>scp afyasasa-release.tar.gz afyasasa@YOUR_VPS_IP:/opt/afyasasa/</p>
+<h1>On VPS:</h1>
+<p>cd /opt/afyasasa &amp;&amp; tar xzf afyasasa-release.tar.gz --strip-components=1</p>
+<p>```</p>
+
+<h3>8.3 Create backup directory</h3>
+
+<p>```bash</p>
+<p>mkdir -p /opt/afyasasa/backups</p>
+<p>```</p>
+
+<hr/>
+
+<h2>9. Production environment configuration</h2>
+
+<h3>9.1 Create <code>.env</code> from template</h3>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>cp .env.example .env</p>
+<p>nano .env</p>
+<p>```</p>
+
+<p><strong>Never commit <code>.env</code> to git.</strong></p>
+
+<h3>9.2 Required production values</h3>
+
+<p>Copy and customize the block below. Generate secrets with <code>openssl rand -base64 48</code>.</p>
+
+<p>```env</p>
+<h1>--- Application ---</h1>
+<p>NODE_ENV=production</p>
+<p>PORT=3000</p>
+<p>FRONTEND_ORIGIN=https://emr.jalaram.co.ke</p>
+<p>APP_PUBLIC_URL=https://emr.jalaram.co.ke</p>
+
+<h1>--- PostgreSQL ---</h1>
+<p>POSTGRES_DB=afyasasa</p>
+<p>POSTGRES_USER=afyasasa</p>
+<p>POSTGRES_PASSWORD=&lt;GENERATE-strong-password&gt;</p>
+<p>POSTGRES_HOST=postgres</p>
+<p>POSTGRES_PORT=5432</p>
+<p>DEFAULT_TENANT_SCHEMA=demo</p>
+<p>DEFAULT_TENANT_CODE=jalaram</p>
+<p>HOSPITAL_NUMBER_PREFIX=JH</p>
+<p>TYPEORM_MIGRATIONS_RUN=true</p>
+
+<h1>--- Redis ---</h1>
+<p>REDIS_HOST=redis</p>
+<p>REDIS_PORT=6379</p>
+
+<h1>--- JWT (generate unique values) ---</h1>
+<p>JWT_ACCESS_SECRET=&lt;GENERATE-48-byte-secret&gt;</p>
+<p>JWT_REFRESH_SECRET=&lt;GENERATE-different-48-byte-secret&gt;</p>
+<p>JWT_ACCESS_TTL=15m</p>
+<p>JWT_REFRESH_TTL=7d</p>
+
+<h1>--- MinIO / S3 (internal Docker hostnames) ---</h1>
+<p>MINIO_ROOT_USER=afyasasa</p>
+<p>MINIO_ROOT_PASSWORD=&lt;GENERATE-strong-password&gt;</p>
+<p>S3_ENDPOINT=http://minio:9000</p>
+<p>S3_ACCESS_KEY_ID=afyasasa</p>
+<p>S3_SECRET_ACCESS_KEY=&lt;same-as-MINIO-or-separate-key&gt;</p>
+<p>S3_BUCKET=afyasasa-clinical-files</p>
+<p>S3_REGION=us-east-1</p>
+<p>S3_FORCE_PATH_STYLE=true</p>
+
+<h1>--- SMS (stub until Celcom keys approved) ---</h1>
+<p>SMS_PROVIDER=stub</p>
+<p>SMS_SENDER_NAME=JALARAM</p>
+
+<h1>--- Email (optional — leave blank until SMTP ready) ---</h1>
+<p>SMTP_HOST=</p>
+<p>SMTP_PORT=587</p>
+<p>SMTP_USER=</p>
+<p>SMTP_PASSWORD=</p>
+<p>SMTP_FROM=noreply@jalaram.co.ke</p>
+
+<h1>--- Frontend build args (used by Docker Compose build) ---</h1>
+<p>VITE_DEFAULT_TENANT=jalaram</p>
+<p>VITE_HIDE_TENANT_SELECTOR=true</p>
+<p>VITE_API_BASE_URL=/api/v1</p>
+<p>```</p>
+
+<h3>9.3 Variable reference</h3>
+
+<table>
+<tr><th>Variable</th><th>Purpose</th></tr>
+<tr><td><code>FRONTEND_ORIGIN</code></td><td>CORS and WebSocket allowed origin — must match exact browser URL including <code>https://</code></td></tr>
+<tr><td><code>APP_PUBLIC_URL</code></td><td>Links in emails and system messages</td></tr>
+<tr><td><code>DEFAULT_TENANT_CODE=jalaram</code></td><td>Single-hospital mode; login hides tenant selector</td></tr>
+<tr><td><code>DEFAULT_TENANT_SCHEMA=demo</code></td><td>Internal PostgreSQL schema name (legacy; tenant code is <code>jalaram</code>)</td></tr>
+<tr><td><code>TYPEORM_MIGRATIONS_RUN=true</code></td><td>Auto-run DB migrations on backend startup</td></tr>
+<tr><td><code>VITE_HIDE_TENANT_SELECTOR=true</code></td><td>Login screen does not ask for hospital code</td></tr>
+<tr><td><code>SMS_PROVIDER=stub</code></td><td>SMS logged but not sent until Celcom keys configured</td></tr>
+</table>
+
+<h3>9.4 Generate secrets</h3>
+
+<p>```bash</p>
+<p>openssl rand -base64 48   # run once per secret needed</p>
+<p>```</p>
+
+<p>Use a <strong>different</strong> value for each of: <code>POSTGRES_PASSWORD</code>, <code>JWT_ACCESS_SECRET</code>, <code>JWT_REFRESH_SECRET</code>, <code>MINIO_ROOT_PASSWORD</code>, <code>S3_SECRET_ACCESS_KEY</code>.</p>
+
+<h3>9.5 Pre-deploy validation (optional, on VPS or CI)</h3>
+
+<p>If Node.js/npm is installed on the VPS:</p>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>npm run preflight:prod</p>
+<p>```</p>
+
+<p>This checks Docker, <code>.env</code>, builds, and runs a smoke test. On a minimal VPS you may skip the npm build steps and proceed directly to Docker Compose.</p>
+
+<hr/>
+
+<h2>10. Build and start the stack</h2>
+
+<p>From <code>/opt/afyasasa</code>:</p>
+
+<p>```bash</p>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build</p>
+<p>```</p>
+
+<p>First build may take <strong>10–20 minutes</strong> depending on VPS CPU and network.</p>
+
+<h3>10.1 Watch startup logs</h3>
+
+<p>```bash</p>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f backend</p>
+<p>```</p>
+
+<p>Wait for:</p>
+
+<p>```</p>
+<p>Nest application successfully started</p>
+<p>```</p>
+
+<p>Migrations run automatically when <code>TYPEORM_MIGRATIONS_RUN=true</code>.</p>
+
+<h3>10.2 Verify all containers</h3>
+
+<p>```bash</p>
+<p>docker compose ps</p>
+<p>```</p>
+
+<p>All services should show <code>running</code> (minio-init shows <code>exited</code> with code 0 — that is normal).</p>
+
+<h3>10.3 Health check (before TLS)</h3>
+
+<p>Docker Nginx listens on <strong>127.0.0.1:8080</strong> only:</p>
+
+<p>```bash</p>
+<p>curl -fsS http://127.0.0.1:8080/api/v1/health</p>
+<p>```</p>
+
+<p>Expected:</p>
+
+<p>```json</p>
+<p>{&quot;status&quot;:&quot;ok&quot;,&quot;service&quot;:&quot;afyasasa-backend&quot;}</p>
+<p>```</p>
+
+<p>Open in browser (HTTP, temporary):</p>
+
+<p>```</p>
+<p>http://YOUR_VPS_IP:8080/</p>
+<p>```</p>
+
+<p>Port 8080 is bound to localhost only, so use SSH tunnel for remote testing before TLS:</p>
+
+<p>```bash</p>
+<h1>From your laptop:</h1>
+<p>ssh -L 8080:127.0.0.1:8080 afyasasa@YOUR_VPS_IP</p>
+<h1>Then open http://localhost:8080</h1>
+<p>```</p>
+
+<hr/>
+
+<h2>11. Verify migrations and tenant</h2>
+
+<h3>11.1 Confirm Jalaram tenant exists</h3>
+
+<p>```bash</p>
+<p>docker compose exec postgres psql -U afyasasa -d afyasasa -c \</p>
+<p>  &quot;SELECT code, name, active FROM public.tenants WHERE code = &#x27;jalaram&#x27;;&quot;</p>
+<p>```</p>
+
+<p>Expected: one row with <code>jalaram</code>, active.</p>
+
+<h3>11.2 Confirm admin user exists</h3>
+
+<p>```bash</p>
+<p>docker compose exec postgres psql -U afyasasa -d afyasasa -c \</p>
+<p>  &quot;SELECT email, active, force_password_change FROM demo.users WHERE email = &#x27;it@jalaram.co.ke&#x27;;&quot;</p>
+<p>```</p>
+
+<h3>11.3 Confirm migrations table</h3>
+
+<p>```bash</p>
+<p>docker compose exec postgres psql -U afyasasa -d afyasasa -c \</p>
+<p>  &quot;SELECT COUNT(*) FROM public.migrations;&quot;</p>
+<p>```</p>
+
+<p>Count should be greater than zero after first successful startup.</p>
+
+<hr/>
+
+<h2>12. HTTPS with Let&#x27;s Encrypt</h2>
+
+<p>Production must use HTTPS. Use <strong>host Nginx</strong> as TLS terminator; Docker Nginx stays on <code>127.0.0.1:8080</code>.</p>
+
+<h3>12.1 Install host Nginx and Certbot</h3>
+
+<p>```bash</p>
+<p>sudo apt install -y nginx certbot python3-certbot-nginx</p>
+<p>```</p>
+
+<h3>12.2 Create Nginx site configuration</h3>
+
+<p>```bash</p>
+<p>sudo nano /etc/nginx/sites-available/afyasasa</p>
+<p>```</p>
+
+<p>Paste the following (replace <code>emr.jalaram.co.ke</code> with your domain):</p>
+
+<p>```nginx</p>
+<p>server {</p>
+<p>    listen 80;</p>
+<p>    server_name emr.jalaram.co.ke;</p>
+
+<p>    location / {</p>
+<p>        proxy_pass http://127.0.0.1:8080;</p>
+<p>        proxy_set_header Host $host;</p>
+<p>        proxy_set_header X-Real-IP $remote_addr;</p>
+<p>        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;</p>
+<p>        proxy_set_header X-Forwarded-Proto $scheme;</p>
+<p>    }</p>
+
+<p>    location /socket.io/ {</p>
+<p>        proxy_pass http://127.0.0.1:8080/socket.io/;</p>
+<p>        proxy_http_version 1.1;</p>
+<p>        proxy_set_header Upgrade $http_upgrade;</p>
+<p>        proxy_set_header Connection &quot;upgrade&quot;;</p>
+<p>        proxy_set_header Host $host;</p>
+<p>        proxy_set_header X-Real-IP $remote_addr;</p>
+<p>        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;</p>
+<p>        proxy_set_header X-Forwarded-Proto $scheme;</p>
+<p>        proxy_read_timeout 86400;</p>
+<p>    }</p>
+<p>}</p>
+<p>```</p>
+
+<p>Enable the site:</p>
+
+<p>```bash</p>
+<p>sudo ln -sf /etc/nginx/sites-available/afyasasa /etc/nginx/sites-enabled/</p>
+<p>sudo rm -f /etc/nginx/sites-enabled/default</p>
+<p>sudo nginx -t</p>
+<p>sudo systemctl reload nginx</p>
+<p>```</p>
+
+<h3>12.3 Obtain TLS certificate</h3>
+
+<p>```bash</p>
+<p>sudo certbot --nginx -d emr.jalaram.co.ke</p>
+<p>```</p>
+
+<p>Follow prompts. Choose redirect HTTP to HTTPS when asked.</p>
+
+<p>Certbot auto-renewal is installed via systemd timer:</p>
+
+<p>```bash</p>
+<p>sudo systemctl status certbot.timer</p>
+<p>```</p>
+
+<h3>12.4 Update <code>.env</code> for HTTPS</h3>
+
+<p>Ensure these match your live URL:</p>
+
+<p>```env</p>
+<p>FRONTEND_ORIGIN=https://emr.jalaram.co.ke</p>
+<p>APP_PUBLIC_URL=https://emr.jalaram.co.ke</p>
+<p>```</p>
+
+<p>Rebuild frontend if you changed origin after first build:</p>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build frontend nginx</p>
+<p>```</p>
+
+<h3>12.5 Verify HTTPS</h3>
+
+<p>```bash</p>
+<p>curl -fsS https://emr.jalaram.co.ke/api/v1/health</p>
+<p>```</p>
+
+<p>Open <code>https://emr.jalaram.co.ke</code> in a browser — login page should show Jalaram branding.</p>
+
+<hr/>
+
+<h2>13. First login and account hardening</h2>
+
+<h3>13.1 Default administrator credentials</h3>
+
+<table>
+<tr><th>Field</th><th>Value</th></tr>
+<tr><td>URL</td><td><code>https://emr.jalaram.co.ke</code></td></tr>
+<tr><td>Email</td><td><code>it@jalaram.co.ke</code></td></tr>
+<tr><td>Initial password</td><td><code>ChangeMe123!</code></td></tr>
+<tr><td>Tenant code</td><td>Hidden — defaults to <code>jalaram</code></td></tr>
+</table>
+
+<p>You will be prompted to change the password on first login.</p>
+
+<h3>13.2 Reset admin password (if login fails)</h3>
+
+<p>From <code>/opt/afyasasa</code> on the VPS:</p>
+
+<p>```bash</p>
+<p>npm run db:reset-admin</p>
+<p>```</p>
+
+<p>Or directly:</p>
+
+<p>```bash</p>
+<p>bash ops/reset-demo-admin.sh</p>
+<p>```</p>
+
+<p>This resets <code>it@jalaram.co.ke</code> to <code>ChangeMe123!</code> and clears lockouts.</p>
+
+<h3>13.3 Reset all Jalaram staff passwords</h3>
+
+<p>```bash</p>
+<p>npm run db:reset-staff</p>
+<p>```</p>
+
+<p>Resets all active <code>@jalaram.co.ke</code> accounts to <code>ChangeMe123!</code> with forced change on login.</p>
+
+<h3>13.4 Post-login hardening tasks</h3>
+
+<table>
+<tr><th>Task</th><th>Where</th></tr>
+<tr><td>Change admin password</td><td>Login prompt / Account Center</td></tr>
+<tr><td>Verify staff accounts</td><td>Admin → Users</td></tr>
+<tr><td>Disable unused demo accounts</td><td>Admin → Users</td></tr>
+<tr><td>Confirm hospital name/logo on login</td><td>Login screen (from database)</td></tr>
+<tr><td>Enable Pharmacy module if needed</td><td>Hospital Control Center → Modules</td></tr>
+<tr><td>Do not expose Swagger publicly</td><td>Block <code>/docs</code> at host Nginx or IP allowlist</td></tr>
+</table>
+
+<h3>13.5 Restrict Swagger in production (recommended)</h3>
+
+<p>Add to host Nginx HTTPS server block:</p>
+
+<p>```nginx</p>
+<p>location /docs {</p>
+<p>    deny all;</p>
+<p>    return 404;</p>
+<p>}</p>
+<p>```</p>
+
+<p>Reload Nginx after change.</p>
+
+<hr/>
+
+<h2>14. Post-deploy testing</h2>
+
+<h3>14.1 Smoke test (from VPS)</h3>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>BACKEND_URL=http://127.0.0.1:8080/api/v1 \</p>
+<p>FRONTEND_URL=http://127.0.0.1:8080 \</p>
+<p>TENANT=jalaram \</p>
+<p>bash ops/smoke-test.sh</p>
+<p>```</p>
+
+<p>Note: smoke test also probes Swagger on port 3000 internally — in production the important checks are health and login via port 8080.</p>
+
+<h3>14.2 Full workflow test suite</h3>
+
+<p>Run all API acceptance tests:</p>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>API=http://127.0.0.1:8080/api/v1 TENANT=jalaram npm run test:workflows</p>
+<p>```</p>
+
+<p>This runs:</p>
+
+<table>
+<tr><th>Script</th><th>Workflow</th></tr>
+<tr><td><code>ops/smoke-test.sh</code></td><td>Health + login</td></tr>
+<tr><td><code>ops/opd-workflow-test.sh</code></td><td>OPD check-in → triage → consult</td></tr>
+<tr><td><code>ops/ipd-workflow-test.sh</code></td><td>Admission → discharge</td></tr>
+<tr><td><code>ops/lab-workflow-test.sh</code></td><td>Lab order → result → review</td></tr>
+<tr><td><code>ops/radiology-workflow-test.sh</code></td><td>Imaging order → report</td></tr>
+<tr><td><code>ops/inventory-workflow-test.sh</code></td><td>Stock, requisition, transfer</td></tr>
+<tr><td><code>ops/pharmacy-workflow-test.sh</code></td><td>Prescribe → dispense</td></tr>
+</table>
+
+<p>All scripts must pass before inviting clinical staff.</p>
+
+<h3>14.3 External HTTPS test (from laptop)</h3>
+
+<p>```bash</p>
+<p>curl -fsS https://emr.jalaram.co.ke/api/v1/health</p>
+<p>```</p>
+
+<p>Manual UI walkthrough: see <code>docs/core-workflow-test-plan.md</code>.</p>
+
+<hr/>
+
+<h2>15. Backups and disaster recovery</h2>
+
+<h3>15.1 PostgreSQL backup (daily)</h3>
+
+<p>Use the project script:</p>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>npm run db:backup</p>
+<h1>Writes to backups/afyasasa-YYYYMMDD-HHMMSS.sql</h1>
+<p>```</p>
+
+<p>Or with gzip for cron:</p>
+
+<p>```bash</p>
+<p>#!/usr/bin/env bash</p>
+<p>set -euo pipefail</p>
+<p>cd /opt/afyasasa</p>
+<p>STAMP=$(date -u +%Y%m%dT%H%M%SZ)</p>
+<p>docker compose exec -T postgres pg_dump \</p>
+<p>  -U afyasasa afyasasa --clean --if-exists \</p>
+<p>  | gzip &gt; &quot;backups/afyasasa-${STAMP}.sql.gz&quot;</p>
+<p>find backups -name &#x27;*.sql.gz&#x27; -mtime +14 -delete</p>
+<p>echo &quot;Backup complete: backups/afyasasa-${STAMP}.sql.gz&quot;</p>
+<p>```</p>
+
+<p>Save as <code>/opt/afyasasa/ops/cron-backup.sh</code>, chmod +x.</p>
+
+<h3>15.2 Schedule daily backup</h3>
+
+<p>```bash</p>
+<p>crontab -e</p>
+<p>```</p>
+
+<p>Add:</p>
+
+<p>```</p>
+<p>0 2 <em> </em> * /opt/afyasasa/ops/cron-backup.sh &gt;&gt; /opt/afyasasa/backups/backup.log 2&gt;&amp;1</p>
+<p>```</p>
+
+<h3>15.3 Restore test (mandatory once before live data)</h3>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>gunzip -c backups/afyasasa-YYYYMMDDTHHMMSSZ.sql.gz | \</p>
+<p>  docker compose exec -T postgres psql -U afyasasa -d afyasasa</p>
+<p>```</p>
+
+<p>Or for uncompressed dump:</p>
+
+<p>```bash</p>
+<p>npm run db:restore -- backups/afyasasa-YYYYMMDD-HHMMSS.sql</p>
+<p>```</p>
+
+<p>Verify login and a sample patient record after restore.</p>
+
+<h3>15.4 MinIO / clinical files backup</h3>
+
+<p>MinIO data lives in Docker volume <code>afyasasa_minio-data</code>.</p>
+
+<p>List volumes:</p>
+
+<p>```bash</p>
+<p>docker volume ls | grep minio</p>
+<p>```</p>
+
+<p>Backup options:</p>
+
+<ol>
+<li><strong>Volume archive:</strong> <code>docker run --rm -v afyasasa_minio-data:/data -v /opt/afyasasa/backups:/backup alpine tar czf /backup/minio-$(date +%Y%m%d).tar.gz -C /data .</code>  </li>
+<li><strong>MinIO client mirror</strong> to external S3 or another server (install <code>mc</code> on host)  </li>
+</ol>
+
+<p>Schedule weekly MinIO backups at minimum.</p>
+
+<h3>15.5 Offsite copies</h3>
+
+<p>Copy <code>backups/*.sql.gz</code> and MinIO archives to:</p>
+
+<ul>
+<li>Separate cloud storage (Google Drive, S3, Backblaze)  </li>
+<li>Second server  </li>
+<li>Encrypted external drive (weekly physical rotation)  </li>
+</ul>
+
+<p><strong>A backup that exists only on the same VPS as production is not disaster recovery.</strong></p>
+
+<hr/>
+
+<h2>16. Updates, redeploy, and rollback</h2>
+
+<h3>16.1 Standard update procedure</h3>
+
+<p>```bash</p>
+<p>cd /opt/afyasasa</p>
+<p>git pull</p>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build</p>
+<p>docker compose logs -f backend --tail 80</p>
+<p>```</p>
+
+<p>Migrations apply automatically on backend restart.</p>
+
+<h3>16.2 Post-update verification</h3>
+
+<p>```bash</p>
+<p>API=http://127.0.0.1:8080/api/v1 TENANT=jalaram npm run test:workflows</p>
+<p>```</p>
+
+<h3>16.3 Rollback if update fails</h3>
+
+<ol>
+<li>Stop stack: <code>docker compose -f docker-compose.yml -f docker-compose.prod.yml down</code>  </li>
+<li>Checkout previous git tag/commit: <code>git checkout &lt;previous-tag&gt;</code>  </li>
+<li>Restore database from last good backup if migrations broke schema  </li>
+<li>Rebuild and start: <code>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build</code>  </li>
+</ol>
+
+<p>Always take a backup <strong>before</strong> major updates.</p>
+
+<hr/>
+
+<h2>17. Monitoring and maintenance</h2>
+
+<h3>17.1 Daily checks</h3>
+
+<table>
+<tr><th>Check</th><th>Command</th></tr>
+<tr><td>Containers running</td><td><code>docker compose ps</code></td></tr>
+<tr><td>API health</td><td><code>curl -fsS https://emr.jalaram.co.ke/api/v1/health</code></td></tr>
+<tr><td>Disk space</td><td><code>df -h</code></td></tr>
+<tr><td>Memory</td><td><code>free -h</code></td></tr>
+<tr><td>Recent errors</td><td>`docker compose logs backend --since 24h 2&gt;&amp;1 \</td><td>grep -i error \</td><td>tail -20`</td></tr>
+<tr><td>Backup file exists</td><td><code>ls -lh /opt/afyasasa/backups/</code></td></tr>
+</table>
+
+<h3>17.2 Docker log rotation</h3>
+
+<p>Create <code>/etc/docker/daemon.json</code>:</p>
+
+<p>```json</p>
+<p>{</p>
+<p>  &quot;log-driver&quot;: &quot;json-file&quot;,</p>
+<p>  &quot;log-opts&quot;: {</p>
+<p>    &quot;max-size&quot;: &quot;50m&quot;,</p>
+<p>    &quot;max-file&quot;: &quot;3&quot;</p>
+<p>  }</p>
+<p>}</p>
+<p>```</p>
+
+<p>Then: <code>sudo systemctl restart docker</code> (brief downtime — schedule maintenance window).</p>
+
+<h3>17.3 Auto-start on reboot</h3>
+
+<p>Docker service is enabled via systemd. Containers use <code>restart: unless-stopped</code> if added to compose; verify after reboot:</p>
+
+<p>```bash</p>
+<p>sudo reboot</p>
+<h1>After reconnect:</h1>
+<p>docker compose ps</p>
+<p>curl -fsS http://127.0.0.1:8080/api/v1/health</p>
+<p>```</p>
+
+<hr/>
+
+<h2>18. Celcom SMS integration</h2>
+
+<p>When Celcom Africa approves your API keys:</p>
+
+<p>```env</p>
+<p>SMS_PROVIDER=celcom_africa</p>
+<p>CELCOM_API_KEY=&lt;from Celcom&gt;</p>
+<p>CELCOM_PARTNER_ID=&lt;from Celcom&gt;</p>
+<p>CELCOM_SHORTCODE=JALARAMHNKR</p>
+<p>```</p>
+
+<p>Restart backend:</p>
+
+<p>```bash</p>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend</p>
+<p>```</p>
+
+<p>Test a single SMS from Admin → Notifications before enabling appointment reminders or bulk sends.</p>
+
+<hr/>
+
+<h2>19. Security hardening</h2>
+
+<h3>Network</h3>
+
+<ul>
+<li>Only ports <strong>22, 80, 443</strong> open on UFW and Contabo firewall  </li>
+<li>Postgres, Redis, MinIO, backend <strong>not</strong> published to <code>0.0.0.0</code>  </li>
+<li>MinIO console (9001) <strong>not</strong> exposed in production compose  </li>
+</ul>
+
+<h3>Secrets</h3>
+
+<ul>
+<li>Rotate all defaults from <code>.env.example</code> before go-live  </li>
+<li>Store <code>.env</code> with permissions <code>chmod 600 .env</code>  </li>
+<li>Never commit <code>.env</code> or paste secrets in chat/email  </li>
+</ul>
+
+<h3>Application</h3>
+
+<ul>
+<li>RBAC enforced on backend — frontend nav hiding is not security  </li>
+<li>Force password change for all staff after reset  </li>
+<li>Pilot under <strong>supervised</strong> clinical use until UAT sign-off  </li>
+</ul>
+
+<h3>SSH</h3>
+
+<ul>
+<li>Key-based auth only (disable password auth)  </li>
+<li>Consider changing SSH port (optional)  </li>
+<li>fail2ban active  </li>
+</ul>
+
+<h3>TLS</h3>
+
+<ul>
+<li>Certbot auto-renewal enabled  </li>
+<li>HSTS can be added after stable HTTPS (optional advanced step)  </li>
+</ul>
+
+<hr/>
+
+<h2>20. Troubleshooting reference</h2>
+
+<table>
+<tr><th>Problem</th><th>Likely cause</th><th>Fix</th></tr>
+<tr><td><code>502 Bad Gateway</code></td><td>Backend not running</td><td><code>docker compose ps</code>; <code>docker compose logs backend</code></td></tr>
+<tr><td><code>502</code> after TLS</td><td>Host Nginx wrong upstream</td><td>Confirm <code>proxy_pass http://127.0.0.1:8080</code></td></tr>
+<tr><td>Migrations fail</td><td>Wrong Postgres password</td><td>Match <code>.env</code> to volume; or recreate volume (data loss)</td></tr>
+<tr><td>Login fails</td><td>Wrong password / lockout</td><td><code>npm run db:reset-admin</code></td></tr>
+<tr><td>Login fails</td><td>Wrong tenant</td><td>Ensure <code>VITE_DEFAULT_TENANT=jalaram</code> and rebuild frontend</td></tr>
+<tr><td>Blank white page</td><td>Frontend build error</td><td><code>docker compose ... up -d --build frontend</code></td></tr>
+<tr><td>CORS errors</td><td>Origin mismatch</td><td><code>FRONTEND_ORIGIN</code> must exactly match browser URL</td></tr>
+<tr><td>WebSocket / notifications dead</td><td>Missing upgrade headers</td><td>Add <code>/socket.io/</code> block to host Nginx (Section 12.2)</td></tr>
+<tr><td>Certbot fails</td><td>DNS not propagated</td><td><code>dig +short your.domain</code>; wait and retry</td></tr>
+<tr><td>Slow from Kenya</td><td>EU VPS latency</td><td>Measure; consider Kenya-region VPS</td></tr>
+<tr><td><code>npm run deploy:prod</code> issues</td><td>Wrong compose file</td><td>Use both files: <code>-f docker-compose.yml -f docker-compose.prod.yml</code></td></tr>
+<tr><td>Out of disk</td><td>Logs or backups</td><td><code>df -h</code>; prune: <code>docker system prune -a</code> (careful)</td></tr>
+</table>
+
+<h3>Useful diagnostic commands</h3>
+
+<p>```bash</p>
+<h1>Container logs</h1>
+<p>docker compose logs backend --tail 100</p>
+<p>docker compose logs nginx --tail 50</p>
+
+<h1>Enter Postgres</h1>
+<p>docker compose exec postgres psql -U afyasasa -d afyasasa</p>
+
+<h1>Test login via API</h1>
+<p>curl -sS -X POST http://127.0.0.1:8080/api/v1/auth/login \</p>
+<p>  -H &quot;Content-Type: application/json&quot; \</p>
+<p>  -H &quot;X-Tenant: jalaram&quot; \</p>
+<p>  -d &#x27;{&quot;email&quot;:&quot;it@jalaram.co.ke&quot;,&quot;password&quot;:&quot;ChangeMe123!&quot;,&quot;device&quot;:&quot;curl&quot;}&#x27;</p>
+<p>```</p>
+
+<hr/>
+
+<h2>21. Post-deploy sign-off checklist</h2>
+
+<table>
+<tr><th>#</th><th>Item</th><th>Pass</th></tr>
+<tr><td>1</td><td>HTTPS works in browser</td><td>☐</td></tr>
+<tr><td>2</td><td>Login page shows Jalaram hospital name</td><td>☐</td></tr>
+<tr><td>3</td><td>Admin login + password change works</td><td>☐</td></tr>
+<tr><td>4</td><td><code>npm run test:workflows</code> all green</td><td>☐</td></tr>
+<tr><td>5</td><td>Daily Postgres backup scheduled</td><td>☐</td></tr>
+<tr><td>6</td><td>Restore test completed once</td><td>☐</td></tr>
+<tr><td>7</td><td>MinIO backup plan documented</td><td>☐</td></tr>
+<tr><td>8</td><td>Staff passwords changed from default</td><td>☐</td></tr>
+<tr><td>9</td><td>Swagger not publicly accessible</td><td>☐</td></tr>
+<tr><td>10</td><td>Clinical UAT started (<code>docs/go-live-checklist.md</code>)</td><td>☐</td></tr>
+</table>
+
+<hr/>
+
+<h2>22. Quick command reference</h2>
+
+<p>```bash</p>
+<h1>Start (production)</h1>
+<p>cd /opt/afyasasa</p>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build</p>
+
+<h1>Stop</h1>
+<p>docker compose -f docker-compose.yml -f docker-compose.prod.yml down</p>
+
+<h1>Logs</h1>
+<p>docker compose logs -f backend</p>
+
+<h1>Health (local)</h1>
+<p>curl -fsS http://127.0.0.1:8080/api/v1/health</p>
+
+<h1>Health (public)</h1>
+<p>curl -fsS https://emr.jalaram.co.ke/api/v1/health</p>
+
+<h1>Smoke test</h1>
+<p>BACKEND_URL=http://127.0.0.1:8080/api/v1 FRONTEND_URL=http://127.0.0.1:8080 TENANT=jalaram bash ops/smoke-test.sh</p>
+
+<h1>Full workflow tests</h1>
+<p>API=http://127.0.0.1:8080/api/v1 TENANT=jalaram npm run test:workflows</p>
+
+<h1>Backup</h1>
+<p>npm run db:backup</p>
+
+<h1>Reset admin</h1>
+<p>npm run db:reset-admin</p>
+<p>```</p>
+
+<p><strong>Pilot URL:</strong> <code>https://emr.jalaram.co.ke</code> (replace with your domain)  </p>
+<p><strong>Admin:</strong> <code>it@jalaram.co.ke</code> / <code>ChangeMe123!</code> (change immediately)  </p>
+<p><strong>Tenant:</strong> <code>jalaram</code> (hidden on login)</p>
+
+<hr/>
+
+<h2>23. Related documents</h2>
+
+<table>
+<tr><th>Document</th><th>Purpose</th></tr>
+<tr><td><code>docs/go-live-checklist.md</code></td><td>Full clinical and IT sign-off</td></tr>
+<tr><td><code>docs/core-workflow-test-plan.md</code></td><td>Manual UAT scenarios by role</td></tr>
+<tr><td><code>docs/core-workflow-gap-matrix.md</code></td><td>Feature completeness matrix</td></tr>
+<tr><td><code>docs/go-live-readiness-directive.md</code></td><td>Master readiness plan</td></tr>
+<tr><td><code>docs/local-testing-guide.md</code></td><td>Local development testing</td></tr>
+<tr><td><code>docs/inventory-architecture.md</code></td><td>Pharmacy and store design</td></tr>
+<tr><td><code>docs/contabo-deployment-guide.md</code></td><td>Short deployment summary</td></tr>
+</table>
+
+<hr/>
+
+<p><em>End of document — AfyaSasa Contabo Deployment Guide v1.1</em></p>
+<div class="footer-note">AfyaSasa · Jalaram Hospital profile · Generated from markdown · Confidential hospital operations document</div>
+</body></html>

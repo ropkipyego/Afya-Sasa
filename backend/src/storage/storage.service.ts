@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   GetObjectCommand,
@@ -6,26 +6,84 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { assertAllowedUpload } from './storage.constants';
 
 @Injectable()
 export class StorageService {
   private readonly client: S3Client;
+  private readonly presignClient: S3Client;
   private readonly bucket: string;
 
   constructor(private readonly config: ConfigService) {
     this.bucket = this.config.get<string>('S3_BUCKET', 'afyasasa-clinical-files');
+    const credentials = {
+      accessKeyId: this.config.get<string>('S3_ACCESS_KEY_ID', 'afyasasa'),
+      secretAccessKey: this.config.get<string>(
+        'S3_SECRET_ACCESS_KEY',
+        'afyasasa123',
+      ),
+    };
+    const region = this.config.get<string>('S3_REGION', 'us-east-1');
+    const forcePathStyle =
+      this.config.get<string>('S3_FORCE_PATH_STYLE', 'true') === 'true';
+
     this.client = new S3Client({
-      region: this.config.get<string>('S3_REGION', 'us-east-1'),
+      region,
       endpoint: this.config.get<string>('S3_ENDPOINT'),
-      forcePathStyle: this.config.get<string>('S3_FORCE_PATH_STYLE', 'true') === 'true',
-      credentials: {
-        accessKeyId: this.config.get<string>('S3_ACCESS_KEY_ID', 'afyasasa'),
-        secretAccessKey: this.config.get<string>(
-          'S3_SECRET_ACCESS_KEY',
-          'afyasasa123',
-        ),
-      },
+      forcePathStyle,
+      credentials,
     });
+
+    const publicEndpoint =
+      this.config.get<string>('S3_PUBLIC_ENDPOINT') ??
+      this.config.get<string>('S3_ENDPOINT');
+    this.presignClient = new S3Client({
+      region,
+      endpoint: publicEndpoint,
+      forcePathStyle,
+      credentials,
+    });
+  }
+
+  async uploadObject(input: {
+    buffer: Buffer;
+    filename: string;
+    contentType: string;
+    folder: string;
+    requestId: string;
+    tenantCode?: string;
+  }) {
+    try {
+      assertAllowedUpload({
+        contentType: input.contentType,
+        fileSize: input.buffer.length,
+        filename: input.filename,
+      });
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+
+    const safeName = input.filename.replace(/[^\w.-]+/g, '_');
+    const relativeKey = `${input.folder}/${input.requestId}/${Date.now()}-${safeName}`;
+    const key = this.tenantKey(relativeKey, input.tenantCode);
+
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: input.buffer,
+        ContentType: input.contentType,
+      }),
+    );
+
+    return {
+      bucket: this.bucket,
+      key,
+      filename: input.filename,
+      mimeType: input.contentType,
+      storagePath: key,
+      fileSize: input.buffer.length,
+    };
   }
 
   async presignUpload(input: {
@@ -33,7 +91,19 @@ export class StorageService {
     contentType: string;
     folder?: string;
     tenantCode?: string;
+    fileSize?: number;
+    filename?: string;
   }) {
+    try {
+      assertAllowedUpload({
+        contentType: input.contentType,
+        fileSize: input.fileSize,
+        filename: input.filename ?? input.key.split('/').pop(),
+      });
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+
     const key = this.tenantKey(input.key, input.tenantCode, input.folder);
     const command = new PutObjectCommand({
       Bucket: this.bucket,
@@ -45,7 +115,7 @@ export class StorageService {
       bucket: this.bucket,
       key,
       method: 'PUT',
-      url: await getSignedUrl(this.client, command, { expiresIn: 15 * 60 }),
+      url: await getSignedUrl(this.presignClient, command, { expiresIn: 15 * 60 }),
       expiresInSeconds: 15 * 60,
     };
   }
@@ -61,7 +131,7 @@ export class StorageService {
       bucket: this.bucket,
       key: normalisedKey,
       method: 'GET',
-      url: await getSignedUrl(this.client, command, { expiresIn: 10 * 60 }),
+      url: await getSignedUrl(this.presignClient, command, { expiresIn: 10 * 60 }),
       expiresInSeconds: 10 * 60,
     };
   }

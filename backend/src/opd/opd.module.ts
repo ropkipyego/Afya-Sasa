@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { User } from '../core/core.entities';
 import { Patient } from '../patients/patient.entities';
+import { WorkflowModule } from '../workflow/workflow.module';
 import {
   ClinicalNote,
   Consultation,
@@ -17,6 +19,7 @@ import { OpdService } from './opd.service';
   imports: [
     TypeOrmModule.forFeature([
       Patient,
+      User,
       Encounter,
       TriageAssessment,
       Consultation,
@@ -25,6 +28,7 @@ import { OpdService } from './opd.service';
       EncounterAttachment,
       SickSheet,
     ]),
+    WorkflowModule,
   ],
   controllers: [OpdController],
   providers: [OpdService],

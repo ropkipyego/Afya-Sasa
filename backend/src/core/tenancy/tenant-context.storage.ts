@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks';
+import { defaultTenantCode } from '../../common/tenant-defaults';
 
 export type TenantRequestContext = {
   schemaName: string;
@@ -8,11 +9,14 @@ export type TenantRequestContext = {
 export const tenantContextStorage = new AsyncLocalStorage<TenantRequestContext>();
 
 export function getTenantSchema(): string {
-  return tenantContextStorage.getStore()?.schemaName ?? 'demo';
+  return (
+    tenantContextStorage.getStore()?.schemaName ??
+    (process.env.DEFAULT_TENANT_SCHEMA?.trim() || 'demo')
+  );
 }
 
 export function getTenantCode(): string {
-  return tenantContextStorage.getStore()?.tenantCode ?? 'demo';
+  return tenantContextStorage.getStore()?.tenantCode ?? defaultTenantCode();
 }
 
 export function runWithTenantContext<T>(

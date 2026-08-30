@@ -54,7 +54,7 @@ export class ClinicalOrderController {
   constructor(private readonly orders: ClinicalOrderMirrorService) {}
 
   @Get()
-  @RequirePermissions('lab_requests:read')
+  @RequirePermissions('pharmacy:read', 'lab_requests:read')
   list(
     @Query('module') sourceModule?: string,
     @Query('status') status?: string,
@@ -72,7 +72,7 @@ export class ClinicalOrderController {
   }
 
   @Post('pharmacy')
-  @RequirePermissions('consultations:create')
+  @RequirePermissions('pharmacy:prescribe', 'consultations:create')
   createPharmacy(@Body() dto: CreatePharmacyOrderDto, @Req() request: RequestContext) {
     const orderNo = `RX-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     return this.orders.mirrorPharmacyOrder(

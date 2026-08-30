@@ -43,10 +43,28 @@ export class HduService {
 
   list(status?: 'active' | 'transferred_out' | 'discharged' | 'died') {
     return this.hduAdmissions.find({
-      where: { status },
-      relations: { admission: { patient: true }, hduBed: true },
+      where: status ? { status } : {},
+      relations: { admission: { patient: true, ward: true, bed: true }, hduBed: true, acceptedBy: true },
       order: { admittedToHduAt: 'DESC' },
     });
+  }
+
+  async workspace(id: string) {
+    const hduAdmission = await this.get(id);
+    const [observations, rounds] = await Promise.all([
+      this.observations.find({
+        where: { hduAdmission: { id } },
+        order: { recordedAt: 'DESC' },
+        take: 50,
+      }),
+      this.rounds.find({
+        where: { hduAdmission: { id } },
+        relations: { clinician: true },
+        order: { roundTime: 'DESC' },
+        take: 30,
+      }),
+    ]);
+    return { ...hduAdmission, observations, rounds };
   }
 
   async observe(id: string, dto: CreateHduObservationDto, request: RequestContext) {
@@ -95,7 +113,7 @@ export class HduService {
   private async get(id: string) {
     const admission = await this.hduAdmissions.findOne({
       where: { id },
-      relations: { admission: { patient: true }, hduBed: true },
+      relations: { admission: { patient: true, ward: true, bed: true }, hduBed: true, acceptedBy: true },
     });
     if (!admission) throw new NotFoundException('HDU admission not found');
     return admission;

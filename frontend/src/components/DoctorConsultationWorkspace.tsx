@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, FileText, FlaskConical, Pill, Stethoscope } from 'lucide-react'
+import { ClipboardList, FileText, FlaskConical, Paperclip, Pill, Stethoscope } from 'lucide-react'
 import {
   Alert,
   Button,
@@ -17,6 +17,7 @@ import { PatientContextHeader } from './PatientContextHeader'
 import { PatientTimeline, type TimelineEvent } from './PatientTimeline'
 import { TriageSummaryPanel } from './VitalsFields'
 import { ClinicalInvestigationOrders } from './investigations/ClinicalInvestigationOrders'
+import { EncounterAttachmentsPanel } from './documents/EncounterAttachmentsPanel'
 import { WorkspaceTabs } from './ui/WorkspaceTabs'
 import { apiRequest } from '../lib/api'
 import { notify } from '../lib/notify'
@@ -56,7 +57,7 @@ export type ConsultationEncounter = {
   } | null
 }
 
-type DoctorTab = 'context' | 'soap' | 'orders' | 'meds' | 'referrals'
+type DoctorTab = 'context' | 'soap' | 'orders' | 'meds' | 'referrals' | 'files'
 
 type PharmacyOrder = {
   id: string
@@ -175,6 +176,7 @@ export function DoctorConsultationWorkspace({
           { id: 'orders', label: 'Lab & imaging', icon: <FlaskConical className="h-4 w-4" /> },
           { id: 'meds', label: 'Medications', icon: <Pill className="h-4 w-4" /> },
           { id: 'referrals', label: 'Referrals', icon: <FileText className="h-4 w-4" /> },
+          { id: 'files', label: 'Files', icon: <Paperclip className="h-4 w-4" /> },
         ]}
       />
 
@@ -437,6 +439,10 @@ export function DoctorConsultationWorkspace({
             </Button>
           </form>
         </Card>
+      ) : null}
+
+      {tab === 'files' ? (
+        <EncounterAttachmentsPanel encounterId={selected.id} />
       ) : null}
     </div>
   )

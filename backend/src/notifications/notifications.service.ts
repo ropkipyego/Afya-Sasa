@@ -4,7 +4,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { Queue } from 'bullmq';
 import { IsNull, Repository } from 'typeorm';
 import { Patient } from '../patients/patient.entities';
+import { defaultTenantCode } from '../common/tenant-defaults';
 import { RealtimeService } from '../realtime/realtime.service';
+import { NotificationDispatcherService } from './notification-dispatcher.service';
 import { InternalNotification, NotificationQueueEntry, NotificationTemplate, SmsLog } from './notification.entities';
 import { SMS_GATEWAY } from './sms.gateway';
 import type { SmsGateway } from './sms.gateway';
@@ -25,9 +27,19 @@ export class NotificationsService {
     private readonly smsLogs: Repository<SmsLog>,
     @Inject(SMS_GATEWAY)
     private readonly smsGateway: SmsGateway,
+    private readonly dispatcher: NotificationDispatcherService,
   ) {}
 
   async queuePatientRegistered(patient: Patient): Promise<void> {
+    await this.dispatcher.enqueue({
+      eventType: 'patient.registered',
+      patientId: patient.id,
+      channel: 'sms',
+      payload: {
+        phone: patient.primaryPhone,
+        patientNo: patient.patientNo,
+      },
+    });
     const entry = await this.entries.save(
       this.entries.create({
         recipient: patient.primaryPhone,
@@ -115,18 +127,30 @@ export class NotificationsService {
   ) {
     const unique = [...new Set(recipientIds.filter((id): id is string => Boolean(id)))];
     await Promise.all(
-      unique.map((recipientId) =>
-        this.createInternal({
+      unique.map(async (recipientId) => {
+        const event = await this.dispatcher.enqueue({
+          eventType: 'in_app.notification',
+          recipientUserId: recipientId,
+          channel: 'in_app',
+          payload: {
+            title: input.title,
+            body: input.body,
+            severity: input.severity ?? 'info',
+            link: input.link ?? null,
+          },
+        });
+        await this.createInternal({
           recipientId,
           title: input.title,
           body: input.body,
           severity: input.severity ?? 'info',
           link: input.link ?? null,
           createdBy: input.createdBy ?? null,
-        }),
-      ),
+        });
+        await this.dispatcher.markDelivered(event.id);
+      }),
     );
-    this.realtime.publish(input.tenantCode ?? 'demo', 'notification.created', {
+    this.realtime.publish(input.tenantCode ?? defaultTenantCode(), 'notification.created', {
       recipients: unique.length,
     });
   }

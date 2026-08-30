@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { tenantChannel } from '../common/tenant-defaults';
 import { Patient } from '../patients/patient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { OpdService } from '../opd/opd.service';
@@ -97,7 +98,7 @@ export class AppointmentsService {
       severity: 'info',
       link: '/appointments',
       createdBy: request.user?.sub ?? null,
-      tenantCode: request.tenant?.code ?? 'demo',
+      tenantCode: tenantChannel(request),
     });
     return appointment;
   }

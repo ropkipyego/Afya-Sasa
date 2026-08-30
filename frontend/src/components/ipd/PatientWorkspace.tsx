@@ -33,16 +33,15 @@ import { calcLosDays } from './ipd-utils'
 import { apiRequest } from '../../lib/api'
 import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
 import { notify } from '../../lib/notify'
+import { viewClinicalFile } from '../../lib/clinical-upload'
 
 type WorkspaceTab =
   | 'overview'
-  | 'timeline'
   | 'reviews'
   | 'nursing'
   | 'vitals'
   | 'medication'
-  | 'laboratory'
-  | 'radiology'
+  | 'investigations'
   | 'documents'
   | 'transfers'
   | 'discharge'
@@ -60,13 +59,11 @@ type ActionKey =
 
 const tabs: { id: WorkspaceTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
-  { id: 'timeline', label: 'Timeline' },
   { id: 'reviews', label: 'Doctor Reviews' },
   { id: 'nursing', label: 'Nursing Notes' },
   { id: 'vitals', label: 'Vitals' },
   { id: 'medication', label: 'Medication Chart' },
-  { id: 'laboratory', label: 'Laboratory' },
-  { id: 'radiology', label: 'Radiology' },
+  { id: 'investigations', label: 'Lab & Imaging' },
   { id: 'documents', label: 'Documents' },
   { id: 'transfers', label: 'Transfers' },
   { id: 'discharge', label: 'Discharge' },
@@ -76,8 +73,8 @@ const actions: { id: ActionKey; label: string; icon: ReactNode; tab?: WorkspaceT
   { id: 'doctor-review', label: 'Doctor Review', icon: <Stethoscope className="h-4 w-4" />, tab: 'reviews' },
   { id: 'nursing-note', label: 'Nursing Note', icon: <ClipboardList className="h-4 w-4" />, tab: 'nursing' },
   { id: 'vitals', label: 'Vitals', icon: <Activity className="h-4 w-4" />, tab: 'vitals' },
-  { id: 'lab', label: 'Lab Request', icon: <FlaskConical className="h-4 w-4" />, tab: 'laboratory' },
-  { id: 'radiology', label: 'Radiology Request', icon: <Scan className="h-4 w-4" />, tab: 'radiology' },
+  { id: 'lab', label: 'Lab Request', icon: <FlaskConical className="h-4 w-4" />, tab: 'investigations' },
+  { id: 'radiology', label: 'Radiology Request', icon: <Scan className="h-4 w-4" />, tab: 'investigations' },
   { id: 'medication', label: 'Medication Order', icon: <Pill className="h-4 w-4" />, tab: 'medication' },
   { id: 'transfer', label: 'Transfer', icon: <ArrowLeft className="h-4 w-4 rotate-180" />, tab: 'transfers' },
   { id: 'discharge', label: 'Discharge', icon: <FileText className="h-4 w-4" />, tab: 'discharge' },
@@ -175,11 +172,13 @@ export function PatientWorkspace({
     enabled: Boolean(admissionId),
   })
 
-  const { data: timeline = [] } = useQuery({
+  const { data: timelineData } = useQuery({
     queryKey: ['patient-timeline', patientId],
-    queryFn: () => apiRequest<TimelineEvent[]>(`/patients/${patientId}/timeline`),
+    queryFn: () =>
+      apiRequest<{ events: TimelineEvent[] }>(`/patients/${patientId}/timeline`),
     enabled: Boolean(patientId),
   })
+  const timeline = timelineData?.events ?? []
 
   const { data: labRequests = [] } = useQuery({
     queryKey: ['lab-requests'],
@@ -222,6 +221,22 @@ export function PatientWorkspace({
     () => radiologyRequests.filter((r) => r.patient?.id === patientId),
     [radiologyRequests, patientId],
   )
+
+  const { data: labAttachments = [] } = useQuery({
+    queryKey: ['lab-patient-attachments', patientId],
+    queryFn: () =>
+      apiRequest<
+        {
+          id: string
+          filename: string
+          title?: string | null
+          storagePath: string
+          requestNo: string
+          createdAt: string
+        }[]
+      >(`/laboratory/patients/${patientId}/attachments`),
+    enabled: Boolean(patientId),
+  })
 
   const latestDiagnosis =
     workspace?.progressNotes[0]?.assessment || workspace?.admission.reason || '—'
@@ -412,202 +427,34 @@ export function PatientWorkspace({
         </div>
       </section>
 
-      {/* ── Patient context cards (full width, stacked grid) ── */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Patient context</h3>
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          <ContextCard title="Admission reason">
-            <p className="text-base leading-relaxed text-slate-700">{admission.reason}</p>
-          </ContextCard>
-          <ContextCard title="Allergies">
-            <TagList
-              items={patient.allergies?.map((a) => a.allergen) ?? []}
-              empty="None recorded"
-              tone="danger"
-            />
-          </ContextCard>
-          <ContextCard title="Chronic conditions">
-            <TagList
-              items={patient.chronicConditions?.map((c) => c.name) ?? []}
-              empty="None recorded"
-            />
-          </ContextCard>
-          <ContextCard title="Latest vitals">
-            {vitals[0] ? (
-              <div className="space-y-2">
-                <p className="text-base font-semibold text-slate-800">
-                  BP {vitals[0].bpSystolic}/{vitals[0].bpDiastolic} · P {vitals[0].pulse} · SpO₂ {vitals[0].spo2}%
-                </p>
-                <p className="text-sm text-slate-500">
-                  {new Date(vitals[0].recordedAt).toLocaleString()} ·{' '}
-                  {vitals[0].recordedByName ?? 'Unknown'}
-                </p>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">Not recorded yet</p>
-            )}
-          </ContextCard>
-          <ContextCard title="Emergency contacts" className="md:col-span-2 xl:col-span-2">
-            {patient.nextOfKin?.length ? (
-              <ul className="space-y-3">
-                {patient.nextOfKin.map((kin, i) => (
-                  <li key={i} className="flex flex-wrap justify-between gap-2 text-sm">
-                    <span className="font-semibold text-slate-800">
-                      {kin.name}{' '}
-                      <span className="font-normal text-slate-500">({kin.relationship})</span>
-                    </span>
-                    <span className="text-slate-600">{kin.primaryPhone}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-slate-400">None recorded</p>
-            )}
-          </ContextCard>
-        </div>
-      </section>
-
-      {/* ── Quick actions (horizontal, full width) ── */}
-      <section className="space-y-4">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Clinical actions</h3>
-        <div className="flex flex-wrap gap-3">
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              onClick={() => handleAction(action.id)}
-              className={clsx(
-                'inline-flex items-center gap-2.5 rounded-xl border px-5 py-3 text-sm font-semibold shadow-sm transition',
-                activeAction === action.id
-                  ? 'border-teal-500 bg-teal-600 text-white'
-                  : 'border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:bg-teal-50',
-              )}
-            >
-              {action.icon}
-              {action.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Active action form (appears below actions, full width) ── */}
-      {activeAction ? (
-        <Card className="border-teal-200 bg-white p-8 shadow-md">
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <h3 className="text-xl font-bold text-slate-900">
-              {actions.find((a) => a.id === activeAction)?.label}
-            </h3>
-            <Button variant="ghost" onClick={() => setActiveAction(null)}>
-              Close
-            </Button>
-          </div>
-          {activeAction === 'doctor-review' && (
-            <ClinicalForm onSubmit={(e) => submitClinicalForm(addProgressNote, e)}>
-              <FormSection title="SOAP note" columns={1}>
-                <TextareaField name="subjective" label="Subjective" required rows={3} />
-                <TextareaField name="objective" label="Objective" required rows={3} />
-                <TextareaField name="assessment" label="Assessment / Diagnosis" required rows={3} />
-                <TextareaField name="plan" label="Plan" required rows={3} />
-              </FormSection>
-              <FormActions>
-                <Button type="submit" loading={addProgressNote.isPending}>Save review</Button>
-              </FormActions>
-            </ClinicalForm>
-          )}
-          {activeAction === 'nursing-note' && (
-            <ClinicalForm onSubmit={(e) => submitClinicalForm(createObservation, e)}>
-              <FormSection title="Nursing observation" columns={1}>
-                <SelectField name="type" label="Type" required>
-                  <option value="pain">Pain assessment</option>
-                  <option value="wound">Wound care</option>
-                  <option value="fluid_intake">Fluid intake</option>
-                  <option value="fluid_output">Fluid output</option>
-                  <option value="neuro">Neuro obs</option>
-                  <option value="skin">Skin</option>
-                </SelectField>
-                <TextareaField name="value" label="Assessment & notes" required rows={5} />
-                <Field name="unit" label="Unit (optional)" />
-              </FormSection>
-              <FormActions>
-                <Button type="submit" loading={createObservation.isPending}>Save note</Button>
-              </FormActions>
-            </ClinicalForm>
-          )}
-          {activeAction === 'vitals' && (
-            <ClinicalForm onSubmit={(e) => submitClinicalForm(createVitals, e)}>
-              <VitalsForm />
-              <FormActions>
-                <Button type="submit" loading={createVitals.isPending}>Record vitals</Button>
-              </FormActions>
-            </ClinicalForm>
-          )}
-          {activeAction === 'medication' && (
-            <ClinicalForm onSubmit={(e) => submitClinicalForm(createMar, e)}>
-              <FormSection title="Medication order">
-                <Field name="medicationName" label="Medication" required />
-                <Field name="dosage" label="Dosage" required />
-                <SelectField name="route" label="Route" required>
-                  <option value="oral">Oral</option>
-                  <option value="iv">IV</option>
-                  <option value="im">IM</option>
-                  <option value="sc">SC</option>
-                </SelectField>
-                <Field name="frequency" label="Frequency" required />
-                <Field name="scheduledTime" label="Scheduled time" type="datetime-local" required />
-              </FormSection>
-              <FormActions>
-                <Button type="submit" loading={createMar.isPending}>Add to MAR</Button>
-              </FormActions>
-            </ClinicalForm>
-          )}
-          {activeAction === 'transfer' && (
-            <ClinicalForm onSubmit={(e) => submitClinicalForm(transferBed, e)}>
-              <FormSection title="Bed transfer">
-                <SelectField name="toBedId" label="Destination bed" required>
-                  <option value="">Select bed</option>
-                  {availableBeds.map((bed) => (
-                    <option key={bed.id} value={bed.id}>
-                      {bed.ward.name} · {bed.bedNo}
-                    </option>
-                  ))}
-                </SelectField>
-                <Field name="reason" label="Reason" required />
-              </FormSection>
-              <FormActions>
-                <Button type="submit" loading={transferBed.isPending}>Transfer patient</Button>
-              </FormActions>
-            </ClinicalForm>
-          )}
-          {activeAction === 'discharge' && (
-            <Alert tone="info">
-              Complete the discharge checklist in the Discharge tab before final discharge.
-            </Alert>
-          )}
-          {(activeAction === 'lab' || activeAction === 'radiology') && admission ? (
-            <ClinicalInvestigationOrders
-              defaultMode={activeAction === 'radiology' ? 'radiology' : 'lab'}
-              context={{
-                patientId: admission.patient.id,
-                patientName: `${admission.patient.firstName} ${admission.patient.lastName}`,
-                admissionId: admission.id,
-                admissionNo: admission.admissionNo,
-                encounterId: admission.encounter?.id ?? null,
-                encounterNo: admission.encounter?.encounterNo ?? null,
-                wardName: admission.ward.name,
-                defaultClinicalIndication: admission.reason,
-              }}
-              onSuccess={() => {
-                setActiveAction(null)
-                setActiveTab(activeAction === 'lab' ? 'laboratory' : 'radiology')
-              }}
-            />
-          ) : null}
-        </Card>
-      ) : null}
-
-      {/* ── Workspace tabs ── */}
+      {/* ── Patient chart (tabs + record actions in one place) ── */}
       <section className="space-y-5">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Clinical chart</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Patient chart</h3>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="font-medium text-slate-600">Record</span>
+            <select
+              className="input min-w-[11rem] py-2 text-sm"
+              value={activeAction ?? ''}
+              onChange={(e) => {
+                const value = e.target.value as ActionKey | ''
+                if (!value) {
+                  setActiveAction(null)
+                  return
+                }
+                handleAction(value)
+              }}
+            >
+              <option value="">Choose action…</option>
+              {actions.map((action) => (
+                <option key={action.id} value={action.id!}>
+                  {action.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
         <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
           {tabs.map((tab) => (
             <button
@@ -627,9 +474,124 @@ export function PatientWorkspace({
         </div>
 
         <Card className="min-h-[28rem] p-8">
+          {activeAction ? (
+            <div className="mb-8 rounded-2xl border border-teal-200 bg-teal-50/30 p-6">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <h3 className="text-lg font-bold text-slate-900">
+                  {actions.find((a) => a.id === activeAction)?.label}
+                </h3>
+                <Button variant="ghost" onClick={() => setActiveAction(null)}>
+                  Close
+                </Button>
+              </div>
+              {activeAction === 'doctor-review' && (
+                <ClinicalForm onSubmit={(e) => submitClinicalForm(addProgressNote, e)}>
+                  <FormSection title="SOAP note" columns={1}>
+                    <TextareaField name="subjective" label="Subjective" required rows={3} />
+                    <TextareaField name="objective" label="Objective" required rows={3} />
+                    <TextareaField name="assessment" label="Assessment / Diagnosis" required rows={3} />
+                    <TextareaField name="plan" label="Plan" required rows={3} />
+                  </FormSection>
+                  <FormActions>
+                    <Button type="submit" loading={addProgressNote.isPending}>Save review</Button>
+                  </FormActions>
+                </ClinicalForm>
+              )}
+              {activeAction === 'nursing-note' && (
+                <ClinicalForm onSubmit={(e) => submitClinicalForm(createObservation, e)}>
+                  <FormSection title="Nursing observation" columns={1}>
+                    <SelectField name="type" label="Type" required>
+                      <option value="pain">Pain assessment</option>
+                      <option value="wound">Wound care</option>
+                      <option value="fluid_intake">Fluid intake</option>
+                      <option value="fluid_output">Fluid output</option>
+                      <option value="neuro">Neuro obs</option>
+                      <option value="skin">Skin</option>
+                    </SelectField>
+                    <TextareaField name="value" label="Assessment & notes" required rows={5} />
+                    <Field name="unit" label="Unit (optional)" />
+                  </FormSection>
+                  <FormActions>
+                    <Button type="submit" loading={createObservation.isPending}>Save note</Button>
+                  </FormActions>
+                </ClinicalForm>
+              )}
+              {activeAction === 'vitals' && (
+                <ClinicalForm onSubmit={(e) => submitClinicalForm(createVitals, e)}>
+                  <VitalsForm />
+                  <FormActions>
+                    <Button type="submit" loading={createVitals.isPending}>Record vitals</Button>
+                  </FormActions>
+                </ClinicalForm>
+              )}
+              {activeAction === 'medication' && (
+                <ClinicalForm onSubmit={(e) => submitClinicalForm(createMar, e)}>
+                  <FormSection title="Medication order">
+                    <Field name="medicationName" label="Medication" required />
+                    <Field name="dosage" label="Dosage" required />
+                    <SelectField name="route" label="Route" required>
+                      <option value="oral">Oral</option>
+                      <option value="iv">IV</option>
+                      <option value="im">IM</option>
+                      <option value="sc">SC</option>
+                    </SelectField>
+                    <Field name="frequency" label="Frequency" required />
+                    <Field name="scheduledTime" label="Scheduled time" type="datetime-local" required />
+                  </FormSection>
+                  <FormActions>
+                    <Button type="submit" loading={createMar.isPending}>Add to MAR</Button>
+                  </FormActions>
+                </ClinicalForm>
+              )}
+              {activeAction === 'transfer' && (
+                <ClinicalForm onSubmit={(e) => submitClinicalForm(transferBed, e)}>
+                  <FormSection title="Bed transfer">
+                    <SelectField name="toBedId" label="Destination bed" required>
+                      <option value="">Select bed</option>
+                      {availableBeds.map((bed) => (
+                        <option key={bed.id} value={bed.id}>
+                          {bed.ward.name} · {bed.bedNo}
+                        </option>
+                      ))}
+                    </SelectField>
+                    <Field name="reason" label="Reason" required />
+                  </FormSection>
+                  <FormActions>
+                    <Button type="submit" loading={transferBed.isPending}>Transfer patient</Button>
+                  </FormActions>
+                </ClinicalForm>
+              )}
+              {activeAction === 'discharge' && (
+                <Alert tone="info">
+                  Complete the discharge checklist in the Discharge tab before final discharge.
+                </Alert>
+              )}
+              {(activeAction === 'lab' || activeAction === 'radiology') && admission ? (
+                <ClinicalInvestigationOrders
+                  defaultMode={activeAction === 'radiology' ? 'radiology' : 'lab'}
+                  context={{
+                    patientId: admission.patient.id,
+                    patientName: `${admission.patient.firstName} ${admission.patient.lastName}`,
+                    admissionId: admission.id,
+                    admissionNo: admission.admissionNo,
+                    encounterId: admission.encounter?.id ?? null,
+                    encounterNo: admission.encounter?.encounterNo ?? null,
+                    wardName: admission.ward.name,
+                    defaultClinicalIndication: admission.reason,
+                  }}
+                  onSuccess={() => {
+                    setActiveAction(null)
+                    setActiveTab('investigations')
+                  }}
+                />
+              ) : null}
+            </div>
+          ) : null}
+
           {activeTab === 'overview' && (
             <OverviewTab
               admission={admission}
+              patient={patient}
               los={lengthOfStayDays}
               diagnosis={latestDiagnosis}
               pendingLabs={pendingLabs.length}
@@ -637,10 +599,8 @@ export function PatientWorkspace({
               marCount={mar.length}
               reviewDue={progressNotes.length === 0 || calcLosDays(admission.admittedAt) >= 1}
               latestVitals={vitals[0]}
+              timeline={timeline}
             />
-          )}
-          {activeTab === 'timeline' && (
-            <PatientTimeline events={timeline} title="Clinical timeline" description="Chronological patient journey." />
           )}
           {activeTab === 'reviews' && (
             <DoctorReviewsTab notes={progressNotes} onAdd={() => handleAction('doctor-review')} />
@@ -652,56 +612,27 @@ export function PatientWorkspace({
             <VitalsTrendPanel vitals={vitals} onRecord={() => handleAction('vitals')} />
           )}
           {activeTab === 'medication' && <MarGrid entries={mar} />}
-          {activeTab === 'laboratory' && (
-            <div className="space-y-6">
-              {admission ? (
-                <ClinicalInvestigationOrders
-                  compact
-                  defaultMode="lab"
-                  context={{
-                    patientId: admission.patient.id,
-                    patientName: `${admission.patient.firstName} ${admission.patient.lastName}`,
-                    admissionId: admission.id,
-                    admissionNo: admission.admissionNo,
-                    encounterId: admission.encounter?.id ?? null,
-                    encounterNo: admission.encounter?.encounterNo ?? null,
-                    wardName: admission.ward.name,
-                    defaultClinicalIndication: admission.reason,
-                  }}
-                  onSuccess={async () => {
-                    await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
-                  }}
-                />
-              ) : null}
-              <InvestigationList items={patientLabs} type="lab" />
-            </div>
-          )}
-          {activeTab === 'radiology' && (
-            <div className="space-y-6">
-              {admission ? (
-                <ClinicalInvestigationOrders
-                  compact
-                  defaultMode="radiology"
-                  context={{
-                    patientId: admission.patient.id,
-                    patientName: `${admission.patient.firstName} ${admission.patient.lastName}`,
-                    admissionId: admission.id,
-                    admissionNo: admission.admissionNo,
-                    encounterId: admission.encounter?.id ?? null,
-                    encounterNo: admission.encounter?.encounterNo ?? null,
-                    wardName: admission.ward.name,
-                    defaultClinicalIndication: admission.reason,
-                  }}
-                  onSuccess={async () => {
-                    await queryClient.invalidateQueries({ queryKey: ['radiology-requests'] })
-                  }}
-                />
-              ) : null}
-              <InvestigationList items={patientRadiology} type="radiology" />
-            </div>
+          {activeTab === 'investigations' && (
+            <InvestigationsTab
+              patientLabs={patientLabs}
+              patientRadiology={patientRadiology}
+              labAttachments={labAttachments}
+              onOrderLab={() => handleAction('lab')}
+              onOrderRadiology={() => handleAction('radiology')}
+              onOrdersPlaced={async () => {
+                await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
+                await queryClient.invalidateQueries({ queryKey: ['radiology-requests'] })
+                await queryClient.invalidateQueries({ queryKey: ['lab-patient-attachments', patientId] })
+              }}
+            />
           )}
           {activeTab === 'documents' && (
-            <DocumentsTab summaries={dischargeSummaries} labs={patientLabs} radiology={patientRadiology} />
+            <DocumentsTab
+              summaries={dischargeSummaries}
+              labs={patientLabs}
+              radiology={patientRadiology}
+              labAttachments={labAttachments}
+            />
           )}
           {activeTab === 'transfers' && <TransfersTab transfers={transfers} ward={admission.ward.name} />}
           {activeTab === 'discharge' && (
@@ -752,23 +683,6 @@ function AdmissionStat({
   )
 }
 
-function ContextCard({
-  title,
-  children,
-  className,
-}: {
-  title: string
-  children: ReactNode
-  className?: string
-}) {
-  return (
-    <div className={clsx('rounded-2xl border border-slate-200 bg-white p-6 shadow-sm', className)}>
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{title}</p>
-      <div className="mt-4">{children}</div>
-    </div>
-  )
-}
-
 function TagList({
   items,
   empty,
@@ -798,6 +712,7 @@ function TagList({
 
 function OverviewTab({
   admission,
+  patient,
   los,
   diagnosis,
   pendingLabs,
@@ -805,8 +720,14 @@ function OverviewTab({
   marCount,
   reviewDue,
   latestVitals,
+  timeline,
 }: {
   admission: { reason: string; ward: { name: string }; bed: { bedNo: string }; status: string }
+  patient: {
+    allergies?: { allergen: string }[]
+    chronicConditions?: { name: string }[]
+    nextOfKin?: { name: string; relationship: string; primaryPhone: string }[]
+  }
   los: number
   diagnosis: string
   pendingLabs: number
@@ -821,6 +742,7 @@ function OverviewTab({
     pulse?: number | null
     spo2?: number | null
   }
+  timeline: TimelineEvent[]
 }) {
   const tiles = [
     { label: 'Current diagnosis', value: diagnosis },
@@ -862,6 +784,25 @@ function OverviewTab({
           </div>
         ))}
       </div>
+
+      <div className="grid gap-5 md:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 p-5">
+          <p className="text-xs font-bold uppercase text-slate-500">Allergies</p>
+          <TagList items={patient.allergies?.map((a) => a.allergen) ?? []} empty="None recorded" tone="danger" />
+        </div>
+        <div className="rounded-2xl border border-slate-200 p-5">
+          <p className="text-xs font-bold uppercase text-slate-500">Chronic conditions</p>
+          <TagList items={patient.chronicConditions?.map((c) => c.name) ?? []} empty="None recorded" />
+        </div>
+      </div>
+
+      {timeline.length ? (
+        <PatientTimeline
+          events={timeline.slice(0, 8)}
+          title="Recent timeline"
+          description="Latest events — full history in Medical Documents."
+        />
+      ) : null}
     </div>
   )
 }
@@ -952,6 +893,71 @@ function NursingNotesTab({
   )
 }
 
+function InvestigationsTab({
+  patientLabs,
+  patientRadiology,
+  labAttachments,
+  onOrderLab,
+  onOrderRadiology,
+}: {
+  patientLabs: { id: string; requestNo: string; status: string; createdAt: string }[]
+  patientRadiology: { id: string; requestNo: string; status: string; createdAt: string }[]
+  labAttachments: {
+    id: string
+    filename: string
+    title?: string | null
+    storagePath: string
+    requestNo: string
+    createdAt: string
+  }[]
+  onOrderLab: () => void
+  onOrderRadiology: () => void
+  onOrdersPlaced: () => Promise<void>
+}) {
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap gap-3">
+        <Button type="button" variant="secondary" onClick={onOrderLab}>
+          Order lab
+        </Button>
+        <Button type="button" variant="secondary" onClick={onOrderRadiology}>
+          Order imaging
+        </Button>
+      </div>
+
+      <InvestigationList items={patientLabs} type="lab" />
+      <InvestigationList items={patientRadiology} type="radiology" />
+
+      {labAttachments.length ? (
+        <div className="space-y-3">
+          <h3 className="text-lg font-bold text-slate-900">Lab report PDFs</h3>
+          <p className="text-sm text-slate-500">
+            Uploaded from Laboratory → Result entry. Doctors are notified when PDFs are attached.
+          </p>
+          <ul className="space-y-2">
+            {labAttachments.map((file) => (
+              <li
+                key={file.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-4 py-3"
+              >
+                <div>
+                  <p className="font-medium text-slate-900">{file.title ?? file.filename}</p>
+                  <p className="text-xs text-slate-500">
+                    {file.requestNo} · {new Date(file.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <Button type="button" variant="secondary" onClick={() => viewClinicalFile(file.storagePath)}>
+                  View PDF
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function InvestigationList({
   items,
   type,
@@ -1016,26 +1022,37 @@ function DocumentsTab({
   summaries,
   labs,
   radiology,
+  labAttachments,
 }: {
   summaries: { id: string; status: string; finalDiagnosis: string; createdAt: string }[]
   labs: { requestNo: string; status: string }[]
   radiology: { requestNo: string; status: string }[]
+  labAttachments: { id: string; title?: string | null; filename: string; storagePath: string; requestNo: string }[]
 }) {
   const docs = [
     ...summaries.map((s) => ({
       name: `Discharge summary — ${s.finalDiagnosis}`,
       date: s.createdAt,
       status: s.status,
+      action: null as (() => void) | null,
     })),
     ...labs.filter((l) => l.status === 'verified').map((l) => ({
       name: `Lab report — ${l.requestNo}`,
       date: '',
       status: 'available',
+      action: null as (() => void) | null,
     })),
-    ...radiology.filter((r) => ['reported', 'reviewed'].includes(r.status)).map((r) => ({
+    ...radiology.filter((r) => ['reported', 'reviewed', 'verified'].includes(r.status)).map((r) => ({
       name: `Radiology report — ${r.requestNo}`,
       date: '',
       status: 'available',
+      action: null as (() => void) | null,
+    })),
+    ...labAttachments.map((file) => ({
+      name: `Lab PDF — ${file.requestNo}`,
+      date: '',
+      status: 'pdf',
+      action: () => viewClinicalFile(file.storagePath),
     })),
   ]
 
@@ -1055,6 +1072,11 @@ function DocumentsTab({
                 ) : null}
               </div>
               <StatusBadge status={doc.status} />
+              {doc.action ? (
+                <Button type="button" variant="secondary" onClick={doc.action}>
+                  View
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>

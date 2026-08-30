@@ -29,6 +29,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { WorklistsModule } from './worklists/worklists.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -93,6 +94,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     DocumentsModule,
     WorklistsModule,
     WorkflowModule,
+    InventoryModule,
     HealthModule,
   ],
   controllers: [AppController],

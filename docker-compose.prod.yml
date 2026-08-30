@@ -16,10 +16,13 @@ services:
 
   backend:
     ports: []
+    environment:
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1:8080/minio}
 
   frontend:
     ports: []
 
   nginx:
     ports:
-      - "80:80"
+      # Bind locally so host Nginx/Certbot can terminate TLS on :443
+      - "127.0.0.1:8080:80"

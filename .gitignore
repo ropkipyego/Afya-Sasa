@@ -5,6 +5,10 @@ coverage/
 .env
 .env.local
 ops/.audit-credentials
+ops/audit-reports/*
+!ops/audit-reports/.gitkeep
+ops/onboarding-tests/results/*
+!ops/onboarding-tests/results/.gitkeep
 .DS_Store
 npm-debug.log*
 *.tsbuildinfo

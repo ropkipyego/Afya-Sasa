@@ -3,7 +3,7 @@
 set -euo pipefail
 
 API="${API:-http://localhost:3000/api/v1}"
-TENANT="${TENANT:-demo}"
+TENANT="${TENANT:-jalaram}"
 EMAIL="${EMAIL:-it@jalaram.co.ke}"
 PASSWORD="${PASSWORD:-ChangeMe123!}"
 
@@ -65,6 +65,7 @@ print(rows[0]['id'] if rows else '')
 ")"
 [[ -n "$BED_ID" ]] || die "No available beds — seed wards first"
 WARD_NAME="$(echo "$beds" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['ward']['name'])")"
+WARD_ID="$(echo "$beds" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['ward']['id'])")"
 ok "Bed ${BED_ID} in ${WARD_NAME}"
 
 step "4. Admit patient"
@@ -76,6 +77,19 @@ admission="$(api POST "/inpatient/admissions" --data "{
 }")"
 ADMISSION_ID="$(echo "$admission" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
 ok "Admission ${ADMISSION_ID}"
+
+step "4b. Ward census shows consultant name (AT-P1-02)"
+census="$(api GET "/inpatient/wards/${WARD_ID}/census")"
+echo "$census" | python3 -c "
+import sys,json
+rows=json.load(sys.stdin).get('census',[])
+occupied=[r for r in rows if r.get('admission') and r['admission'].get('id')=='${ADMISSION_ID}']
+assert occupied, 'admission not in census'
+consultant=occupied[0].get('consultant','')
+assert consultant and consultant != 'Assigned' and consultant != '—', consultant
+print(f'  Consultant: {consultant}')
+" || die "Census consultant name missing"
+ok "Ward census consultant name OK"
 
 step "5. Doctor progress note (day 1)"
 api POST "/inpatient/admissions/${ADMISSION_ID}/progress-notes" --data '{

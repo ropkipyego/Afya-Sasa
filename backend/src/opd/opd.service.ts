@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
+import { User } from '../core/core.entities';
 import { Patient } from '../patients/patient.entities';
+import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
 import {
   ClinicalNote,
   Consultation,
@@ -38,6 +40,8 @@ export class OpdService {
   constructor(
     @InjectRepository(Patient)
     private readonly patients: Repository<Patient>,
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
     @InjectRepository(Encounter)
     private readonly encounters: Repository<Encounter>,
     @InjectRepository(TriageAssessment)
@@ -52,6 +56,7 @@ export class OpdService {
     private readonly attachments: Repository<EncounterAttachment>,
     @InjectRepository(SickSheet)
     private readonly sickSheets: Repository<SickSheet>,
+    private readonly workflow: EncounterWorkflowService,
   ) {}
 
   async createEncounter(dto: CreateEncounterDto, request: RequestContext) {
@@ -59,12 +64,23 @@ export class OpdService {
     if (!patient) {
       throw new NotFoundException('Patient not found');
     }
+
+    let attendingDoctor: User | null = null;
+    if (dto.attendingDoctorId) {
+      attendingDoctor = await this.users.findOne({
+        where: { id: dto.attendingDoctorId, active: true },
+      });
+      if (!attendingDoctor) {
+        throw new BadRequestException('Preferred doctor not found or inactive');
+      }
+    }
+
     const encounter = this.encounters.create({
       encounterNo: await this.generateEncounterNo(),
       patient,
       type: 'opd',
       status: 'registered',
-      attendingDoctor: null,
+      attendingDoctor,
       presentingComplaint: dto.presentingComplaint?.trim() || 'Awaiting triage assessment',
       visitType: dto.visitType ?? 'new',
       referralSource: dto.referralSource ?? null,
@@ -76,7 +92,11 @@ export class OpdService {
       createdBy: request.user?.sub ?? null,
       updatedBy: request.user?.sub ?? null,
     });
-    return this.encounters.save(encounter);
+    const saved = await this.encounters.save(encounter);
+    return this.encounters.findOneOrFail({
+      where: { id: saved.id },
+      relations: { patient: true, attendingDoctor: true },
+    });
   }
 
   async listEncounters(params: {
@@ -131,12 +151,7 @@ export class OpdService {
     status: OpdEncounterStatus,
     request: RequestContext,
   ) {
-    await this.getEncounterEntity(id);
-    await this.encounters.update(id, {
-      status,
-      endedAt: status === 'completed' ? new Date() : undefined,
-      updatedBy: request.user?.sub ?? null,
-    });
+    await this.workflow.requireTransition(id, status, request);
     return this.getEncounter(id);
   }
 
@@ -163,10 +178,7 @@ export class OpdService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-    await this.encounters.update(id, {
-      status: 'triaged',
-      updatedBy: request.user?.sub ?? null,
-    });
+    await this.workflow.requireTransition(id, 'triaged', request);
     return triage;
   }
 
@@ -218,16 +230,22 @@ export class OpdService {
     };
   }
 
-  async doctorQueue() {
+  async doctorQueue(doctorId?: string) {
     const encounters = await this.encounters.find({
-      where: { type: 'opd', status: 'triaged' },
-      relations: { patient: true },
+      where: { type: 'opd', status: In(['triaged', 'awaiting_results']) },
+      relations: { patient: true, attendingDoctor: true },
       order: { startedAt: 'ASC' },
     });
+    const visible = doctorId
+      ? encounters.filter(
+          (encounter) =>
+            !encounter.attendingDoctor || encounter.attendingDoctor.id === doctorId,
+        )
+      : encounters;
     const triageByEncounter = new Map(
       (
         await this.triages.find({
-          where: encounters.map((encounter) => ({
+          where: visible.map((encounter) => ({
             encounter: { id: encounter.id },
           })),
           relations: { encounter: true },
@@ -235,7 +253,7 @@ export class OpdService {
         })
       ).map((triage) => [triage.encounter?.id, triage]),
     );
-    return encounters
+    return visible
       .map((encounter) => ({
         ...encounter,
         triage: triageByEncounter.get(encounter.id) ?? null,
@@ -268,11 +286,13 @@ export class OpdService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-    await this.encounters.update(encounterId, {
-      status: 'in_consultation',
-      attendingDoctor: request.user?.sub ? ({ id: request.user.sub } as never) : null,
-      updatedBy: request.user?.sub ?? null,
-    });
+    await this.workflow.requireTransition(encounterId, 'in_consultation', request);
+    if (request.user?.sub && !encounter.attendingDoctor) {
+      await this.encounters.update(encounterId, {
+        attendingDoctor: { id: request.user.sub } as never,
+        updatedBy: request.user.sub,
+      });
+    }
     return consultation;
   }
 
@@ -308,11 +328,7 @@ export class OpdService {
       completedAt: new Date(),
       updatedBy: request.user?.sub ?? null,
     });
-    await this.encounters.update(consultation.encounter.id, {
-      status: 'completed',
-      endedAt: new Date(),
-      updatedBy: request.user?.sub ?? null,
-    });
+    await this.workflow.requireTransition(consultation.encounter.id, 'completed', request);
     return this.getEncounter(consultation.encounter.id);
   }
 
@@ -432,7 +448,7 @@ export class OpdService {
   private async getEncounterEntity(id: string) {
     const encounter = await this.encounters.findOne({
       where: { id },
-      relations: { patient: true },
+      relations: { patient: true, attendingDoctor: true },
     });
     if (!encounter) {
       throw new NotFoundException('Encounter not found');

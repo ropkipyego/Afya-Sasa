@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity,
   AlertTriangle,
   Bell,
   ClipboardList,
@@ -15,18 +14,17 @@ import {
   Field,
   NavGroup,
   PageHeader,
-  PasswordInput,
   TriageBadge,
   TriageIndicator,
   triageCardAccent,
 } from './components/ui'
-import { PatientSearchAutocomplete, PatientSearchBrowse } from './components/PatientSearchAutocomplete'
 import { PatientContextHeader } from './components/PatientContextHeader'
 import { PatientRegistrationForm } from './components/PatientRegistrationForm'
 import { DoctorConsultationWorkspace } from './components/DoctorConsultationWorkspace'
 import { PatientTimeline } from './components/PatientTimeline'
-import type { WorkflowStep } from './lib/workflow-status'
 import { IpdModule } from './components/ipd/IpdModule'
+import { IcuModule } from './components/icu/IcuModule'
+import { HduModule } from './components/hdu/HduModule'
 import { HospitalControlCenter } from './components/admin/HospitalControlCenter'
 import { HospitalBrandMark, HospitalFacilityBadge } from './components/branding/HospitalBrandMark'
 import { useClinicalCatalog } from './hooks/useClinicalCatalog'
@@ -35,28 +33,21 @@ import { OpdCheckInWorkspace } from './components/opd/OpdCheckInWorkspace'
 import { TriageWorkspace } from './components/opd/TriageWorkspace'
 import { AppointmentCenter } from './components/appointments/AppointmentCenter'
 import { ReferralWorkspace } from './components/referrals/ReferralWorkspace'
-import { LabWorklist } from './components/investigations/LabWorklist'
-import { LabDashboard } from './components/investigations/LabDashboard'
-import { RadiologyWorklist } from './components/investigations/RadiologyWorklist'
-import { ImagingDashboard } from './components/investigations/ImagingDashboard'
-import { ClinicalOrdersDashboard, PharmacyWorkspace } from './components/orders/ClinicalOrdersDashboard'
+import { LabModule } from './components/investigations/LabModule'
+import { ImagingModule } from './components/investigations/ImagingModule'
+import { OrdersHub } from './components/orders/OrdersHub'
+import { PharmacyModule } from './components/orders/PharmacyModule'
+import { ReportsHub } from './components/reports/ReportsHub'
+import { GlobalPatientSearch } from './components/layout/GlobalPatientSearch'
+import { resolveScreen } from './lib/screen-aliases'
+import { InventoryModule } from './components/inventory/InventoryModule'
 import { MedicalDocumentsCenter } from './components/documents/MedicalDocumentsCenter'
 import { HospitalLibrary } from './components/documents/HospitalLibrary'
 import { SickSheetWorkspace } from './components/documents/SickSheetWorkspace'
 import { MaternityServiceLine } from './components/maternity/MaternityServiceLine'
 import { EmergencyCommandCenter } from './components/emergency/EmergencyCommandCenter'
 import { NotificationInbox } from './components/notifications/NotificationInbox'
-import { OperationsCommandCenter } from './components/operations/OperationsCommandCenter'
 import { OperationalWorklists } from './components/worklists/OperationalWorklists'
-import {
-  EmergencyPatientsView,
-  IpdPatientsView,
-  LabPatientsView,
-  OpdPatientsView,
-  RadiologyPatientsView,
-} from './components/patients/ModulePatientViews'
-import { ClinicalReportsDashboard } from './components/reports/ClinicalReportsDashboard'
-import { ExecutiveAnalyticsDashboard } from './components/reports/ExecutiveAnalyticsDashboard'
 import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
 import { PatientCardPrint } from './components/patients/PatientCardPrint'
 import { useHospitalSync } from './hooks/useHospitalSync'
@@ -64,11 +55,14 @@ import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
 import { useAuthSession } from './hooks/useAuthSession'
-import { DEFAULT_TENANT, HIDE_TENANT_SELECTOR, SINGLE_TENANT_MODE } from './lib/tenant-config'
+import { LoginScreen } from './components/auth/LoginScreen'
+import { SINGLE_TENANT_MODE } from './lib/tenant-config'
 
 import { filterNavigationByModules } from './lib/nav-module-filter'
 import { navigation, workflowDescriptions } from './lib/navigation'
 import { AppMobileNav } from './components/layout/AppMobileNav'
+
+const KNOWN_SCREENS = new Set(navigation.map((item) => item.label))
 
 interface PatientSummary {
   id: string
@@ -129,15 +123,17 @@ function App() {
   const { hydrated } = useAuthSession()
   const [activeScreen, setActiveScreen] = useState(() => {
     const saved = sessionStorage.getItem('afyasasa.activeScreen')?.trim()
-    return saved || 'Patient Search'
+    return resolveScreen(saved || 'OPD Check-In')
   })
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [notificationOpen, setNotificationOpen] = useState(false)
   const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
 
   const goToScreen = (screen: string) => {
-    const next = screen?.trim()
+    const next = resolveScreen(screen?.trim())
     if (!next) return
     setActiveScreen(next)
+    setNotificationOpen(false)
   }
 
   useEffect(() => {
@@ -260,7 +256,7 @@ function App() {
               <button
                 type="button"
                 className="relative rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
-                onClick={() => goToScreen('Notifications')}
+                onClick={() => setNotificationOpen(true)}
                 aria-label="Notifications"
               >
                 <Bell size={18} />
@@ -289,318 +285,56 @@ function App() {
           </div>
         </header>
 
-        <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 sm:p-4 md:p-6">
-          {activeScreen === 'Patient Search' ? (
-            <PatientSearch onSelect={(patient) => setSelectedPatientId(patient.id)} />
-          ) : null}
+        <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24 md:p-6 md:pb-24">
           {activeScreen === 'Register Patient' ? <PatientRegistrationForm /> : null}
-          {activeScreen === 'Patient Timeline' ? (
-            <PatientTimelineScreen
-              onOpenProfile={(id) => {
-                setSelectedPatientId(id)
-              }}
-            />
-          ) : null}
           {activeScreen === 'OPD Check-In' ? <OpdCheckInWorkspace /> : null}
           {activeScreen === 'Triage Queue' ? <TriageWorkspace /> : null}
-          {activeScreen === 'OPD Patients' ? (
-            <OpdPatientsView onOpenPatient={setSelectedPatientId} />
+          {activeScreen === 'Worklists' ? (
+            <OperationalWorklists onOpenPatient={setSelectedPatientId} initialModule="opd" />
           ) : null}
           {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
-          {activeScreen === 'Lab Dashboard' ? <LabDashboard /> : null}
-          {activeScreen === 'Laboratory' ? <LabWorklist /> : null}
-          {activeScreen === 'Lab Patients' ? (
-            <LabPatientsView onOpenPatient={setSelectedPatientId} />
-          ) : null}
-          {activeScreen === 'Imaging Dashboard' ? <ImagingDashboard /> : null}
-          {activeScreen === 'Radiology' ? <RadiologyWorklist /> : null}
-          {activeScreen === 'Imaging Patients' ? (
-            <RadiologyPatientsView onOpenPatient={setSelectedPatientId} />
-          ) : null}
-          {activeScreen === 'Results Inbox' ? <ResultsInbox /> : null}
+          {activeScreen === 'Laboratory' ? <LabModule /> : null}
+          {activeScreen === 'Radiology' ? <ImagingModule /> : null}
           {activeScreen === 'Appointments' ? <AppointmentCenter /> : null}
           {activeScreen === 'Referrals' ? <ReferralWorkspace /> : null}
           {activeScreen === 'Medical Documents' ? <MedicalDocumentsCenter /> : null}
           {activeScreen === 'Hospital Library' ? <HospitalLibrary /> : null}
           {activeScreen === 'Sick Sheets' ? <SickSheetWorkspace /> : null}
-          {activeScreen === 'OPD Reports' ? <OpdReports /> : null}
+          {activeScreen === 'Reports' ? <ReportsHub /> : null}
           {activeScreen === 'Inpatient (IPD)' ? <IpdModule /> : null}
           {activeScreen === 'Nursing' ? <IpdModule initialScreen="nursing" /> : null}
-          {activeScreen === 'IPD Patients' ? (
-            <IpdPatientsView onOpenPatient={setSelectedPatientId} />
-          ) : null}
           {activeScreen === 'Emergency' ? <EmergencyCommandCenter /> : null}
-          {activeScreen === 'ED Patients' ? (
-            <EmergencyPatientsView onOpenPatient={setSelectedPatientId} />
-          ) : null}
-          {activeScreen === 'Clinical Reports' ? <ClinicalReportsDashboard /> : null}
-          {activeScreen === 'Executive Analytics' ? <ExecutiveAnalyticsDashboard /> : null}
-          {activeScreen === 'Clinical Orders' ? <ClinicalOrdersDashboard /> : null}
-          {activeScreen === 'Pharmacy' ? <PharmacyWorkspace /> : null}
+          {activeScreen === 'Orders' ? <OrdersHub /> : null}
+          {activeScreen === 'Pharmacy' ? <PharmacyModule /> : null}
+          {activeScreen === 'Inventory & Store' ? <InventoryModule /> : null}
           {activeScreen === 'Theatre' ? <TheatreWorkspace /> : null}
           {activeScreen === 'Maternity' ? <MaternityServiceLine /> : null}
-          {activeScreen === 'ICU' ? <IpdModule initialWardType="icu" /> : null}
-          {activeScreen === 'HDU' ? <IpdModule initialWardType="hdu" /> : null}
-          {activeScreen === 'Operations Center' ? <OperationsCommandCenter /> : null}
-          {activeScreen === 'Worklists' ? <OperationalWorklists /> : null}
-          {activeScreen === 'Notifications' ? (
-            <NotificationInbox onNavigate={goToScreen} />
-          ) : null}
+          {activeScreen === 'ICU' ? <IcuModule /> : null}
+          {activeScreen === 'HDU' ? <HduModule /> : null}
           {activeScreen === 'Hospital Control Center' ? <HospitalControlCenter /> : null}
-          {activeScreen !== 'Patient Search' &&
-          activeScreen !== 'Register Patient' &&
-          activeScreen !== 'Patient Timeline' &&
-          activeScreen !== 'OPD Check-In' &&
-          activeScreen !== 'Triage Queue' &&
-          activeScreen !== 'OPD Patients' &&
-          activeScreen !== 'Doctor Queue' &&
-          activeScreen !== 'Lab Dashboard' &&
-          activeScreen !== 'Laboratory' &&
-          activeScreen !== 'Lab Patients' &&
-          activeScreen !== 'Imaging Dashboard' &&
-          activeScreen !== 'Radiology' &&
-          activeScreen !== 'Imaging Patients' &&
-          activeScreen !== 'Results Inbox' &&
-          activeScreen !== 'Appointments' &&
-          activeScreen !== 'Referrals' &&
-          activeScreen !== 'Medical Documents' &&
-          activeScreen !== 'Hospital Library' &&
-          activeScreen !== 'Sick Sheets' &&
-          activeScreen !== 'OPD Reports' &&
-          activeScreen !== 'Operations Center' &&
-          activeScreen !== 'Worklists' &&
-          activeScreen !== 'Notifications' &&
-          activeScreen !== 'Inpatient (IPD)' &&
-          activeScreen !== 'Nursing' &&
-          activeScreen !== 'IPD Patients' &&
-          activeScreen !== 'Emergency' &&
-          activeScreen !== 'ED Patients' &&
-          activeScreen !== 'Clinical Reports' &&
-          activeScreen !== 'Executive Analytics' &&
-          activeScreen !== 'Clinical Orders' &&
-          activeScreen !== 'Pharmacy' &&
-          activeScreen !== 'Theatre' &&
-          activeScreen !== 'Maternity' &&
-          activeScreen !== 'ICU' &&
-          activeScreen !== 'HDU' &&
-          activeScreen !== 'Hospital Control Center' ? (
-            <Placeholder screen={activeScreen} />
-          ) : null}
+          {!KNOWN_SCREENS.has(activeScreen) ? <Placeholder screen={activeScreen} /> : null}
           {selectedPatientId ? (
             <PatientProfileDrawer
               patientId={selectedPatientId}
               onClose={() => setSelectedPatientId(null)}
             />
           ) : null}
+          {notificationOpen ? (
+            <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 pt-16 backdrop-blur-sm">
+              <div className="max-h-[85dvh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-slate-50 p-4 shadow-2xl">
+                <NotificationInbox
+                  onNavigate={goToScreen}
+                  onClose={() => setNotificationOpen(false)}
+                />
+              </div>
+            </div>
+          ) : null}
         </section>
+        <GlobalPatientSearch onSelectPatient={setSelectedPatientId} />
       </main>
     </div>
   )
 
-}
-
-function LoginScreen(props: {
-  tenant: string
-  setTenant: (tenant: string) => void
-}) {
-  const { data: catalog } = useClinicalCatalog()
-  const brand = resolveHospitalBranding(catalog)
-
-  useEffect(() => {
-    if (HIDE_TENANT_SELECTOR && props.tenant !== DEFAULT_TENANT) {
-      props.setTenant(DEFAULT_TENANT)
-    }
-  }, [props.tenant, props.setTenant])
-
-  const initialResetToken =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('resetToken')
-      : null
-  const [mode, setMode] = useState<'login' | 'forgot' | 'reset'>(
-    initialResetToken ? 'reset' : 'login',
-  )
-  const [resetToken, setResetToken] = useState(initialResetToken ?? '')
-  const [newPassword, setNewPassword] = useState('')
-  const [email, setEmail] = useState(import.meta.env.DEV ? 'it@jalaram.co.ke' : '')
-  const [password, setPassword] = useState('')
-  const [info, setInfo] = useState<string | null>(null)
-  const setSession = useAuthStore((state) => state.setSession)
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const result = await apiRequest<{
-        accessToken: string
-        refreshToken: string
-        user: NonNullable<ReturnType<typeof useAuthStore.getState>['user']>
-      }>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password, device: 'web' }),
-      })
-      setSession(result)
-    },
-  })
-
-  const forgotMutation = useMutation({
-    mutationFn: async () => {
-      const result = await apiRequest<{ message: string; resetToken?: string }>(
-        '/auth/forgot-password',
-        { method: 'POST', body: JSON.stringify({ email }) },
-      )
-      if (result.resetToken) {
-        setInfo(`${result.message} Dev token: ${result.resetToken}`)
-      } else {
-        setInfo(result.message)
-      }
-    },
-  })
-
-  const resetMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest('/auth/reset-password', {
-        method: 'POST',
-        body: JSON.stringify({ token: resetToken, newPassword }),
-      })
-      setInfo('Password updated. Sign in with your new password.')
-      setMode('login')
-      setPassword('')
-      setNewPassword('')
-    },
-  })
-
-  return (
-    <div
-      className="flex min-h-screen items-center justify-center p-6"
-      style={{ background: `linear-gradient(160deg, ${brand.primaryColor ?? '#0f766e'} 0%, #0f172a 100%)` }}
-    >
-      <form
-        className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (mode === 'forgot') {
-            forgotMutation.mutate()
-            return
-          }
-          if (mode === 'reset') {
-            resetMutation.mutate()
-            return
-          }
-          mutation.mutate()
-        }}
-      >
-        <div className="mb-8">
-          <HospitalBrandMark showFacility={false} />
-        </div>
-        {mode === 'reset' ? (
-          <>
-            <label className="mb-4 block">
-              <span className="text-sm font-semibold text-slate-700">Reset token</span>
-              <input
-                className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm"
-                value={resetToken}
-                onChange={(event) => setResetToken(event.target.value)}
-              />
-            </label>
-            <label className="mb-6 block">
-              <span className="text-sm font-semibold text-slate-700">New password</span>
-              <div className="mt-2">
-                <PasswordInput
-                  className="rounded-xl border-slate-300 px-4 py-3"
-                  placeholder="Enter new password"
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  autoComplete="new-password"
-                />
-              </div>
-            </label>
-          </>
-        ) : (
-          <>
-        {!HIDE_TENANT_SELECTOR ? (
-        <label className="mb-4 block">
-          <span className="text-sm font-semibold text-slate-700">Hospital code</span>
-          <input
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-            value={props.tenant}
-            onChange={(event) => props.setTenant(event.target.value)}
-          />
-        </label>
-        ) : null}
-        <label className="mb-4 block">
-          <span className="text-sm font-semibold text-slate-700">Email</span>
-          <input
-            className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        {mode === 'login' ? (
-        <label className="mb-6 block">
-          <span className="text-sm font-semibold text-slate-700">Password</span>
-          <div className="mt-2">
-            <PasswordInput
-              className="rounded-xl border-slate-300 px-4 py-3"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-            />
-          </div>
-        </label>
-        ) : null}
-          </>
-        )}
-        {info ? (
-          <p className="mb-4 rounded-xl bg-sky-50 p-3 text-sm text-sky-800">{info}</p>
-        ) : null}
-        {(mutation.error || forgotMutation.error || resetMutation.error) ? (
-          <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-            {(mutation.error ?? forgotMutation.error ?? resetMutation.error)?.message}
-          </p>
-        ) : null}
-        <button
-          className="w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
-          disabled={mutation.isPending || forgotMutation.isPending || resetMutation.isPending}
-        >
-          {mode === 'forgot'
-            ? forgotMutation.isPending
-              ? 'Sending…'
-              : 'Send reset link'
-            : mode === 'reset'
-              ? resetMutation.isPending
-                ? 'Updating…'
-                : 'Set new password'
-              : mutation.isPending
-                ? 'Signing in...'
-                : 'Sign in'}
-        </button>
-        <div className="mt-4 text-center text-sm">
-          {mode === 'login' ? (
-            <button
-              type="button"
-              className="font-semibold text-teal-700 hover:underline"
-              onClick={() => {
-                setMode('forgot')
-                setInfo(null)
-              }}
-            >
-              Forgot password?
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="font-semibold text-teal-700 hover:underline"
-              onClick={() => {
-                setMode('login')
-                setInfo(null)
-              }}
-            >
-              Back to sign in
-            </button>
-          )}
-        </div>
-      </form>
-    </div>
-  )
 }
 
 function ForcedPasswordNotice() {
@@ -642,9 +376,9 @@ function ForcedPasswordChangeScreen() {
   })
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-blue-950 p-6">
+    <div className="flex min-h-screen items-center justify-center bg-white p-6">
       <form
-        className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl"
+        className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/60"
         onSubmit={(event) => {
           event.preventDefault()
           mutation.mutate(event.currentTarget)
@@ -758,90 +492,6 @@ function NotificationCenter() {
           </div>
         )
       })}
-    </div>
-  )
-}
-
-function PatientSearch({
-  onSelect,
-}: {
-  onSelect: (patient: PatientSummary) => void
-}) {
-  return (
-    <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr] animate-fade-in">
-      <Card>
-        <PageHeader
-          eyebrow="Reception"
-          title="Patient search"
-          description="Search as you type. Open a profile to view allergies, timeline, and printable ID."
-        />
-        <PatientSearchBrowse onSelect={(patient) => onSelect(patient as PatientSummary)} />
-      </Card>
-
-      <Card className="bg-gradient-to-br from-teal-900 to-teal-800 text-white">
-        <Activity className="mb-3 text-teal-200" />
-        <h3 className="text-lg font-bold">Before you register</h3>
-        <ul className="mt-4 space-y-2.5 text-sm text-teal-100">
-          <li>Search by name, phone, patient number, or national ID.</li>
-          <li>Only register a new patient if no match appears.</li>
-          <li>Every change is audited — duplicates cause clinical risk.</li>
-          <li>Use the profile drawer to print a QR patient ID card.</li>
-        </ul>
-      </Card>
-    </div>
-  )
-}
-
-function PatientTimelineScreen({
-  onOpenProfile,
-}: {
-  onOpenProfile: (patientId: string) => void
-}) {
-  const [selected, setSelected] = useState<PatientSummary | null>(null)
-  const { data: timeline } = useQuery({
-    queryKey: ['full-patient-timeline', selected?.id],
-    queryFn: () =>
-      apiRequest<{
-        events: { id?: string; type: string; occurredAt: string; title: string; summary: string }[]
-      }>(`/patients/${selected!.id}/timeline`),
-    enabled: Boolean(selected?.id),
-  })
-  const { data: journey } = useQuery({
-    queryKey: ['timeline-journey', selected?.id],
-    queryFn: () =>
-      apiRequest<{ step: WorkflowStep; pregnancyAlert: boolean; criticalLabAlert: boolean }>(
-        `/patients/${selected!.id}/journey`,
-      ),
-    enabled: Boolean(selected?.id),
-  })
-
-  return (
-    <div className="grid max-w-6xl gap-6 animate-fade-in">
-      <Card>
-        <PageHeader
-          eyebrow="Clinical record"
-          title="Patient timeline"
-          description="Search a patient to view their full chronological journey."
-        />
-        <PatientSearchAutocomplete
-          selected={selected}
-          onSelect={(patient) => setSelected(patient as PatientSummary | null)}
-        />
-      </Card>
-      {selected ? (
-        <>
-          <PatientContextHeader
-            patient={selected}
-            workflowStep={journey?.step}
-            pregnancyAlert={journey?.pregnancyAlert}
-            criticalLabAlert={journey?.criticalLabAlert}
-          />
-          <PatientTimeline
-            events={timeline?.events ?? []}
-            onSelect={() => onOpenProfile(selected.id)}
-          />
-        </>
-      ) : null}
     </div>
   )
 }
@@ -1365,167 +1015,6 @@ function DoctorQueue() {
     </div>
   )
 }
-
-
-function OpdReports() {
-  const { data } = useQuery({
-    queryKey: ['opd-summary'],
-    queryFn: () =>
-      apiRequest<{
-        totalVisits: number
-        activeVisits: number
-        completedVisits: number
-        topDiagnoses: { description: string; count: number }[]
-      }>('/opd/reports/summary'),
-  })
-
-  return (
-    <div className="grid gap-6 md:grid-cols-3">
-      <MetricCard label="Total OPD visits" value={data?.totalVisits ?? 0} />
-      <MetricCard label="Active visits" value={data?.activeVisits ?? 0} />
-      <MetricCard label="Completed visits" value={data?.completedVisits ?? 0} />
-      <div className="rounded-3xl bg-white p-6 shadow-sm md:col-span-3">
-        <h3 className="text-xl font-bold">Top diagnoses</h3>
-        <div className="mt-4 divide-y divide-slate-100">
-          {(data?.topDiagnoses ?? []).map((diagnosis) => (
-            <div key={diagnosis.description} className="flex justify-between py-3">
-              <span>{diagnosis.description}</span>
-              <span className="font-bold">{diagnosis.count}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function MetricCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-3xl bg-white p-6 shadow-sm">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
-    </div>
-  )
-}
-
-function ResultsInbox() {
-  const queryClient = useQueryClient()
-  const { data: labResults = [] } = useQuery({
-    queryKey: ['lab-results-inbox'],
-    queryFn: () => apiRequest<LabInboxItem[]>('/laboratory/results/inbox'),
-  })
-  const { data: criticalResults = [] } = useQuery({
-    queryKey: ['critical-results'],
-    queryFn: () => apiRequest<LabInboxItem[]>('/laboratory/results/critical'),
-  })
-  const { data: radiologyReports = [] } = useQuery({
-    queryKey: ['radiology-reports-inbox'],
-    queryFn: () => apiRequest<RadiologyInboxItem[]>('/radiology/reports/inbox'),
-  })
-  const reviewLab = useMutation({
-    mutationFn: (id: string) => apiRequest(`/laboratory/results/${id}/review`, { method: 'POST' }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['lab-results-inbox'] })
-      await queryClient.invalidateQueries({ queryKey: ['critical-results'] })
-    },
-  })
-  const reviewRadiology = useMutation({
-    mutationFn: (id: string) => apiRequest(`/radiology/reports/${id}/review`, { method: 'POST' }),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-reports-inbox'] }),
-  })
-
-  return (
-    <div className="grid gap-6 xl:grid-cols-3">
-      <ReviewList title="Verified lab results" items={labResults} kind="lab" onReview={reviewLab.mutate} />
-      <ReviewList title="Critical lab results" items={criticalResults} kind="lab" onReview={reviewLab.mutate} />
-      <ReviewList title="Radiology reports" items={radiologyReports} kind="radiology" onReview={reviewRadiology.mutate} />
-    </div>
-  )
-}
-
-type LabInboxItem = {
-  id: string
-  value?: string
-  flag?: string
-  reviewedAt?: string | null
-  requestItem?: {
-    test?: { name: string } | null
-    panel?: { name: string } | null
-    request?: {
-      requestNo?: string
-      patient?: { firstName: string; lastName: string; patientNo: string }
-    }
-  }
-}
-
-type RadiologyInboxItem = {
-  id: string
-  impression?: string
-  reviewedAt?: string | null
-  request?: {
-    requestNo?: string
-    patient?: { firstName: string; lastName: string; patientNo: string }
-    modality?: { name: string }
-  }
-}
-
-type InboxItem = LabInboxItem | RadiologyInboxItem
-
-function ReviewList({
-  title,
-  items,
-  kind,
-  onReview,
-}: {
-  title: string
-  items: InboxItem[]
-  kind: 'lab' | 'radiology'
-  onReview: (id: string) => void
-}) {
-  return (
-    <div className="rounded-3xl bg-white p-6 shadow-sm">
-      <h3 className="text-xl font-bold">{title}</h3>
-      <div className="mt-4 space-y-3">
-        {items.map((item) => {
-          const labItem = kind === 'lab' ? (item as LabInboxItem) : null
-          const radItem = kind === 'radiology' ? (item as RadiologyInboxItem) : null
-          const patient = labItem?.requestItem?.request?.patient ?? radItem?.request?.patient
-          const requestNo = labItem?.requestItem?.request?.requestNo ?? radItem?.request?.requestNo
-          const testName =
-            labItem?.requestItem?.test?.name ??
-            labItem?.requestItem?.panel?.name ??
-            radItem?.request?.modality?.name
-
-          return (
-            <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
-              {patient ? (
-                <p className="font-semibold text-slate-900">
-                  {patient.firstName} {patient.lastName}
-                  <span className="ml-2 text-sm font-normal text-slate-500">{patient.patientNo}</span>
-                </p>
-              ) : null}
-              <p className="text-xs text-slate-500">
-                {[requestNo, testName].filter(Boolean).join(' · ') || 'Clinical result'}
-              </p>
-              <p className="mt-1 font-semibold">
-                {radItem?.impression ?? `${labItem?.value ?? ''} ${labItem?.flag ?? ''}`.trim()}
-              </p>
-              <button
-                className="mt-3 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-300"
-                disabled={Boolean(item.reviewedAt)}
-                onClick={() => onReview(item.id)}
-              >
-                {item.reviewedAt ? 'Reviewed' : 'Mark reviewed'}
-              </button>
-            </div>
-          )
-        })}
-        {!items.length ? <p className="text-sm text-slate-500">No items.</p> : null}
-      </div>
-    </div>
-  )
-}
-
 
 
 function Placeholder({ screen }: { screen: string }) {

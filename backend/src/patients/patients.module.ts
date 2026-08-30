@@ -10,6 +10,7 @@ import { Pregnancy } from '../maternity/maternity.entities';
 import { Consultation, Encounter, TriageAssessment } from '../opd/opd.entities';
 import { RadiologyReport } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
+import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import {
   Patient,
@@ -42,6 +43,7 @@ import { PatientsService } from './patients.service';
       HduAdmission,
       Appointment,
       Referral,
+      ClinicalOrder,
     ]),
     NotificationsModule,
   ],

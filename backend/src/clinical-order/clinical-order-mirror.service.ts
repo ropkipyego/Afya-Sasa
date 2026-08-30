@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { LabRequest } from '../laboratory/laboratory.entities';
@@ -106,16 +107,17 @@ export class ClinicalOrderMirrorService {
     route?: string
     frequency?: string
   }, request: RequestContext) {
-    const { randomUUID } = await import('crypto');
+    const id = randomUUID();
     return this.orders.save(
       this.orders.create({
+        id,
         orderNo: input.orderNo,
         patient: { id: input.patientId } as never,
         encounter: input.encounterId ? ({ id: input.encounterId } as never) : null,
         admission: input.admissionId ? ({ id: input.admissionId } as never) : null,
         orderType: 'pharmacy',
         sourceModule: 'pharmacy',
-        sourceRecordId: randomUUID(),
+        sourceRecordId: id,
         status: input.status,
         priority: input.priority,
         orderedBy: request.user?.sub ? ({ id: request.user.sub } as never) : null,

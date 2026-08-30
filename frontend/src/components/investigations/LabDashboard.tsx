@@ -39,7 +39,7 @@ async function fetchLabRequests(): Promise<LabRequest[]> {
   return Array.isArray(res) ? res : (res.items ?? [])
 }
 
-export function LabDashboard() {
+export function LabDashboard({ embedded = false }: { embedded?: boolean }) {
   const { data: requests = [], isLoading, isError, error } = useQuery({
     queryKey: ['lab-requests', 'dashboard'],
     queryFn: fetchLabRequests,
@@ -78,12 +78,14 @@ export function LabDashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <Card className="bg-gradient-to-br from-blue-900 via-slate-900 to-slate-800 p-8 text-white">
-        <PageHeader
-          title="Laboratory dashboard"
-          description="Live view of samples in progress, urgent work, and turnaround pressure."
-        />
-      </Card>
+      {!embedded ? (
+        <Card className="bg-gradient-to-br from-blue-900 via-slate-900 to-slate-800 p-8 text-white">
+          <PageHeader
+            title="Laboratory dashboard"
+            description="Live view of samples in progress, urgent work, and turnaround pressure."
+          />
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tile

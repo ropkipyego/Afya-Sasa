@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, FileUp, Printer, Search } from 'lucide-react'
-import { Button, Card, Input, PageHeader, SelectField } from '../ui'
+import { Button, Card, FileUploadZone, Input, PageHeader, SelectField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { PatientTimeline, type TimelineEvent } from '../PatientTimeline'
 import { apiRequest } from '../../lib/api'
@@ -12,6 +12,7 @@ import {
   type ClinicalDocumentType,
 } from '../../lib/clinical-documents'
 import { downloadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
+import { ALLOWED_UPLOAD_ACCEPT } from '../../lib/upload-limits'
 import { notify } from '../../lib/notify'
 
 type SickSheetRow = {
@@ -63,6 +64,7 @@ export function MedicalDocumentsCenter() {
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [uploadType, setUploadType] = useState<ClinicalDocumentType>('scanned_record')
   const [uploading, setUploading] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
 
   const { data: timeline, isLoading } = useQuery({
     queryKey: ['documents-timeline', selectedPatient?.id],
@@ -156,12 +158,13 @@ export function MedicalDocumentsCenter() {
     )
   }, [timeline, sickSheets, storedFiles, labAttachments, typeFilter, search])
 
-  const handleUpload = async (file: File) => {
-    if (!selectedPatient) return
+  const handleUpload = async () => {
+    if (!selectedPatient || !uploadFile) return
     setUploading(true)
     try {
-      await uploadPatientDocument(selectedPatient.id, file, uploadType)
+      await uploadPatientDocument(selectedPatient.id, uploadFile, uploadType)
       notify('Document uploaded', 'File stored in clinical document archive.', 'success')
+      setUploadFile(null)
       await queryClient.invalidateQueries({ queryKey: ['clinical-documents', selectedPatient.id] })
     } catch (error) {
       notify('Upload failed', (error as Error).message, 'critical')
@@ -225,21 +228,18 @@ export function MedicalDocumentsCenter() {
                     ))}
                   </SelectField>
                 </div>
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-700">
-                  <FileUp className="h-4 w-4" />
-                  {uploading ? 'Uploading…' : 'Upload file'}
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept=".pdf,image/*,.doc,.docx"
-                    disabled={uploading}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) void handleUpload(file)
-                      e.target.value = ''
-                    }}
-                  />
-                </label>
+              </div>
+              <div className="mt-4 max-w-xl space-y-3">
+                <FileUploadZone
+                  accept={ALLOWED_UPLOAD_ACCEPT}
+                  file={uploadFile}
+                  onFileChange={setUploadFile}
+                  hint="PDF, JPEG, PNG, WebP, or Word — max 25 MB"
+                />
+                <Button type="button" disabled={!uploadFile || uploading} loading={uploading} onClick={() => void handleUpload()}>
+                  <FileUp className="mr-2 h-4 w-4" />
+                  Upload file
+                </Button>
               </div>
             </div>
 

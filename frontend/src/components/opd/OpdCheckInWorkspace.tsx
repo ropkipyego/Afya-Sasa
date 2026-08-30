@@ -62,6 +62,7 @@ export function OpdCheckInWorkspace() {
           referralSource: form.get('referralSource') || undefined,
           paymentMethod: form.get('paymentMethod') || undefined,
           receiptNumber: form.get('receiptNumber') || undefined,
+          attendingDoctorId: form.get('attendingDoctorId') || undefined,
         }),
       })
     },
@@ -228,6 +229,7 @@ export function OpdCheckInWorkspace() {
               <input type="hidden" name="departmentName" value={visitDraft.departmentName} />
               <input type="hidden" name="visitType" value={visitDraft.visitType} />
               <input type="hidden" name="referralSource" value={visitDraft.referralSource} />
+              <input type="hidden" name="attendingDoctorId" value={visitDraft.preferredDoctorId} />
               {formError ? <Alert tone="error">{formError}</Alert> : null}
               {createEncounter.isSuccess ? (
                 <Alert tone="success">Patient checked in successfully.</Alert>

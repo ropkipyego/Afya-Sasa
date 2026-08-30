@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LabRequest } from '../laboratory/laboratory.entities';
 import { Encounter } from '../opd/opd.entities';
+import { WorkflowModule } from '../workflow/workflow.module';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { Patient } from '../patients/patient.entities';
 import {
@@ -17,6 +18,7 @@ import { InpatientService } from './inpatient.service';
 
 @Module({
   imports: [
+    WorkflowModule,
     TypeOrmModule.forFeature([
       Patient,
       Encounter,

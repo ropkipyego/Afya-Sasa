@@ -55,6 +55,11 @@ export class CreateEncounterDto {
   @IsOptional()
   @IsString()
   receiptNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Preferred attending doctor (clinical staff user id)' })
+  @IsOptional()
+  @IsString()
+  attendingDoctorId?: string;
 }
 
 export class UpdateEncounterStatusDto {

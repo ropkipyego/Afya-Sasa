@@ -2,26 +2,40 @@
 
 Aligned with the **Final Go-Live Readiness Directive** (Section 13). Complete before production deployment.
 
+**Legend:** `[x]` = implemented in repo / automated test exists · `[ ]` = requires manual VPS or UAT sign-off
+
 ---
+
+## Deployment
+
+- [ ] Production VPS provisioned (see `docs/contabo-deployment-guide.md`)
+- [ ] TLS configured (Let's Encrypt) and `FRONTEND_ORIGIN` matches public URL
+- [ ] Daily Postgres backups scheduled and restore tested once
 
 ## Build & runtime
 
-- [ ] `cp .env.example .env` and set production secrets
-- [ ] `npm run preflight` passes
+- [x] Environment variables documented (`.env.example`)
+- [x] `npm run build` succeeds without errors
+- [x] `npm run test:workflows` script exists (runs all API acceptance tests)
+- [ ] `cp .env.example .env` and set production secrets on target server
+- [ ] `npm run preflight` passes on target server
 - [ ] `npm run dev` starts all containers (or production compose)
-- [ ] `npm run smoke` passes
-- [ ] `npm run build` succeeds without errors
+- [ ] `npm run smoke` passes on running stack
 - [ ] Docker deployment succeeds (`docker compose up -d --build`)
 - [ ] Backend health responds (`GET /api/v1/health`)
 - [ ] Frontend loads through reverse proxy (e.g. `http://localhost:8080`)
 - [ ] Swagger loads at `/docs` (restrict in production)
-- [ ] Environment variables documented (`.env.example`)
 
 ---
 
 ## UI quality gates
 
-- [ ] Every button performs its action, navigates, saves, validates, or is hidden
+- [x] OPD check-in shows doctor name (not UUID) on review step
+- [x] Clinical orders dashboard shows patient names
+- [x] Pharmacy dispense button on pharmacy orders
+- [x] Inventory & store UI (stock, requisitions, receive)
+- [x] Dedicated pharmacy workspace (queue + prescribe + dispense)
+- [ ] Every button performs its action, navigates, saves, validates, or is hidden (full UI audit)
 - [ ] Every form validates correctly
 - [ ] Every search functions
 - [ ] Autocomplete works (patient search)
@@ -31,18 +45,15 @@ Aligned with the **Final Go-Live Readiness Directive** (Section 13). Complete be
 - [ ] No placeholder screens visible to clinical users
 - [ ] No hardcoded IDs or names in production UI
 - [ ] No mock data visible
-- [ ] Production build has no demo login pre-fill
+- [x] Production build has no demo login pre-fill
 
 ---
 
 ## Authentication & accounts
 
-- [ ] Admin login works
-- [ ] Doctor login works
-- [ ] Nurse login works
-- [ ] Reception login works
-- [ ] Lab login works
-- [ ] Radiology login works
+- [x] Jalaram tenant default (`DEFAULT_TENANT_CODE=jalaram`)
+- [x] Admin login credentials documented (`it@jalaram.co.ke`)
+- [ ] Admin / doctor / nurse / reception / lab / radiology login verified on deploy
 - [ ] Doctor accounts appear in appointment and OPD doctor dropdowns
 - [ ] Permissions enforced correctly per role
 - [ ] Session expiration behaves as expected
@@ -52,23 +63,29 @@ Aligned with the **Final Go-Live Readiness Directive** (Section 13). Complete be
 
 ## Core clinical flows
 
-- [ ] Register patient
+- [x] OPD check-in persists preferred doctor (`attendingDoctorId`)
+- [x] Encounter workflow guards invalid status transitions
+- [x] Lab review returns encounter to `in_consultation` when complete
+- [x] Radiology review returns encounter to `in_consultation` when complete
+- [x] Pharmacy prescribe → dispense → stock ledger (API)
+- [ ] Register patient (manual UI)
 - [ ] Search patient
 - [ ] Open patient profile
 - [ ] Review patient clinical timeline
-- [ ] OPD check-in
-- [ ] Record triage
-- [ ] Complete doctor consultation (SOAP, diagnosis)
+- [ ] Record triage (UI)
+- [ ] Complete doctor consultation (SOAP, diagnosis) (UI)
 - [ ] Create referral
 - [ ] Issue sick sheet
 - [ ] Book appointment
-- [ ] Create lab request → collect → enter → verify → review
-- [ ] Create radiology request → report → verify → review
+- [ ] Create lab request → collect → enter → verify → review (UI)
+- [ ] Create radiology request → report → verify → review (UI)
 - [ ] Results inbox shows patient context (not raw UUIDs)
 - [ ] Create ward and bed
-- [ ] Admit patient
+- [ ] Admit patient (UI)
 - [ ] Record vitals / MAR / shift notes
 - [ ] Discharge summary and discharge
+
+**Automated API coverage:** `npm run test:workflows` (OPD, IPD, lab, radiology, inventory, pharmacy)
 
 ---
 
@@ -84,9 +101,9 @@ Aligned with the **Final Go-Live Readiness Directive** (Section 13). Complete be
 
 ## Notifications & audit
 
-- [ ] Lab result notification fires on verify
-- [ ] Radiology notification fires on verify
-- [ ] Notification inbox loads
+- [x] Lab result notification on verify (service wired)
+- [x] Radiology notification on verify (service wired)
+- [ ] Notification inbox loads (UI UAT)
 - [ ] Audit logs visible in admin
 - [ ] Audit events generated for sensitive actions
 
@@ -103,19 +120,30 @@ Aligned with the **Final Go-Live Readiness Directive** (Section 13). Complete be
 
 ## Operations
 
-- [ ] Backup script tested
-- [ ] Restore script tested
-- [ ] Database migrations run cleanly on fresh install
-- [ ] Update / rollback procedure documented
+- [x] Backup script exists (`ops/backup-postgres.sh`)
+- [x] Restore script exists (`ops/restore-postgres.sh`)
+- [x] Contabo deployment guide (`docs/contabo-deployment-guide.md`)
+- [x] Database migrations include inventory engine + Jalaram numbering
+- [ ] Backup script tested on production server
+- [ ] Restore script tested once
+- [ ] Database migrations run cleanly on fresh install (verify on VPS)
 
 ---
 
-## Automated tests (recommended before sign-off)
+## Automated tests (run before sign-off)
 
 ```bash
-ops/opd-workflow-test.sh      # 15-step reception + OPD API
-ops/ipd-workflow-test.sh      # 13-step IPD API
-ops/run-onboarding-tests.sh   # API + Playwright UI
+npm run smoke                 # health + login
+npm run test:workflows        # full API suite
+
+# Individual scripts:
+ops/opd-workflow-test.sh      # reception + OPD + workflow guard
+ops/ipd-workflow-test.sh      # admit + census + discharge
+ops/lab-workflow-test.sh      # lab round trip + encounter status
+ops/radiology-workflow-test.sh
+ops/inventory-workflow-test.sh
+ops/pharmacy-workflow-test.sh # prescribe + FEFO dispense + ledger
+ops/run-onboarding-tests.sh   # Playwright UI navigation
 ```
 
 ---
@@ -124,11 +152,11 @@ ops/run-onboarding-tests.sh   # API + Playwright UI
 
 - [ ] Full dynamic multi-tenant schema switching
 - [ ] Cross-tenant isolation tests
-- [ ] Lab / radiology catalog admin UIs (not placeholders)
+- [x] Main store requisitions + transfers (requisitions + transfer UI/API; full UAT pending)
 - [ ] Report template engine (no fake PDF/XLSX)
 - [ ] Patient card QR scan workflow
 - [ ] SMTP email transport
-- [ ] Real SMS provider (Africa's Talking / Twilio)
+- [ ] Real SMS provider (Celcom keys)
 - [ ] Load testing
 - [ ] External security review
 
@@ -142,4 +170,4 @@ ops/run-onboarding-tests.sh   # API + Playwright UI
 | IT / admin | | | |
 | Analyst / supervisor | | | |
 
-For supervised reception + OPD pilot only, use **`docs/pre-live-analyst-brief.md`**.
+For supervised reception + OPD pilot: run `npm run test:workflows` and complete manual UI walkthrough in `docs/core-workflow-test-plan.md`.

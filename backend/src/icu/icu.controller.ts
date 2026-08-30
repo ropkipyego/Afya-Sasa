@@ -24,6 +24,12 @@ export class IcuController {
     return this.icuService.list(status);
   }
 
+  @Get('admissions/:id')
+  @RequirePermissions('icu_admissions:read')
+  workspace(@Param('id') id: string) {
+    return this.icuService.workspace(id);
+  }
+
   @Post('admissions')
   @RequirePermissions('icu_admissions:create')
   admit(@Body() dto: CreateIcuAdmissionDto, @Req() request: RequestContext) {

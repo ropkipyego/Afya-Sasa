@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { tenantChannel } from '../common/tenant-defaults';
 import { User } from '../core/core.entities';
 import { Admission, Ward } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
@@ -59,7 +60,7 @@ export class NursingService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'vitals.recorded', {
+    this.realtime.publish(tenantChannel(request), 'vitals.recorded', {
       admissionId: dto.admissionId,
       encounterId: dto.encounterId,
       vitalId: saved.id,

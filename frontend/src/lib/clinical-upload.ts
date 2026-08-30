@@ -1,4 +1,5 @@
-import { apiRequest } from './api'
+import { useAuthStore } from './auth-store'
+import { validateClinicalUploadFile } from './upload-limits'
 
 export type UploadedClinicalFile = {
   filename: string
@@ -7,64 +8,79 @@ export type UploadedClinicalFile = {
   fileSize: number
 }
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+
+async function fetchClinicalFileBlob(storagePath: string): Promise<Blob> {
+  const { tenant, accessToken } = useAuthStore.getState()
+  const response = await fetch(`${API_BASE}/storage/fetch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Tenant': tenant,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify({ key: storagePath }),
+  })
+  if (!response.ok) {
+    throw new Error('Unable to retrieve file. Please try again.')
+  }
+  return response.blob()
+}
+
 export async function uploadClinicalFile(
   file: File,
   folder: string,
   requestId: string,
 ): Promise<UploadedClinicalFile> {
-  const safeName = file.name.replace(/[^\w.-]+/g, '_')
-  const key = `${folder}/${requestId}/${Date.now()}-${safeName}`
+  validateClinicalUploadFile(file)
 
-  const presigned = await apiRequest<{ key: string; url: string }>('/storage/presign-upload', {
+  const { tenant, accessToken } = useAuthStore.getState()
+  const form = new FormData()
+  form.append('file', file)
+  form.append('folder', folder)
+  form.append('requestId', requestId)
+
+  const response = await fetch(`${API_BASE}/storage/upload`, {
     method: 'POST',
-    body: JSON.stringify({
-      key,
-      contentType: file.type || 'application/octet-stream',
-      folder,
-    }),
+    headers: {
+      'X-Tenant': tenant,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: form,
   })
 
-  const uploadResponse = await fetch(presigned.url, {
-    method: 'PUT',
-    body: file,
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || 'File upload failed. Please try again.')
+  }
 
-  if (!uploadResponse.ok) {
-    throw new Error('File upload failed. Please try again.')
+  const payload = (await response.json()) as {
+    filename: string
+    mimeType: string
+    storagePath: string
+    fileSize: number
   }
 
   return {
-    filename: file.name,
-    mimeType: file.type || 'application/octet-stream',
-    storagePath: presigned.key,
-    fileSize: file.size,
+    filename: payload.filename,
+    mimeType: payload.mimeType,
+    storagePath: payload.storagePath,
+    fileSize: payload.fileSize,
   }
 }
 
 export async function viewClinicalFile(storagePath: string): Promise<void> {
-  const presigned = await apiRequest<{ url: string }>('/storage/presign-download', {
-    method: 'POST',
-    body: JSON.stringify({ key: storagePath }),
-  })
-  window.open(presigned.url, '_blank', 'noopener,noreferrer')
+  const blob = await fetchClinicalFileBlob(storagePath)
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank', 'noopener,noreferrer')
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 export async function downloadClinicalFile(
   storagePath: string,
   filename?: string,
 ): Promise<void> {
-  const presigned = await apiRequest<{ url: string }>('/storage/presign-download', {
-    method: 'POST',
-    body: JSON.stringify({ key: storagePath }),
-  })
-
-  const response = await fetch(presigned.url)
-  if (!response.ok) {
-    throw new Error('Unable to download file. Please try again.')
-  }
-
-  const blob = await response.blob()
+  const blob = await fetchClinicalFileBlob(storagePath)
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url

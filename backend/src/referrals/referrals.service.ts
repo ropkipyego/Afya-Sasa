@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { tenantChannel } from '../common/tenant-defaults';
 import { User } from '../core/core.entities';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Encounter } from '../opd/opd.entities';
@@ -48,7 +49,7 @@ export class ReferralsService {
         severity: 'info',
         link: '/referrals',
         createdBy: request.user?.sub ?? null,
-        tenantCode: request.tenant?.code ?? 'demo',
+        tenantCode: tenantChannel(request),
       },
     );
     return referral;

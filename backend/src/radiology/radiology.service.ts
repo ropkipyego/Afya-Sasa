@@ -3,8 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not, IsNull } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
+import { tenantChannel } from '../common/tenant-defaults';
 import { ClinicalOrderContextService } from '../clinical-order/clinical-order-context.service';
 import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
+import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
 import { Admission } from '../inpatient/inpatient.entities';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -42,6 +44,7 @@ export class RadiologyService {
     @InjectRepository(Admission) private readonly admissions: Repository<Admission>,
     private readonly orderContext: ClinicalOrderContextService,
     private readonly clinicalOrderMirror: ClinicalOrderMirrorService,
+    private readonly encounterWorkflow: EncounterWorkflowService,
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
     private readonly adminService: AdminService,
@@ -231,7 +234,8 @@ export class RadiologyService {
       modality: modality.name,
       bodyPart: dto.bodyPart,
     });
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'radiology.updated', {
+    await this.encounterWorkflow.markAwaitingResults(encounter.id, request);
+    this.realtime.publish(tenantChannel(request), 'radiology.updated', {
       requestId: radiologyRequest.id,
       action: 'created',
     });
@@ -288,7 +292,7 @@ export class RadiologyService {
       updatedBy: request.user?.sub ?? null,
     });
     await this.clinicalOrderMirror.syncSourceStatus('radiology', id, dto.status, request);
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'radiology.updated', {
+    this.realtime.publish(tenantChannel(request), 'radiology.updated', {
       requestId: id,
       status: dto.status,
     });
@@ -374,7 +378,7 @@ export class RadiologyService {
         actorId: request.user?.sub ?? null,
       },
     );
-    this.realtime.publish(request.tenant?.code ?? 'demo', 'radiology.updated', { reportId: id });
+    this.realtime.publish(tenantChannel(request), 'radiology.updated', { reportId: id });
 
     return this.reports.findOneOrFail({ where: { id } });
   }
@@ -394,9 +398,18 @@ export class RadiologyService {
     dto: CreateRadiologyAttachmentDto,
     request: RequestContext,
   ) {
-    const radiologyRequest = await this.requests.findOne({ where: { id } });
+    const radiologyRequest = await this.requests.findOne({
+      where: { id },
+      relations: {
+        patient: true,
+        encounter: { attendingDoctor: true },
+        admission: { admittingDoctor: true },
+        modality: true,
+      },
+    });
     if (!radiologyRequest) throw new NotFoundException('Radiology request not found');
-    return this.attachments.save(
+
+    const attachment = await this.attachments.save(
       this.attachments.create({
         request: radiologyRequest,
         ...dto,
@@ -404,6 +417,28 @@ export class RadiologyService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
+
+    if (radiologyRequest.status !== 'verified') {
+      await this.requests.update(id, { status: 'reported', updatedBy: request.user?.sub ?? null });
+    }
+
+    await this.notifications.notifyInvestigationStakeholders(
+      this.notifications.investigationRecipients({
+        createdBy: radiologyRequest.createdBy,
+        attendingDoctorId: radiologyRequest.encounter?.attendingDoctor?.id,
+        admittingDoctorId: radiologyRequest.admission?.admittingDoctor?.id,
+      }),
+      {
+        title: 'Radiology report PDF uploaded',
+        body: `${radiologyRequest.requestNo} — ${radiologyRequest.modality?.name ?? 'Imaging'} for ${radiologyRequest.patient.firstName} ${radiologyRequest.patient.lastName}. PDF attached for review.`,
+        severity: 'info',
+        link: '/radiology',
+        actorId: request.user?.sub ?? null,
+      },
+    );
+    this.realtime.publish(tenantChannel(request), 'radiology.updated', { requestId: id });
+
+    return attachment;
   }
 
   async reportsInbox() {
@@ -416,11 +451,39 @@ export class RadiologyService {
   }
 
   async reviewReport(id: string, request: RequestContext) {
+    const report = await this.reports.findOne({
+      where: { id },
+      relations: { request: { encounter: true } },
+    });
+    if (!report) {
+      throw new NotFoundException('Radiology report not found');
+    }
+
     await this.reports.update(id, {
       reviewedBy: request.user?.sub ?? null,
       reviewedAt: new Date(),
       updatedBy: request.user?.sub ?? null,
     });
+
+    const encounter = report.request?.encounter;
+    if (encounter?.id && encounter.status === 'awaiting_results') {
+      const pendingReview = await this.reports
+        .createQueryBuilder('report')
+        .innerJoin('report.request', 'request')
+        .where('request.encounter_id = :encounterId', { encounterId: encounter.id })
+        .andWhere('report.verified_at IS NOT NULL')
+        .andWhere('report.reviewed_at IS NULL')
+        .getCount();
+
+      if (pendingReview === 0) {
+        await this.encounterWorkflow.requireTransition(
+          encounter.id,
+          'in_consultation',
+          request,
+        );
+      }
+    }
+
     return this.reports.findOneOrFail({ where: { id } });
   }
 

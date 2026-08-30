@@ -56,10 +56,38 @@ export class IcuService {
 
   list(status?: 'active' | 'transferred_out' | 'discharged' | 'died') {
     return this.icuAdmissions.find({
-      where: { status },
-      relations: { admission: { patient: true }, icuBed: true },
+      where: status ? { status } : {},
+      relations: { admission: { patient: true, ward: true, bed: true }, icuBed: true, acceptedBy: true },
       order: { admittedToIcuAt: 'DESC' },
     });
+  }
+
+  async workspace(id: string) {
+    const icuAdmission = await this.get(id);
+    const [observations, ventilatorRecords, fluidRecords, rounds] = await Promise.all([
+      this.observations.find({
+        where: { icuAdmission: { id } },
+        order: { recordedAt: 'DESC' },
+        take: 50,
+      }),
+      this.ventilators.find({
+        where: { icuAdmission: { id } },
+        order: { recordedAt: 'DESC' },
+        take: 30,
+      }),
+      this.fluidBalance.find({
+        where: { icuAdmission: { id } },
+        order: { recordedAt: 'DESC' },
+        take: 30,
+      }),
+      this.rounds.find({
+        where: { icuAdmission: { id } },
+        relations: { clinician: true },
+        order: { roundTime: 'DESC' },
+        take: 30,
+      }),
+    ]);
+    return { ...icuAdmission, observations, ventilatorRecords, fluidRecords, rounds };
   }
 
   async observe(id: string, dto: CreateIcuObservationDto, request: RequestContext) {
@@ -135,7 +163,7 @@ export class IcuService {
   private async get(id: string) {
     const admission = await this.icuAdmissions.findOne({
       where: { id },
-      relations: { admission: { patient: true }, icuBed: true },
+      relations: { admission: { patient: true, ward: true, bed: true }, icuBed: true, acceptedBy: true },
     });
     if (!admission) throw new NotFoundException('ICU admission not found');
     return admission;

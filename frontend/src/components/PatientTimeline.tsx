@@ -26,6 +26,8 @@ const eventTypeLabels: Record<string, string> = {
   maternity: 'Maternity',
   appointment: 'Appointment',
   referral: 'Referral',
+  pharmacy_prescription: 'Prescription',
+  pharmacy_dispense: 'Dispense',
   discharge: 'Discharge',
 }
 
@@ -42,6 +44,8 @@ const eventTypeColors: Record<string, string> = {
   hdu: 'bg-rose-500',
   surgery: 'bg-fuchsia-500',
   maternity: 'bg-pink-500',
+  pharmacy_prescription: 'bg-emerald-500',
+  pharmacy_dispense: 'bg-lime-600',
   discharge: 'bg-emerald-500',
 }
 

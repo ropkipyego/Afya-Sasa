@@ -13,6 +13,8 @@ type Workspace = {
   id: string
   triageCategory: string | null
   workflowStage: string
+  status?: string
+  outcome?: string | null
   chiefComplaint: string | null
   observationStartedAt: string | null
   encounter: {
@@ -191,9 +193,14 @@ export function EmergencyPatientWorkspace({
     },
     onSuccess: async () => {
       notify('Disposition recorded', 'Emergency episode closed.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['emergency-queue'] })
+      await queryClient.invalidateQueries({ queryKey: ['emergency-metrics'] })
+      await queryClient.invalidateQueries({ queryKey: ['emergency-bays'] })
       onBack()
     },
   })
+
+  const isClosed = workspace?.status === 'disposed' || workspace?.workflowStage === 'disposed'
 
   if (isLoading || !workspace) {
     return <Card className="p-8 text-center text-slate-500">Loading emergency workspace…</Card>
@@ -368,6 +375,12 @@ export function EmergencyPatientWorkspace({
       {tab === 'disposition' ? (
         <Card>
           <PageHeader title="Emergency outcome" description="Every patient must have a final disposition." />
+          {isClosed ? (
+            <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-200">
+              <p className="font-semibold">Episode closed</p>
+              <p className="mt-1 capitalize">Outcome: {(workspace.outcome ?? workspace.workflowStage).replace(/_/g, ' ')}</p>
+            </div>
+          ) : (
           <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); disposition.mutate(e.currentTarget) }}>
             <SelectField name="outcome" label="Outcome" required>
               <option value="">Select outcome</option>
@@ -379,6 +392,7 @@ export function EmergencyPatientWorkspace({
             <TextareaField name="notes" label="Disposition notes" />
             <Button type="submit" loading={disposition.isPending}>Close emergency episode</Button>
           </form>
+          )}
         </Card>
       ) : null}
     </div>

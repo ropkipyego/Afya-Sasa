@@ -269,7 +269,7 @@ export function FormSection({
     <div>
       <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
       {description ? (
-        <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+        <p className="mt-0.5 text-xs text-white-500">{description}</p>
       ) : null}
     </div>
   ) : description ? (

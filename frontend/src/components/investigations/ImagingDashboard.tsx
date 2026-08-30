@@ -41,7 +41,7 @@ async function fetchRadRequests(): Promise<RadRequest[]> {
   return Array.isArray(res) ? res : (res.items ?? [])
 }
 
-export function ImagingDashboard() {
+export function ImagingDashboard({ embedded = false }: { embedded?: boolean }) {
   const { data: requests = [], isLoading, isError, error } = useQuery({
     queryKey: ['radiology-requests', 'dashboard'],
     queryFn: fetchRadRequests,
@@ -80,12 +80,14 @@ export function ImagingDashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <Card className="bg-gradient-to-br from-teal-900 via-slate-900 to-slate-800 p-8 text-white">
-        <PageHeader
-          title="Imaging dashboard"
-          description="Radiology command view — pending studies, modality load, and reporting backlog."
-        />
-      </Card>
+      {!embedded ? (
+        <Card className="bg-gradient-to-br from-teal-900 via-slate-900 to-slate-800 p-8 text-white">
+          <PageHeader
+            title="Imaging dashboard"
+            description="Radiology command view — pending studies, modality load, and reporting backlog."
+          />
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Tile

@@ -135,8 +135,13 @@ The seed migration includes:
 
 ## Architecture documents
 
+- **Core workflow map (audit):** `docs/core-workflow-map.md`
+- **Workflow gap matrix:** `docs/core-workflow-gap-matrix.md`
+- **Inventory architecture (target):** `docs/inventory-architecture.md`
+- **SHA/HIE integration architecture:** `docs/sha-integration-architecture.md`
+- **Core workflow test plan:** `docs/core-workflow-test-plan.md`
+- **Contabo VPS deployment:** `docs/contabo-deployment-guide.md`
 - Full system status and completion checklist: `docs/system-status-and-completion-checklist.md`
-- Phase 1 checklist: `docs/phase1-progress-checklist.md`
 - Future Theatre, Maternity, ICU, and HDU architecture: `docs/future-clinical-modules-architecture.md`
 - Production hardening notes: `docs/production-hardening-notes.md`
 - SMS and object storage integrations: `docs/integrations.md`
@@ -146,4 +151,11 @@ The seed migration includes:
 - **Enterprise backend refactor plan:** `docs/enterprise-backend-refactor-plan.md`
 - **Enterprise migration plan (architecture review + safe upgrade path):** `docs/enterprise-migration-plan.md`
 - Go-live checklist: `docs/go-live-checklist.md`
+
+## Workflow tests
+
+```bash
+npm run test:workflows   # OPD, IPD, lab, radiology, inventory, pharmacy
+npm run smoke            # health + login
+```
 - Role manuals: `docs/user-manuals/`

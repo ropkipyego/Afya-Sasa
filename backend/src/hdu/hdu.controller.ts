@@ -22,6 +22,12 @@ export class HduController {
     return this.hduService.list(status);
   }
 
+  @Get('admissions/:id')
+  @RequirePermissions('hdu_admissions:read')
+  workspace(@Param('id') id: string) {
+    return this.hduService.workspace(id);
+  }
+
   @Post('admissions')
   @RequirePermissions('hdu_admissions:create')
   admit(@Body() dto: CreateHduAdmissionDto, @Req() request: RequestContext) {

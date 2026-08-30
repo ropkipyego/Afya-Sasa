@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoginEvent, PasswordResetToken, RefreshToken, User } from '../core.entities';
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
+import { TenancyModule } from '../tenancy/tenancy.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LoginAuditService } from './login-audit.service';
@@ -15,6 +16,7 @@ import { TokenRevocationService } from './token-revocation.service';
     ConfigModule,
     UsersModule,
     MailModule,
+    TenancyModule,
     TypeOrmModule.forFeature([RefreshToken, User, LoginEvent, PasswordResetToken]),
     JwtModule.registerAsync({
       imports: [ConfigModule],

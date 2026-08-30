@@ -3,7 +3,7 @@
 set -euo pipefail
 
 API="${API:-http://localhost:3000/api/v1}"
-TENANT="${TENANT:-demo}"
+TENANT="${TENANT:-jalaram}"
 EMAIL="${EMAIL:-it@jalaram.co.ke}"
 PASSWORD="${PASSWORD:-ChangeMe123!}"
 OUT_DIR="${OUT_DIR:-ops/onboarding-tests/results}"
@@ -45,16 +45,36 @@ print(rows[0]['id'] if rows else '')
 [[ -n "$PATIENT_ID" ]] || fail "No patient found for search"
 ok "Patient ${PATIENT_ID}"
 
+step "2b. Resolve clinical staff (preferred doctor)"
+doctors="$(api GET "/admin/users")"
+DOCTOR_ID="$(echo "$doctors" | python3 -c "
+import sys,json
+rows=json.load(sys.stdin)
+print(rows[0]['id'] if rows else '')
+")"
+[[ -n "$DOCTOR_ID" ]] || fail "No clinical staff found for attending doctor test"
+
 step "3. OPD check-in (create encounter)"
 encounter="$(api POST "/opd/encounters" --data "{
   \"patientId\": \"${PATIENT_ID}\",
   \"visitType\": \"new\",
   \"destination\": \"doctor\",
   \"departmentName\": \"General Outpatient\",
-  \"presentingComplaint\": \"Fever and headache — onboarding test\"
+  \"presentingComplaint\": \"Fever and headache — onboarding test\",
+  \"attendingDoctorId\": \"${DOCTOR_ID}\"
 }")"
 ENCOUNTER_ID="$(echo "$encounter" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
-ok "Encounter ${ENCOUNTER_ID}"
+echo "$encounter" | python3 -c "
+import sys,json
+enc=json.load(sys.stdin)
+doc=enc.get('attendingDoctor') or {}
+doc_id=doc.get('id') if isinstance(doc, dict) else None
+expected='${DOCTOR_ID}'
+if doc_id != expected:
+  raise SystemExit(f'attendingDoctor.id expected {expected}, got {doc_id}')
+print(f'  attendingDoctor: {doc.get(\"firstName\",\"\")} {doc.get(\"lastName\",\"\")}'.strip())
+" || fail "attendingDoctor not persisted at check-in"
+ok "Encounter ${ENCOUNTER_ID} (doctor assigned)"
 
 step "4. Triage board & queue"
 api GET "/opd/triage/board" >/dev/null
@@ -135,12 +155,6 @@ api GET "/opd/sick-sheets?patientId=${PATIENT_ID}" >/dev/null
 ok "Sick sheets list OK"
 
 step "12. Appointments"
-doctors="$(api GET "/admin/users")"
-DOCTOR_ID="$(echo "$doctors" | python3 -c "
-import sys,json
-rows=json.load(sys.stdin)
-print(rows[0]['id'] if rows else '')
-")"
 if [[ -n "$DOCTOR_ID" ]]; then
   api POST "/appointments" --data "{
     \"patientId\": \"${PATIENT_ID}\",
@@ -166,6 +180,22 @@ e=json.load(sys.stdin).get('events',[])
 print(f'  Timeline events: {len(e)}')
 " | tee -a "$LOG_FILE"
 ok "Timeline loaded"
+
+step "13b. Invalid encounter transition rejected (AT-P0-10)"
+bad_enc="$(api POST "/opd/encounters" --data "{
+  \"patientId\": \"${PATIENT_ID}\",
+  \"visitType\": \"new\",
+  \"destination\": \"doctor\"
+}")"
+BAD_ID="$(echo "$bad_enc" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
+if curl -fsS -X PATCH "${API}/opd/encounters/${BAD_ID}/status" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant: ${TENANT}" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  --data '{"status":"completed"}' >/dev/null 2>&1; then
+  fail "Invalid registered→completed should return 400"
+fi
+ok "Workflow guard blocked invalid transition"
 
 step "14. Complete visit"
 api PATCH "/opd/encounters/${ENCOUNTER_ID}/status" --data '{"status":"completed"}' >/dev/null

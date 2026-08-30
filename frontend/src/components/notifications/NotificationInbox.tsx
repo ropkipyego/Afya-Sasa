@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, CheckCheck, ClipboardList, FlaskConical } from 'lucide-react'
+import { Bell, CheckCheck, ClipboardList, FlaskConical, Inbox } from 'lucide-react'
 import clsx from 'clsx'
 import { Button, Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
@@ -21,7 +21,13 @@ const severityTone: Record<string, string> = {
   critical: 'border-red-200 bg-red-50',
 }
 
-type InboxTab = 'all' | 'tasks' | 'results' | 'reviews'
+const severityDot: Record<string, string> = {
+  info: 'bg-slate-400',
+  warning: 'bg-amber-500',
+  critical: 'bg-red-500',
+}
+
+type InboxTab = 'all' | 'unread' | 'results' | 'reviews'
 
 const linkToScreen: Record<string, string> = {
   '/laboratory': 'Laboratory',
@@ -31,16 +37,33 @@ const linkToScreen: Record<string, string> = {
   '/opd': 'Doctor Queue',
   '/doctor': 'Doctor Queue',
   '/doctor-queue': 'Doctor Queue',
-  '/results': 'Results Inbox',
-  '/results-inbox': 'Results Inbox',
-  '/notifications': 'Notifications',
+  '/results': 'Laboratory',
+  '/results-inbox': 'Laboratory',
   '/pharmacy': 'Pharmacy',
-  '/clinical-orders': 'Clinical Orders',
+  '/clinical-orders': 'Orders',
   '/emergency': 'Emergency',
   '/inpatient': 'Inpatient (IPD)',
+  '/inventory': 'Inventory & Store',
+  '/store': 'Inventory & Store',
 }
 
-export function NotificationInbox({ onNavigate }: { onNavigate?: (screen: string) => void }) {
+function resolveScreen(link: string | null): string | undefined {
+  if (!link?.trim()) return undefined
+  const raw = link.trim()
+  return (
+    linkToScreen[raw] ||
+    linkToScreen[raw.replace(/\/$/, '')] ||
+    (raw && !raw.startsWith('/') ? raw : undefined)
+  )
+}
+
+export function NotificationInbox({
+  onNavigate,
+  onClose,
+}: {
+  onNavigate?: (screen: string) => void
+  onClose?: () => void
+}) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<InboxTab>('all')
 
@@ -74,33 +97,50 @@ export function NotificationInbox({ onNavigate }: { onNavigate?: (screen: string
   })
 
   const filtered = inbox.filter((item) => {
-    if (tab === 'all') return true
     const t = item.title.toLowerCase()
+    if (tab === 'unread') return !item.readAt
     if (tab === 'results') return t.includes('lab') || t.includes('radiology') || t.includes('result')
     if (tab === 'reviews') return t.includes('referral') || t.includes('review') || t.includes('pending')
-    if (tab === 'tasks') return !item.readAt
     return true
   })
 
-  const tabs: { id: InboxTab; label: string; icon: typeof Bell }[] = [
-    { id: 'all', label: 'My notifications', icon: Bell },
-    { id: 'tasks', label: 'My tasks', icon: ClipboardList },
-    { id: 'results', label: 'Pending results', icon: FlaskConical },
-    { id: 'reviews', label: 'Pending reviews', icon: CheckCheck },
+  const tabs: { id: InboxTab; label: string; icon: typeof Bell; count?: number }[] = [
+    { id: 'all', label: 'All', icon: Inbox, count: summary?.total },
+    { id: 'unread', label: 'Unread', icon: Bell, count: summary?.unread },
+    { id: 'results', label: 'Results', icon: FlaskConical },
+    { id: 'reviews', label: 'Reviews', icon: CheckCheck },
   ]
+
+  const openItem = (item: InboxItem) => {
+    if (!item.readAt) markRead.mutate(item.id)
+    const screen = resolveScreen(item.link)
+    if (screen && onNavigate) onNavigate(screen)
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 animate-fade-in">
-      <Card>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <PageHeader
-            title="Notification center"
-            description={`${summary?.unread ?? 0} unread · ${summary?.total ?? 0} total`}
-          />
+      <Card className="overflow-hidden p-0">
+        <div className="bg-gradient-to-br from-slate-900 to-teal-950 p-6 text-white">
+          <div className="flex items-start justify-between gap-3">
+            <PageHeader
+              title="Notifications"
+              description={`${summary?.unread ?? 0} unread · ${summary?.total ?? 0} total`}
+            />
+            {onClose ? (
+              <button
+                type="button"
+                className="rounded-lg border border-white/20 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/10"
+                onClick={onClose}
+              >
+                Close
+              </button>
+            ) : null}
+          </div>
           {(summary?.unread ?? 0) > 0 ? (
             <Button
               type="button"
               variant="secondary"
+              className="mt-4 border-white/20 bg-white/10 text-white hover:bg-white/20"
               loading={markAllRead.isPending}
               onClick={() => markAllRead.mutate()}
             >
@@ -110,94 +150,95 @@ export function NotificationInbox({ onNavigate }: { onNavigate?: (screen: string
           ) : null}
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={clsx(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold',
-                tab === t.id ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-              )}
-            >
-              <t.icon className="h-3.5 w-3.5" />
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {isLoading ? (
-          <div className="mt-6 space-y-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-16 animate-skeleton rounded-xl" />
-            ))}
-          </div>
-        ) : (
-          <div className="mt-6 space-y-2">
-            {filtered.map((item) => (
-              <div
-                key={item.id}
-                role={item.link && onNavigate ? 'button' : undefined}
-                tabIndex={item.link && onNavigate ? 0 : undefined}
-                onClick={() => {
-                  if (item.link && onNavigate) {
-                    const raw = item.link.trim()
-                    const screen =
-                      linkToScreen[raw] ||
-                      linkToScreen[raw.replace(/\/$/, '')] ||
-                      (raw && !raw.startsWith('/') ? raw : undefined)
-                    if (screen?.trim()) onNavigate(screen.trim())
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && item.link && onNavigate) {
-                    const raw = item.link.trim()
-                    const screen =
-                      linkToScreen[raw] ||
-                      linkToScreen[raw.replace(/\/$/, '')] ||
-                      (raw && !raw.startsWith('/') ? raw : undefined)
-                    if (screen?.trim()) onNavigate(screen.trim())
-                  }
-                }}
+        <div className="border-b border-slate-200 px-4 py-3">
+          <div className="flex flex-wrap gap-2">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
                 className={clsx(
-                  'card-hover rounded-xl border p-4 transition queue-item-enter',
-                  severityTone[item.severity],
-                  !item.readAt && 'ring-1 ring-teal-200',
-                  item.link && onNavigate && 'cursor-pointer',
+                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold',
+                  tab === t.id ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                 )}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{item.title}</p>
-                    <p className="mt-1 text-sm text-slate-600">{item.body}</p>
-                    <p className="mt-2 text-xs text-slate-400">
-                      {new Date(item.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  {!item.readAt ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="shrink-0 text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        markRead.mutate(item.id)
-                      }}
-                    >
-                      Mark read
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+                <t.icon className="h-3.5 w-3.5" />
+                {t.label}
+                {t.count != null && t.count > 0 ? (
+                  <span className={clsx('rounded-full px-1.5 py-0.5 text-[10px]', tab === t.id ? 'bg-white/20' : 'bg-white')}>
+                    {t.count}
+                  </span>
+                ) : null}
+              </button>
             ))}
-            {!filtered.length ? (
-              <p className="py-16 text-center text-sm text-slate-500">
-                No notifications in this view. Lab results, referrals, and appointment reminders appear here.
-              </p>
-            ) : null}
           </div>
-        )}
+        </div>
+
+        <div className="p-4">
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-16 animate-skeleton rounded-xl" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((item) => {
+                const screen = resolveScreen(item.link)
+                const clickable = Boolean(screen && onNavigate)
+                return (
+                  <div
+                    key={item.id}
+                    role={clickable ? 'button' : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    onClick={() => clickable && openItem(item)}
+                    onKeyDown={(e) => e.key === 'Enter' && clickable && openItem(item)}
+                    className={clsx(
+                      'rounded-xl border p-4 transition',
+                      severityTone[item.severity],
+                      !item.readAt && 'ring-1 ring-teal-200',
+                      clickable && 'cursor-pointer hover:shadow-md',
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className={clsx('mt-1.5 h-2 w-2 shrink-0 rounded-full', severityDot[item.severity])} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className={clsx('font-semibold', !item.readAt && 'text-slate-900')}>{item.title}</p>
+                          {!item.readAt ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="shrink-0 text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                markRead.mutate(item.id)
+                              }}
+                            >
+                              Mark read
+                            </Button>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">{item.body}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                          <span>{new Date(item.createdAt).toLocaleString()}</span>
+                          {screen ? <span className="text-teal-700">→ {screen}</span> : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {!filtered.length ? (
+                <div className="py-16 text-center">
+                  <ClipboardList className="mx-auto h-10 w-10 text-slate-300" />
+                  <p className="mt-3 text-sm text-slate-500">Nothing in this view.</p>
+                  <p className="mt-1 text-xs text-slate-400">Lab results, referrals, and tasks appear here automatically.</p>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
       </Card>
     </div>
   )

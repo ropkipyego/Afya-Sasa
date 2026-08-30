@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
@@ -7,10 +7,10 @@ import { Encounter } from '../opd/opd.entities';
 export type EncounterStatus = Encounter['status'];
 
 const ALLOWED_TRANSITIONS: Partial<Record<EncounterStatus, EncounterStatus[]>> = {
-  registered: ['triaged', 'completed'],
-  triaged: ['in_consultation', 'awaiting_results', 'completed'],
+  registered: ['triaged'],
+  triaged: ['in_consultation', 'awaiting_results', 'completed', 'admitted'],
   in_consultation: ['awaiting_results', 'completed', 'admitted'],
-  awaiting_results: ['in_consultation', 'completed'],
+  awaiting_results: ['in_consultation', 'completed', 'admitted'],
   admitted: ['completed'],
 };
 
@@ -48,7 +48,30 @@ export class EncounterWorkflowService {
     return this.encounters.findOne({ where: { id: encounterId } });
   }
 
+  /** Enforces allowed transitions — throws when the move is invalid. */
+  async requireTransition(
+    encounterId: string,
+    to: EncounterStatus,
+    request: RequestContext,
+  ) {
+    const encounter = await this.encounters.findOne({ where: { id: encounterId } });
+    if (!encounter) {
+      throw new BadRequestException('Encounter not found');
+    }
+    if (!this.canTransition(encounter.status, to)) {
+      throw new BadRequestException(
+        `Cannot move encounter from "${encounter.status}" to "${to}"`,
+      );
+    }
+    await this.encounters.update(encounterId, {
+      status: to,
+      endedAt: to === 'completed' ? new Date() : undefined,
+      updatedBy: request.user?.sub ?? null,
+    });
+    return this.encounters.findOne({ where: { id: encounterId } });
+  }
+
   async markAwaitingResults(encounterId: string, request: RequestContext) {
-    return this.transition(encounterId, 'awaiting_results', request);
+    return this.requireTransition(encounterId, 'awaiting_results', request);
   }
 }

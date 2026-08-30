@@ -77,8 +77,8 @@ export class OpdController {
 
   @Get('doctor/queue')
   @RequirePermissions('consultations:read')
-  doctorQueue() {
-    return this.opdService.doctorQueue();
+  doctorQueue(@Query('doctorId') doctorId?: string, @Req() request?: RequestContext) {
+    return this.opdService.doctorQueue(doctorId ?? request?.user?.sub);
   }
 
   @Post('encounters/:id/consultations')

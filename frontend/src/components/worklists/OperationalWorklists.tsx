@@ -24,6 +24,7 @@ type WorklistRow = Record<string, unknown> & {
   arrivalTime?: string
   requestNo?: string
   patient?: {
+    id?: string
     patientNo?: string
     firstName?: string
     lastName?: string
@@ -89,14 +90,26 @@ function rowTimestamp(row: WorklistRow) {
   return raw ? new Date(String(raw)).toLocaleString() : '—'
 }
 
-export function OperationalWorklists() {
+function patientIdFromRow(row: WorklistRow) {
+  const patient = row.patient as { id?: string } | undefined
+  if (patient?.id) return patient.id
+  return null
+}
+
+export function OperationalWorklists({
+  onOpenPatient,
+  initialModule,
+}: {
+  onOpenPatient?: (patientId: string) => void
+  initialModule?: string
+}) {
   const { data: catalog } = useQuery({
     queryKey: ['worklists-catalog'],
     queryFn: () => apiRequest<WorklistCatalog>('/worklists'),
   })
 
   const modules = useMemo(() => Object.keys(catalog ?? {}), [catalog])
-  const [module, setModule] = useState('registration')
+  const [module, setModule] = useState(initialModule ?? 'opd')
   const [listKey, setListKey] = useState('today')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
@@ -218,8 +231,19 @@ export function OperationalWorklists() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {rows.map((row, index) => (
-                      <tr key={String(row.id ?? index)} className="hover:bg-teal-50/40">
+                    {rows.map((row, index) => {
+                      const patientId = patientIdFromRow(row)
+                      return (
+                      <tr
+                        key={String(row.id ?? index)}
+                        className={clsx(
+                          'hover:bg-teal-50/40',
+                          patientId && onOpenPatient ? 'cursor-pointer' : '',
+                        )}
+                        onClick={() => {
+                          if (patientId && onOpenPatient) onOpenPatient(patientId)
+                        }}
+                      >
                         <td className="px-4 py-3 font-medium text-slate-900">
                           {patientLabel(row)}
                         </td>
@@ -228,7 +252,8 @@ export function OperationalWorklists() {
                         </td>
                         <td className="px-4 py-3 text-slate-500">{rowTimestamp(row)}</td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

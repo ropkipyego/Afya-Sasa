@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import type { RequestContext } from '../../common/request-context';
+import { tenantChannel } from '../../common/tenant-defaults';
+import { TenancyService } from '../tenancy/tenancy.service';
 import { AuthService } from './auth.service';
 import {
   ChangePasswordDto,
@@ -17,7 +19,22 @@ import { Public } from './auth.decorators';
 @UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly tenancyService: TenancyService,
+  ) {}
+
+  @Public()
+  @Get('hospitals')
+  listHospitals() {
+    return this.tenancyService.listPublicHospitals();
+  }
+
+  @Public()
+  @Get('hospitals/:code')
+  getHospital(@Param('code') code: string) {
+    return this.tenancyService.getPublicHospital(code);
+  }
 
   @ApiBearerAuth()
   @Get('me')
@@ -26,7 +43,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   @Post('login')
   login(@Body() dto: LoginDto, @Req() request: RequestContext) {
     return this.authService.login(
@@ -52,7 +69,7 @@ export class AuthController {
     return this.authService.requestPasswordReset(
       dto.email,
       request.ip,
-      request.tenant?.code ?? 'demo',
+      tenantChannel(request),
     );
   }
 

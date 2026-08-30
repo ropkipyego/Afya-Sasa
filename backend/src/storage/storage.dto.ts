@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { MAX_UPLOAD_BYTES } from './storage.constants';
 
 export class PresignUploadDto {
   @ApiProperty()
@@ -14,6 +15,18 @@ export class PresignUploadDto {
   @IsOptional()
   @IsString()
   folder?: string;
+
+  @ApiPropertyOptional({ description: 'Bytes — validated against server max upload size' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_UPLOAD_BYTES)
+  fileSize?: number;
+
+  @ApiPropertyOptional({ description: 'Original filename for extension validation' })
+  @IsOptional()
+  @IsString()
+  filename?: string;
 }
 
 export class PresignDownloadDto {

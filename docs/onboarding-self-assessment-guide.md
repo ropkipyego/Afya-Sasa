@@ -3,7 +3,7 @@
 **Last updated:** 2026-06-25  
 **Purpose:** Everything you need to run the system, test each department yourself, and judge what is ready vs. what still needs work — especially for **reception onboarding this week**.
 
-> **For analyst / supervisor sign-off before live:** see [`docs/pre-live-analyst-brief.md`](pre-live-analyst-brief.md) — short readiness brief with sign-off checklist.
+> **For analyst / supervisor sign-off before live:** see [`docs/core-workflow-test-plan.md`](core-workflow-test-plan.md) and [`docs/go-live-checklist.md`](go-live-checklist.md).
 
 ---
 

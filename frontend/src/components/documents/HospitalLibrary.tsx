@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Printer, Search, Trash2 } from 'lucide-react'
-import { Alert, Button, Card, Field, Input, PageHeader, SelectField } from '../ui'
+import { Alert, Button, Card, Field, FileUploadZone, Input, PageHeader, SelectField } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { downloadClinicalFile, uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
 import { notify } from '../../lib/notify'
+import { ALLOWED_UPLOAD_ACCEPT } from '../../lib/upload-limits'
 import { useAuthStore } from '../../lib/auth-store'
 
 type HospitalDocumentRow = {
@@ -42,10 +43,10 @@ const audiences = [
 export function HospitalLibrary({ adminMode = false }: { adminMode?: boolean }) {
   const queryClient = useQueryClient()
   const { user } = useAuthStore()
-  const fileRef = useRef<HTMLInputElement>(null)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
   const [uploading, setUploading] = useState(false)
+  const [publishFile, setPublishFile] = useState<File | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [publishForm, setPublishForm] = useState({
     title: '',
@@ -89,14 +90,18 @@ export function HospitalLibrary({ adminMode = false }: { adminMode?: boolean }) 
     )
   })
 
-  const publish = async (file: File) => {
+  const publish = async () => {
     if (!publishForm.title.trim()) {
       notify('Title required', 'Enter a document title before uploading.', 'critical')
       return
     }
+    if (!publishFile) {
+      notify('File required', 'Choose a file to publish.', 'critical')
+      return
+    }
     setUploading(true)
     try {
-      const uploaded = await uploadClinicalFile(file, 'hospital-docs', publishForm.title)
+      const uploaded = await uploadClinicalFile(publishFile, 'hospital-docs', publishForm.title)
       await apiRequest('/documents/hospital', {
         method: 'POST',
         body: JSON.stringify({
@@ -112,12 +117,12 @@ export function HospitalLibrary({ adminMode = false }: { adminMode?: boolean }) 
       })
       notify('Document published', `${publishForm.title} is now available hospital-wide.`, 'success')
       setPublishForm({ title: '', description: '', category: 'general', audience: 'all' })
+      setPublishFile(null)
       await queryClient.invalidateQueries({ queryKey: ['hospital-documents'] })
     } catch (error) {
       notify('Publish failed', (error as Error).message, 'critical')
     } finally {
       setUploading(false)
-      if (fileRef.current) fileRef.current.value = ''
     }
   }
 
@@ -173,18 +178,16 @@ export function HospitalLibrary({ adminMode = false }: { adminMode?: boolean }) 
               ))}
             </SelectField>
           </div>
-          <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".pdf,.doc,.docx,image/*"
-              className="w-full text-sm"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) void publish(file)
-              }}
+          <div className="mt-4 max-w-xl space-y-3">
+            <FileUploadZone
+              accept={ALLOWED_UPLOAD_ACCEPT}
+              file={publishFile}
+              onFileChange={setPublishFile}
+              hint="PDF, Word, or image — max 25 MB"
             />
-            {uploading ? <p className="mt-2 text-xs text-teal-700">Publishing…</p> : null}
+            <Button type="button" disabled={!publishFile || uploading} loading={uploading} onClick={() => void publish()}>
+              Publish document
+            </Button>
           </div>
         </Card>
       ) : null}

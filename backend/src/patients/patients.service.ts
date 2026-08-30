@@ -17,6 +17,7 @@ import { Pregnancy } from '../maternity/maternity.entities';
 import { Consultation, Encounter, TriageAssessment } from '../opd/opd.entities';
 import { RadiologyReport } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
+import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import {
   Patient,
@@ -78,6 +79,8 @@ export class PatientsService {
     private readonly appointments: Repository<Appointment>,
     @InjectRepository(Referral)
     private readonly referrals: Repository<Referral>,
+    @InjectRepository(ClinicalOrder)
+    private readonly clinicalOrders: Repository<ClinicalOrder>,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -288,6 +291,7 @@ export class PatientsService {
       referrals,
       triages,
       consultations,
+      pharmacyOrders,
     ] = await Promise.all([
       this.encounters.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
       this.admissions.find({ where: { patient: { id } }, relations: { ward: true, bed: true }, order: { createdAt: 'DESC' }, take: 50 }),
@@ -320,6 +324,11 @@ export class PatientsService {
         where: { encounter: { patient: { id } } },
         relations: { encounter: true },
         order: { createdAt: 'DESC' },
+        take: 50,
+      }),
+      this.clinicalOrders.find({
+        where: { patient: { id }, orderType: 'pharmacy' },
+        order: { orderedAt: 'DESC' },
         take: 50,
       }),
     ]);
@@ -423,6 +432,29 @@ export class PatientsService {
         title: `${item.type} referral`,
         summary: `${item.status} — ${item.reason}`,
       })),
+      ...pharmacyOrders.flatMap((item) => {
+        const medication = String(item.metadata?.medication ?? item.orderNo);
+        const dose = item.metadata?.dose ? ` — ${String(item.metadata.dose)}` : '';
+        const events = [
+          {
+            id: `${item.id}-ordered`,
+            type: 'pharmacy_prescription',
+            occurredAt: item.orderedAt,
+            title: 'Pharmacy prescription',
+            summary: `${medication}${dose} (${item.status})`,
+          },
+        ];
+        if (item.status === 'dispensed' && item.completedAt) {
+          events.push({
+            id: `${item.id}-dispensed`,
+            type: 'pharmacy_dispense',
+            occurredAt: item.completedAt,
+            title: 'Medication dispensed',
+            summary: `${medication}${dose} — ${item.orderNo}`,
+          });
+        }
+        return events;
+      }),
     ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
     return { patient, events };
