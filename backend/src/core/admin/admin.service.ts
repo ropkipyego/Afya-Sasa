@@ -32,6 +32,8 @@ import {
 } from './admin.dto';
 import { RealtimeService } from '../../realtime/realtime.service';
 import { TokenRevocationService } from '../auth/token-revocation.service';
+import { SuperadminPolicyService } from '../rbac/superadmin-policy.service';
+import { ADMINISTRATOR_ROLE_NAME } from '../rbac/rbac.constants';
 
 @Injectable()
 export class AdminService {
@@ -58,6 +60,7 @@ export class AdminService {
     private readonly refreshTokens: Repository<RefreshToken>,
     private readonly realtime: RealtimeService,
     private readonly tokenRevocation: TokenRevocationService,
+    private readonly superadminPolicy: SuperadminPolicyService,
   ) {}
 
   async listUsers() {
@@ -65,11 +68,12 @@ export class AdminService {
     return Promise.all(users.map((user) => this.toUserResponse(user)));
   }
 
-  listUserRoleOptions() {
-    return this.roles.find({
+  async listUserRoleOptions(request: RequestContext) {
+    const roles = await this.roles.find({
       select: { id: true, name: true, label: true },
       order: { label: 'ASC' },
     });
+    return this.superadminPolicy.filterAssignableRoles(request, roles);
   }
 
   async createUser(dto: CreateUserDto, request: RequestContext) {
@@ -103,6 +107,9 @@ export class AdminService {
 
   async updateUser(id: string, dto: UpdateUserDto, request: RequestContext) {
     await this.getUser(id);
+    if (dto.active !== undefined) {
+      await this.superadminPolicy.assertCanChangeUserActive(request, id, dto.active);
+    }
     const patch: Partial<User> = { updatedBy: request.user?.sub ?? null };
     if (dto.employeeNo !== undefined) patch.employeeNo = dto.employeeNo;
     if (dto.firstName !== undefined) patch.firstName = dto.firstName;
@@ -124,7 +131,8 @@ export class AdminService {
     return this.toUserResponse(await this.getUser(id));
   }
 
-  async setUserActive(id: string, active: boolean) {
+  async setUserActive(id: string, active: boolean, request: RequestContext) {
+    await this.superadminPolicy.assertCanChangeUserActive(request, id, active);
     await this.getUser(id);
     await this.users.update(id, { active });
     if (!active) {
@@ -177,6 +185,7 @@ export class AdminService {
   }
 
   async createRole(dto: CreateRoleDto, request: RequestContext) {
+    this.superadminPolicy.assertCanCreateRole(request, dto.name);
     const role = await this.roles.save(
       this.roles.create({
         name: dto.name.toLowerCase().replace(/\s+/g, '_'),
@@ -199,6 +208,11 @@ export class AdminService {
     request: RequestContext,
   ) {
     await this.getRole(id);
+    await this.superadminPolicy.assertCanUpdateRolePermissions(
+      request,
+      id,
+      dto.permissionIds,
+    );
     await this.replaceRolePermissions(id, dto.permissionIds, request);
     const affected = await this.userRoles.find({
       where: { role: { id } },
@@ -236,7 +250,7 @@ export class AdminService {
       .createQueryBuilder('user')
       .innerJoin(UserRole, 'ur', 'ur.user_id = user.id')
       .innerJoin(Role, 'role', 'role.id = ur.role_id')
-      .where('LOWER(role.name) = :role', { role: 'administrator' })
+      .where('LOWER(role.name) = :role', { role: ADMINISTRATOR_ROLE_NAME })
       .andWhere('user.active = true')
       .getMany();
   }
@@ -601,6 +615,7 @@ export class AdminService {
     roleIds: string[],
     request: RequestContext,
   ) {
+    await this.superadminPolicy.assertCanAssignRoles(request, userId, roleIds);
     const roles = await this.roles.findBy({ id: In(roleIds) });
     if (roles.length !== roleIds.length) {
       throw new NotFoundException('One or more roles were not found');

@@ -5,7 +5,7 @@ const sectionPermissions: Partial<Record<Exclude<ControlCenterSection, 'home'>, 
   roles: 'roles:manage',
   departments: 'departments:manage',
   audit: 'audit_logs:read',
-  superadmin: 'settings:manage',
+  superadmin: 'platform:superadmin',
 }
 
 const defaultPermission = 'settings:manage'
@@ -20,5 +20,12 @@ export function canAccessControlCenterSection(
   permissions: string[],
   section: Exclude<ControlCenterSection, 'home'>,
 ): boolean {
-  return permissions.includes(permissionForControlCenterSection(section))
+  const required = permissionForControlCenterSection(section)
+  if (section === 'superadmin') {
+    return (
+      permissions.includes('platform:superadmin') ||
+      permissions.includes('platform:tenants')
+    )
+  }
+  return permissions.includes(required)
 }

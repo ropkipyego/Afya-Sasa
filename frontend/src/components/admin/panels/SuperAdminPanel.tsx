@@ -20,7 +20,9 @@ type TenantRow = {
 export function SuperAdminPanel() {
   const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
-  const canManageTenants = user?.permissions.includes('platform:tenants') === true
+  const canManageTenants =
+    user?.permissions.includes('platform:tenants') === true ||
+    user?.permissions.includes('platform:superadmin') === true
   const [showProvision, setShowProvision] = useState(false)
 
   const { data: health } = useQuery({

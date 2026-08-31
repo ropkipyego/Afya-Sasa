@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { UserPlus } from 'lucide-react'
+import { UserPlus, Printer } from 'lucide-react'
 import {
   Alert,
   Button,
@@ -19,6 +19,8 @@ import { identifierFieldLabel } from '../lib/clinical-catalog'
 import { useClinicalCatalog } from '../hooks/useClinicalCatalog'
 import { apiRequest } from '../lib/api'
 import { formDataFromElement, submitClinicalForm } from '../lib/form-utils'
+import { printPatientCard } from '../lib/print-patient-card'
+import { notify } from '../lib/notify'
 
 type PatientSummary = {
   id: string
@@ -44,6 +46,8 @@ export function PatientRegistrationForm() {
   const [step, setStep] = useState(0)
   const [duplicateFound, setDuplicateFound] = useState<PatientSummary | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [registeredPatient, setRegisteredPatient] = useState<PatientSummary | null>(null)
+  const [printingCard, setPrintingCard] = useState(false)
   const [identifierType, setIdentifierType] = useState('national_id')
   const [birthInputMode, setBirthInputMode] = useState<'dob' | 'age'>('dob')
 
@@ -140,6 +144,7 @@ export function PatientRegistrationForm() {
     },
     onSuccess: (patient) => {
       setMessage(`Registered ${patient.patientNo}. SMS queued.`)
+      setRegisteredPatient(patient)
       emitAppNotification({
         title: 'Patient registered',
         body: `${patient.firstName} ${patient.lastName} (${patient.patientNo})`,
@@ -174,6 +179,48 @@ export function PatientRegistrationForm() {
               </strong>{' '}
               ({duplicateFound.patientNo}) already exists. Do not register again.
             </Alert>
+          ) : null}
+          {message ? <Alert tone="success" className="mt-4">{message}</Alert> : null}
+          {registeredPatient ? (
+            <Card className="mt-4 border-teal-200 bg-teal-50 p-5">
+              <p className="text-sm font-semibold text-teal-900">
+                Print patient card for{' '}
+                {registeredPatient.firstName} {registeredPatient.lastName} ({registeredPatient.patientNo})?
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  loading={printingCard}
+                  onClick={async () => {
+                    setPrintingCard(true)
+                    try {
+                      await printPatientCard(registeredPatient.id, catalog)
+                    } catch (error) {
+                      notify(
+                        'Print failed',
+                        error instanceof Error ? error.message : 'Could not prepare patient card.',
+                        'critical',
+                      )
+                    } finally {
+                      setPrintingCard(false)
+                    }
+                  }}
+                >
+                  <Printer className="h-4 w-4" />
+                  Print patient card
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setRegisteredPatient(null)
+                    setMessage(null)
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            </Card>
           ) : null}
           <div className="mt-6 flex gap-3">
             <Button

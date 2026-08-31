@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import clsx from 'clsx'
 import {
   AlertTriangle,
   Bell,
   ClipboardList,
   KeyRound,
   LogOut,
+  Menu,
   Printer,
 } from 'lucide-react'
 import {
@@ -61,6 +63,8 @@ import { SINGLE_TENANT_MODE } from './lib/tenant-config'
 import { filterNavigationByModules } from './lib/nav-module-filter'
 import { navigation, workflowDescriptions } from './lib/navigation'
 import { AppMobileNav } from './components/layout/AppMobileNav'
+import { printPatientCard } from './lib/print-patient-card'
+import { notify } from './lib/notify'
 
 const KNOWN_SCREENS = new Set(navigation.map((item) => item.label))
 
@@ -127,6 +131,9 @@ function App() {
   })
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const [notificationOpen, setNotificationOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem('afyasasa.sidebarOpen') !== 'false',
+  )
   const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
 
   const goToScreen = (screen: string) => {
@@ -141,6 +148,10 @@ function App() {
       sessionStorage.setItem('afyasasa.activeScreen', activeScreen)
     }
   }, [activeScreen])
+
+  useEffect(() => {
+    localStorage.setItem('afyasasa.sidebarOpen', String(sidebarOpen))
+  }, [sidebarOpen])
 
   const { data: notificationSummary } = useQuery({
     queryKey: ['notification-summary'],
@@ -194,10 +205,25 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <NotificationCenter />
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-slate-200/80 bg-white shadow-sm xl:flex">
-        <div className="shrink-0 border-b border-slate-100 p-5">
-          <HospitalBrandMark />
-          {!SINGLE_TENANT_MODE ? <HospitalFacilityBadge label={tenant} /> : null}
+      <aside
+        className={clsx(
+          'fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-slate-200/80 bg-white shadow-sm transition-transform duration-200 xl:flex',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+        )}
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 p-5">
+          <div className="min-w-0">
+            <HospitalBrandMark />
+            {!SINGLE_TENANT_MODE ? <HospitalFacilityBadge label={tenant} /> : null}
+          </div>
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setSidebarOpen(false)}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
         </div>
 
         <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
@@ -227,9 +253,24 @@ function App() {
         </nav>
       </aside>
 
-      <main className="min-h-dvh w-full min-w-0 max-w-full overflow-x-hidden xl:pl-72">
+      <main
+        className={clsx(
+          'min-h-dvh w-full min-w-0 max-w-full overflow-x-hidden transition-[padding] duration-200',
+          sidebarOpen && 'xl:pl-72',
+        )}
+      >
         <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
           <div className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 md:px-5">
+            {!sidebarOpen ? (
+              <button
+                type="button"
+                aria-label="Open menu"
+                onClick={() => setSidebarOpen(true)}
+                className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm xl:inline-flex"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            ) : null}
             <AppMobileNav
               items={allowedNavigation}
               activeScreen={activeScreen}
@@ -504,6 +545,8 @@ function PatientProfileDrawer({
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
+  const { data: catalog } = useClinicalCatalog()
+  const [printing, setPrinting] = useState(false)
   const { data: patient, isLoading } = useQuery({
     queryKey: ['patient', patientId],
     queryFn: () => apiRequest<PatientSummary>(`/patients/${patientId}`),
@@ -632,16 +675,31 @@ function PatientProfileDrawer({
             <PatientTimeline events={timeline?.events ?? []} title="Clinical timeline" />
           </section>
 
-          <section className="patient-card-print-area mt-6">
-            <div className="flex items-center justify-between print:hidden">
+          <section className="mt-6">
+            <div className="flex items-center justify-between">
               <p className="text-xs font-bold uppercase text-slate-500">Patient card</p>
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white"
-                onClick={() => window.print()}
+                disabled={!qrCard || printing}
+                className="flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={async () => {
+                  if (!qrCard) return
+                  setPrinting(true)
+                  try {
+                    await printPatientCard(patientId, catalog)
+                  } catch (error) {
+                    notify(
+                      'Print failed',
+                      error instanceof Error ? error.message : 'Could not prepare patient card.',
+                      'critical',
+                    )
+                  } finally {
+                    setPrinting(false)
+                  }
+                }}
               >
                 <Printer className="h-4 w-4" />
-                Print card
+                {printing ? 'Preparing…' : qrCard ? 'Print card' : 'Loading card…'}
               </button>
             </div>
             {qrCard && patient ? (
@@ -662,7 +720,9 @@ function PatientProfileDrawer({
                   qr={{ qrDataUrl: qrCard.qrDataUrl, qrCode: qrCard.qrCode }}
                 />
               </div>
-            ) : null}
+            ) : (
+              <p className="mt-3 text-sm text-slate-500">Loading printable patient card…</p>
+            )}
           </section>
 
           <section className="mt-6 grid gap-4 md:grid-cols-2">

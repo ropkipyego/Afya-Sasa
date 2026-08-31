@@ -296,18 +296,3 @@ nav::-webkit-scrollbar-thumb {
   }
 }
 
-@media print {
-  body * {
-    visibility: hidden;
-  }
-  .patient-card-print-area,
-  .patient-card-print-area * {
-    visibility: visible;
-  }
-  .patient-card-print-area {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-  }
-}

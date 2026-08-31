@@ -16,19 +16,19 @@ export class PlatformController {
   constructor(private readonly provisioning: TenantProvisioningService) {}
 
   @Get()
-  @RequirePermissions('platform:tenants')
+  @RequirePermissions('platform:tenants', 'platform:superadmin')
   list() {
     return this.provisioning.listTenants();
   }
 
   @Post('provision')
-  @RequirePermissions('platform:tenants')
+  @RequirePermissions('platform:tenants', 'platform:superadmin')
   provision(@Body() dto: ProvisionTenantDto, @Req() request: RequestContext) {
     return this.provisioning.provision(dto, request);
   }
 
   @Patch(':id/status')
-  @RequirePermissions('platform:tenants')
+  @RequirePermissions('platform:tenants', 'platform:superadmin')
   setStatus(
     @Param() params: TenantIdParamDto,
     @Body() dto: UpdateTenantStatusDto,

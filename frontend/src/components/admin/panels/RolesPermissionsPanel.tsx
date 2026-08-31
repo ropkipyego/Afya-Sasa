@@ -5,6 +5,9 @@ import { Alert, Button, Card, Field, Input, PageHeader } from '../../ui'
 import { formDataFromElement } from '../../../lib/form-utils'
 import { apiRequest } from '../../../lib/api'
 import { notify } from '../../../lib/notify'
+import { useAuthStore } from '../../../lib/auth-store'
+
+const PROTECTED_SYSTEM_ROLES = new Set(['superadmin', 'administrator'])
 
 type PermissionItem = { id: string; permissionKey: string; description?: string }
 type RoleItem = {
@@ -17,6 +20,7 @@ type RoleItem = {
 
 export function RolesPermissionsPanel() {
   const queryClient = useQueryClient()
+  const isSuperadmin = useAuthStore((state) => state.user?.roles.includes('superadmin') ?? false)
   const [selectedRoleId, setSelectedRoleId] = useState<string>('')
   const [permissionSearch, setPermissionSearch] = useState('')
   const [draftPermissionIds, setDraftPermissionIds] = useState<string[]>([])
@@ -31,6 +35,10 @@ export function RolesPermissionsPanel() {
   })
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? roles[0]
+  const selectedRoleLocked =
+    Boolean(selectedRole) &&
+    PROTECTED_SYSTEM_ROLES.has(selectedRole!.name) &&
+    !isSuperadmin
 
   const filteredPermissions = useMemo(() => {
     const q = permissionSearch.trim().toLowerCase()
@@ -155,6 +163,12 @@ export function RolesPermissionsPanel() {
 
         {selectedRole ? (
           <>
+            {selectedRoleLocked ? (
+              <Alert tone="warning" className="mt-4">
+                Only a platform superadmin can edit permissions on the{' '}
+                {selectedRole.label} role.
+              </Alert>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               <div className="relative min-w-[200px] flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -202,6 +216,7 @@ export function RolesPermissionsPanel() {
                       type="checkbox"
                       className="mt-1"
                       checked={checked}
+                      disabled={selectedRoleLocked}
                       onChange={() => togglePermission(permission.id)}
                     />
                     <span>
@@ -221,6 +236,7 @@ export function RolesPermissionsPanel() {
               type="button"
               className="mt-4"
               loading={savePermissions.isPending}
+              disabled={selectedRoleLocked}
               onClick={() => savePermissions.mutate()}
             >
               <Save className="h-4 w-4" />

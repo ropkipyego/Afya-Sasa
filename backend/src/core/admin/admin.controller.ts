@@ -46,8 +46,8 @@ export class AdminController {
 
   @Get('users/role-options')
   @RequirePermissions('users:manage')
-  listUserRoleOptions() {
-    return this.adminService.listUserRoleOptions();
+  listUserRoleOptions(@Req() request: RequestContext) {
+    return this.adminService.listUserRoleOptions(request);
   }
 
   @Post('users')
@@ -68,14 +68,14 @@ export class AdminController {
 
   @Post('users/:id/activate')
   @RequirePermissions('users:manage')
-  activateUser(@Param('id') id: string) {
-    return this.adminService.setUserActive(id, true);
+  activateUser(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.adminService.setUserActive(id, true, request);
   }
 
   @Post('users/:id/deactivate')
   @RequirePermissions('users:manage')
-  deactivateUser(@Param('id') id: string) {
-    return this.adminService.setUserActive(id, false);
+  deactivateUser(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.adminService.setUserActive(id, false, request);
   }
 
   @Post('users/:id/unlock')

@@ -15,10 +15,12 @@ import {
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AuthModule } from '../auth/auth.module';
+import { RbacModule } from '../rbac/rbac.module';
 
 @Module({
   imports: [
     AuthModule,
+    RbacModule,
     TypeOrmModule.forFeature([
       User,
       Role,
