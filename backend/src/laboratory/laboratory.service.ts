@@ -222,12 +222,14 @@ export class LaboratoryService {
   }
 
   listPatientRequests(patientId: string) {
-    return this.requests.find({
-      where: { patient: { id: patientId } },
-      relations: { patient: true },
-      order: { createdAt: 'DESC' },
-      take: 100,
-    });
+    return this.requests
+      .find({
+        where: { patient: { id: patientId } },
+        relations: { patient: true },
+        order: { createdAt: 'DESC' },
+        take: 100,
+      })
+      .then((rows) => this.attachItemsToRequests(rows));
   }
 
   async listPatientAttachments(patientId: string) {
@@ -253,11 +255,12 @@ export class LaboratoryService {
     const usePagination = limit !== undefined || offset !== undefined;
 
     if (!usePagination) {
-      return this.requests.find({
+      const rows = await this.requests.find({
         where,
         relations: { patient: true, encounter: true },
         order: { createdAt: 'DESC' },
       });
+      return this.attachItemsToRequests(rows);
     }
 
     const take = Math.min(limit ?? 50, 200);
@@ -269,7 +272,28 @@ export class LaboratoryService {
       take,
       skip,
     });
-    return { items, total, limit: take, offset: skip };
+    return { items: await this.attachItemsToRequests(items), total, limit: take, offset: skip };
+  }
+
+  private async attachItemsToRequests<T extends LabRequest>(requests: T[]) {
+    if (!requests.length) return requests.map((row) => ({ ...row, items: [] as LabRequestItem[] }));
+    const requestIds = requests.map((row) => row.id);
+    const allItems = await this.items.find({
+      where: { request: { id: In(requestIds) } },
+      relations: { orderableTest: true, test: true, panel: true, request: true },
+      order: { createdAt: 'ASC' },
+    });
+    const itemsByRequest = new Map<string, LabRequestItem[]>();
+    for (const item of allItems) {
+      const requestId = item.request.id;
+      const bucket = itemsByRequest.get(requestId) ?? [];
+      bucket.push(item);
+      itemsByRequest.set(requestId, bucket);
+    }
+    return requests.map((row) => ({
+      ...row,
+      items: itemsByRequest.get(row.id) ?? [],
+    }));
   }
 
   async detail(id: string) {
@@ -278,7 +302,7 @@ export class LaboratoryService {
       relations: { patient: true, encounter: true, admission: true },
     });
     if (!labRequest) throw new NotFoundException('Lab request not found');
-    const [items, samples, attachments] = await Promise.all([
+    const [items, samples, attachments, allResults] = await Promise.all([
       this.items.find({
         where: { request: { id } },
         relations: {
@@ -294,8 +318,27 @@ export class LaboratoryService {
       }),
       this.samples.find({ where: { request: { id } } }),
       this.attachments.find({ where: { request: { id } }, order: { createdAt: 'DESC' } }),
+      this.results.find({
+        where: { requestItem: { request: { id } } },
+        relations: { parameter: true, requestItem: true },
+        order: { enteredAt: 'ASC' },
+      }),
     ]);
-    return { ...labRequest, items, samples, attachments };
+
+    const resultsByItem = new Map<string, LabResult[]>();
+    for (const result of allResults) {
+      const itemId = result.requestItem.id;
+      const bucket = resultsByItem.get(itemId) ?? [];
+      bucket.push(result);
+      resultsByItem.set(itemId, bucket);
+    }
+
+    const itemsWithResults = items.map((item) => ({
+      ...item,
+      results: resultsByItem.get(item.id) ?? [],
+    }));
+
+    return { ...labRequest, items: itemsWithResults, samples, attachments };
   }
 
   async collectSample(id: string, dto: CollectSampleDto, request: RequestContext) {
@@ -495,6 +538,16 @@ export class LaboratoryService {
     const saved: LabResult[] = [];
     let hasCritical = false;
 
+    const existingResults = await this.results.find({
+      where: { requestItem: { id: item.id } },
+      relations: { parameter: true },
+    });
+    const existingByParameterId = new Map(
+      existingResults
+        .filter((row) => row.parameter?.id)
+        .map((row) => [row.parameter!.id, row]),
+    );
+
     for (const [parameterCode, value] of entriesToSave) {
       const parameter = parameterByCode.get(parameterCode);
       if (!parameter) continue;
@@ -512,26 +565,41 @@ export class LaboratoryService {
       const isCritical = flag === 'critically_low' || flag === 'critically_high';
       hasCritical = hasCritical || isCritical;
 
-      saved.push(
-        await this.results.save(
-          this.results.create({
-            requestItem: item,
-            sample,
-            parameter,
+      const existing = existingByParameterId.get(parameter.id);
+      if (existing) {
+        saved.push(
+          await this.results.save({
+            ...existing,
             value,
             unit: parameter.unit,
             flag,
-            referenceRange: flagged?.referenceRangeLabel ?? null,
+            referenceRange: flagged?.referenceRangeLabel ?? existing.referenceRange,
             isCritical,
-            verifiedBy: null,
-            verifiedAt: null,
-            reviewedBy: null,
-            reviewedAt: null,
-            createdBy: request.user?.sub ?? null,
             updatedBy: request.user?.sub ?? null,
           }),
-        ),
-      );
+        );
+      } else {
+        saved.push(
+          await this.results.save(
+            this.results.create({
+              requestItem: item,
+              sample,
+              parameter,
+              value,
+              unit: parameter.unit,
+              flag,
+              referenceRange: flagged?.referenceRangeLabel ?? null,
+              isCritical,
+              verifiedBy: null,
+              verifiedAt: null,
+              reviewedBy: null,
+              reviewedAt: null,
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          ),
+        );
+      }
     }
 
     await this.items.update(item.id, { status: 'resulted' });

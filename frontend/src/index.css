@@ -296,6 +296,45 @@ nav::-webkit-scrollbar-thumb {
   }
 }
 
+.lab-kanban-scroll {
+  display: grid;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 1279px) {
+  .lab-kanban-scroll {
+    grid-template-columns: repeat(5, minmax(240px, 280px));
+  }
+}
+
+.lab-param-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+  .lab-param-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.lab-tab-panel {
+  min-height: 24rem;
+}
+
+.lab-queue-item {
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.lab-queue-item:hover {
+  transform: translateY(-1px);
+}
+
 @keyframes critical-flash {
   0%,
   100% {

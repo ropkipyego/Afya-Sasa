@@ -1,14 +1,29 @@
 import { useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Clock, Download, FileUp, FlaskConical, Printer, TestTube, Trash2, User } from 'lucide-react'
-import clsx from 'clsx'
-import { Button, Card, Field, PageHeader, SelectField } from '../ui'
+import {
+  Download,
+  FileUp,
+  Plus,
+  Printer,
+  TestTube,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { Button, Field, SelectField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { ClinicalInvestigationOrders } from './ClinicalInvestigationOrders'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { downloadClinicalFile, uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
+import {
+  LabEmptyState,
+  LabKanbanColumn,
+  LabPatientStrip,
+  LabQueueItem,
+  LabSection,
+  waitLabel,
+} from './lab-ui'
 
 type LabAttachment = {
   id: string
@@ -24,23 +39,33 @@ type LabRequestRow = {
   status: string
   priority: string
   createdAt: string
+  requestNo?: string
   patient?: { firstName: string; lastName: string; patientNo: string }
-  items?: { id: string; status: string; test?: { name: string }; panel?: { name: string } }[]
+  items?: {
+    id: string
+    status: string
+    test?: { name: string }
+    panel?: { name: string }
+    orderableTest?: { name: string; code?: string }
+  }[]
   attachments?: LabAttachment[]
 }
 
 const stages = [
-  { id: 'requested', label: 'Requested', tone: 'border-sky-200 bg-sky-50' },
-  { id: 'sample_collected', label: 'Collected', tone: 'border-amber-200 bg-amber-50' },
-  { id: 'processing', label: 'Processing', tone: 'border-violet-200 bg-violet-50' },
-  { id: 'resulted', label: 'Completed', tone: 'border-teal-200 bg-teal-50' },
-  { id: 'verified', label: 'Verified', tone: 'border-emerald-200 bg-emerald-50' },
+  { id: 'requested', label: 'Requested', tone: 'border-sky-200/80 bg-gradient-to-b from-sky-50 to-white' },
+  { id: 'sample_collected', label: 'Collected', tone: 'border-amber-200/80 bg-gradient-to-b from-amber-50 to-white' },
+  { id: 'processing', label: 'Processing', tone: 'border-violet-200/80 bg-gradient-to-b from-violet-50 to-white' },
+  { id: 'resulted', label: 'Resulted', tone: 'border-teal-200/80 bg-gradient-to-b from-teal-50 to-white' },
+  { id: 'verified', label: 'Verified', tone: 'border-emerald-200/80 bg-gradient-to-b from-emerald-50 to-white' },
 ] as const
 
-function waitLabel(createdAt: string) {
-  const mins = Math.max(0, Math.round((Date.now() - new Date(createdAt).getTime()) / 60_000))
-  if (mins < 60) return `${mins}m`
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`
+function itemSummary(items?: LabRequestRow['items']) {
+  if (!items?.length) return undefined
+  return items
+    .map((item) => item.orderableTest?.name ?? item.test?.name ?? item.panel?.name)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(', ')
 }
 
 export function LabWorklist() {
@@ -55,17 +80,9 @@ export function LabWorklist() {
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['lab-requests'],
     queryFn: async () => {
-      const res = await apiRequest<{ items: LabRequestRow[] } | LabRequestRow[]>(
-        '/laboratory/requests',
-      )
+      const res = await apiRequest<{ items: LabRequestRow[] } | LabRequestRow[]>('/laboratory/requests')
       return Array.isArray(res) ? res : (res.items ?? [])
     },
-    refetchInterval: 20_000,
-  })
-
-  const { data: critical = [] } = useQuery({
-    queryKey: ['critical-results'],
-    queryFn: () => apiRequest<{ id: string }[]>('/laboratory/results/critical'),
     refetchInterval: 20_000,
   })
 
@@ -83,10 +100,9 @@ export function LabWorklist() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['lab-requests'] }),
       queryClient.invalidateQueries({ queryKey: ['lab-request'] }),
-      queryClient.invalidateQueries({ queryKey: ['lab-patient-attachments'] }),
-      queryClient.invalidateQueries({ queryKey: ['notification-inbox'] }),
-      queryClient.invalidateQueries({ queryKey: ['notification-summary'] }),
+      queryClient.invalidateQueries({ queryKey: ['lab-module-summary'] }),
       queryClient.invalidateQueries({ queryKey: ['critical-results'] }),
+      queryClient.invalidateQueries({ queryKey: ['notification-inbox'] }),
     ])
   }
 
@@ -153,7 +169,7 @@ export function LabWorklist() {
           title: uploaded.filename,
         }),
       })
-      notify('PDF uploaded', 'Report linked — doctors and reception can view it.', 'success')
+      notify('PDF uploaded', 'Report linked to request.', 'success')
       await refreshClinical()
     } catch (error) {
       notify('Upload failed', (error as Error).message, 'critical')
@@ -173,254 +189,294 @@ export function LabWorklist() {
   }, [requests])
 
   return (
-    <div className="workspace-shell animate-fade-in">
-      <PageHeader
-        title="Laboratory operations"
-        description="Order tests, collect samples, enter results, or upload PDF reports for clinicians."
-        actions={
+    <div className="space-y-6">
+      <LabSection
+        title="Specimen workflow board"
+        description="Drag-through kanban view of every open request from order to verified release."
+        action={
           <Button type="button" variant="secondary" onClick={() => setShowNewRequest((v) => !v)}>
-            New request
+            <Plus className="h-4 w-4" />
+            {showNewRequest ? 'Close order form' : 'New request'}
           </Button>
         }
-      />
-
-      {critical.length ? (
-        <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-900">
-          <AlertTriangle className="h-5 w-5 shrink-0" />
-          <p className="text-sm font-semibold">{critical.length} critical result(s) require clinician review.</p>
-        </div>
-      ) : null}
-
-      {showNewRequest ? (
-        <Card className="p-5 md:p-6">
-          <PageHeader
-            title="New laboratory request"
-            description="Links to an active visit when available, or creates a laboratory walk-in encounter."
-          />
-          <div className="mt-4 space-y-4">
+      >
+        {showNewRequest ? (
+          <div className="mb-6 rounded-2xl border border-teal-200 bg-teal-50/40 p-5">
             <PatientSearchAutocomplete selected={selectedPatient} onSelect={setSelectedPatient} />
             {selectedPatient ? (
-              <ClinicalInvestigationOrders
-                compact
-                defaultMode="lab"
-                context={{
-                  patientId: selectedPatient.id,
-                  patientName: `${selectedPatient.firstName} ${selectedPatient.lastName}`,
-                }}
-                onSuccess={async () => {
-                  await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
-                  setShowNewRequest(false)
-                }}
-              />
-            ) : null}
-          </div>
-        </Card>
-      ) : null}
-
-      {isLoading ? (
-        <div className="lab-kanban">
-          {stages.map((s) => (
-            <div key={s.id} className="h-64 animate-skeleton rounded-2xl" />
-          ))}
-        </div>
-      ) : (
-        <div className="lab-kanban">
-          {stages.map((stage) => (
-            <div key={stage.id} className={clsx('rounded-2xl border p-4', stage.tone)}>
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-700">{stage.label}</p>
-                <span className="rounded-full bg-white/80 px-2.5 py-0.5 text-xs font-bold tabular-nums">
-                  {byStage[stage.id]?.length ?? 0}
-                </span>
+              <div className="mt-4">
+                <ClinicalInvestigationOrders
+                  compact
+                  defaultMode="lab"
+                  context={{
+                    patientId: selectedPatient.id,
+                    patientName: `${selectedPatient.firstName} ${selectedPatient.lastName}`,
+                  }}
+                  onSuccess={async () => {
+                    await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
+                    setShowNewRequest(false)
+                  }}
+                />
               </div>
-              <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+            ) : (
+              <p className="mt-3 text-sm text-teal-800">Search and select a patient to place a laboratory order.</p>
+            )}
+          </div>
+        ) : null}
+
+        {isLoading ? (
+          <div className="lab-kanban-scroll">
+            {stages.map((s) => (
+              <div key={s.id} className="h-72 animate-skeleton rounded-2xl" />
+            ))}
+          </div>
+        ) : (
+          <div className="lab-kanban-scroll">
+            {stages.map((stage) => (
+              <LabKanbanColumn
+                key={stage.id}
+                label={stage.label}
+                count={byStage[stage.id]?.length ?? 0}
+                tone={stage.tone}
+              >
                 {(byStage[stage.id] ?? []).map((req) => (
-                  <button
+                  <LabQueueItem
                     key={req.id}
-                    type="button"
+                    active={activeId === req.id}
                     onClick={() => setActiveId(req.id)}
-                    className={clsx(
-                      'card-hover w-full rounded-xl border bg-white p-4 text-left shadow-sm',
-                      activeId === req.id ? 'border-teal-400 ring-2 ring-teal-100' : 'border-slate-200',
-                    )}
-                  >
-                    <p className="font-semibold text-slate-900">
-                      {req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown'}
-                    </p>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                      <User className="h-3 w-3" />
-                      {req.patient?.patientNo ?? '—'}
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold capitalize">{req.priority}</span>
-                      <span className="inline-flex items-center gap-1 text-slate-500">
-                        <Clock className="h-3 w-3" />
-                        {waitLabel(req.createdAt)}
-                      </span>
-                    </div>
-                  </button>
+                    name={
+                      req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown patient'
+                    }
+                    patientNo={req.patient?.patientNo}
+                    status={req.status}
+                    priority={req.priority}
+                    wait={waitLabel(req.createdAt)}
+                    subtitle={itemSummary(req.items)}
+                  />
                 ))}
                 {!byStage[stage.id]?.length ? (
-                  <p className="py-6 text-center text-xs text-slate-500">No items</p>
+                  <p className="py-8 text-center text-xs text-slate-400">Empty</p>
+                ) : null}
+              </LabKanbanColumn>
+            ))}
+          </div>
+        )}
+      </LabSection>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <LabSection title="Quick queue" description="All non-verified requests in wait order.">
+          <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-1">
+            {requests
+              .filter((r) => r.status !== 'verified' && r.status !== 'cancelled')
+              .slice(0, 20)
+              .map((req) => (
+                <LabQueueItem
+                  key={req.id}
+                  active={activeId === req.id}
+                  onClick={() => setActiveId(req.id)}
+                  name={
+                    req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown patient'
+                  }
+                  patientNo={req.patient?.patientNo}
+                  status={req.status}
+                  priority={req.priority}
+                  wait={waitLabel(req.createdAt)}
+                  subtitle={itemSummary(req.items)}
+                />
+              ))}
+            {!requests.filter((r) => r.status !== 'verified').length ? (
+              <LabEmptyState title="Queue is clear" description="No open requests right now." />
+            ) : null}
+          </div>
+        </LabSection>
+
+        <LabSection
+          title="Request workspace"
+          description="Collect samples, attach instrument PDFs, and release verified results."
+          action={
+            activeRequest ? (
+              <Button type="button" variant="ghost" onClick={() => setActiveId(null)}>
+                <X className="h-4 w-4" />
+                Close
+              </Button>
+            ) : null
+          }
+        >
+          {!activeRequest ? (
+            <LabEmptyState
+              title="Select a request"
+              description="Choose a card from the kanban board or quick queue to manage that specimen."
+            />
+          ) : (
+            <div className="space-y-5">
+              <LabPatientStrip
+                firstName={activeRequest.patient?.firstName}
+                lastName={activeRequest.patient?.lastName}
+                patientNo={activeRequest.patient?.patientNo}
+                status={activeRequest.status}
+                priority={activeRequest.priority}
+                wait={waitLabel(activeRequest.createdAt)}
+              />
+
+              {(activeRequest.items ?? []).length ? (
+                <div className="flex flex-wrap gap-2">
+                  {activeRequest.items!.map((item) => (
+                    <span
+                      key={item.id}
+                      className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                    >
+                      {item.orderableTest?.name ?? item.test?.name ?? item.panel?.name ?? 'Test'}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                {activeRequest.status === 'requested' ? (
+                  <Button
+                    type="button"
+                    onClick={() => collectSample.mutate(activeRequest.id)}
+                    loading={collectSample.isPending}
+                  >
+                    <TestTube className="h-4 w-4" />
+                    Mark sample collected
+                  </Button>
+                ) : null}
+                {['resulted', 'processing', 'sample_collected'].includes(activeRequest.status) ? (
+                  <Button
+                    type="button"
+                    onClick={() => verifyRequest.mutate(activeRequest.id)}
+                    loading={verifyRequest.isPending}
+                  >
+                    Verify & notify doctor
+                  </Button>
                 ) : null}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
 
-      {activeRequest ? (
-        <Card className="border-2 border-teal-200 p-5 md:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <FlaskConical className="h-5 w-5 text-teal-600" />
-              <div>
-                <p className="font-bold text-slate-900">
-                  {activeRequest.patient
-                    ? `${activeRequest.patient.firstName} ${activeRequest.patient.lastName}`
-                    : 'Lab request'}
-                </p>
-                <p className="text-sm capitalize text-slate-500">{activeRequest.status.replaceAll('_', ' ')}</p>
-              </div>
-            </div>
-            <Button type="button" variant="ghost" onClick={() => setActiveId(null)}>Close</Button>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-3">
-            {activeRequest.status === 'requested' ? (
-              <Button type="button" onClick={() => collectSample.mutate(activeRequest.id)} loading={collectSample.isPending}>
-                <TestTube className="h-4 w-4" />
-                Mark sample collected
-              </Button>
-            ) : null}
-            {['resulted', 'processing', 'sample_collected'].includes(activeRequest.status) ? (
-              <Button type="button" onClick={() => verifyRequest.mutate(activeRequest.id)} loading={verifyRequest.isPending}>
-                Verify & notify doctor
-              </Button>
-            ) : null}
-          </div>
-
-          <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <FileUp className="h-4 w-4 text-teal-600" />
-              Upload lab report PDF
-            </div>
-            <p className="mt-1 text-xs text-slate-500">
-              Upload external or instrument PDF — visible to doctors and reception after verification.
-            </p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/pdf,image/*"
-              className="mt-4 w-full text-sm"
-              onChange={async (e) => {
-                const file = e.target.files?.[0]
-                if (file) await attachPdf(activeRequest.id, file)
-                e.target.value = ''
-              }}
-            />
-            {uploading ? <p className="mt-2 text-xs text-teal-700">Uploading…</p> : null}
-          </div>
-
-          {(activeRequest.attachments ?? []).length ? (
-            <div className="mt-6 space-y-2">
-              <p className="text-sm font-semibold text-slate-700">Uploaded reports</p>
-              {activeRequest.attachments!.map((file) => (
-                <div
-                  key={file.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3"
-                >
-                  <span className="text-sm font-medium text-slate-800">{file.title ?? file.filename}</span>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      loading={fileBusyId === `${file.id}-view`}
-                      onClick={async () => {
-                        setFileBusyId(`${file.id}-view`)
-                        try {
-                          await viewClinicalFile(file.storagePath)
-                        } catch (error) {
-                          notify('View failed', (error as Error).message, 'critical')
-                        } finally {
-                          setFileBusyId(null)
-                        }
-                      }}
-                    >
-                      View
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      loading={fileBusyId === `${file.id}-print`}
-                      onClick={async () => {
-                        setFileBusyId(`${file.id}-print`)
-                        try {
-                          await viewClinicalFile(file.storagePath)
-                        } catch (error) {
-                          notify('Print failed', (error as Error).message, 'critical')
-                        } finally {
-                          setFileBusyId(null)
-                        }
-                      }}
-                    >
-                      <Printer className="h-4 w-4" />
-                      Print
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      loading={fileBusyId === file.id}
-                      onClick={async () => {
-                        setFileBusyId(file.id)
-                        try {
-                          await downloadClinicalFile(file.storagePath, file.filename)
-                        } catch (error) {
-                          notify('Download failed', (error as Error).message, 'critical')
-                        } finally {
-                          setFileBusyId(null)
-                        }
-                      }}
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      loading={deleteAttachment.isPending}
-                      onClick={() => deleteAttachment.mutate(file.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+              <div className="rounded-2xl border-2 border-dashed border-teal-200 bg-gradient-to-br from-teal-50/80 to-white p-5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-teal-900">
+                  <FileUp className="h-4 w-4" />
+                  Instrument / external PDF
                 </div>
-              ))}
-            </div>
-          ) : null}
+                <p className="mt-1 text-xs text-slate-600">Attach analyzer output or scanned report.</p>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/pdf,image/*"
+                  className="mt-3 w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-teal-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (file) await attachPdf(activeRequest.id, file)
+                    e.target.value = ''
+                  }}
+                />
+                {uploading ? <p className="mt-2 text-xs font-medium text-teal-700">Uploading…</p> : null}
+              </div>
 
-          {(activeRequest.items ?? []).length ? (
-            <form
-              className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5"
-              onSubmit={(e) => {
-                e.preventDefault()
-                enterResult.mutate(e.currentTarget)
-              }}
-            >
-              <p className="text-sm font-bold text-slate-800">Enter structured result (optional)</p>
-              <SelectField name="requestItemId" label="Test" required>
-                {(activeRequest.items ?? []).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.test?.name ?? item.panel?.name ?? item.id}
-                  </option>
-                ))}
-              </SelectField>
-              <Field name="value" label="Value" required />
-              <Field name="unit" label="Unit" />
-              <Button type="submit" loading={enterResult.isPending}>Save result</Button>
-            </form>
-          ) : null}
-        </Card>
-      ) : null}
+              {(activeRequest.attachments ?? []).length ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Attachments</p>
+                  {activeRequest.attachments!.map((file) => (
+                    <div
+                      key={file.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-800">{file.title ?? file.filename}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="px-3 py-2 text-xs"
+                          loading={fileBusyId === `${file.id}-view`}
+                          onClick={async () => {
+                            setFileBusyId(`${file.id}-view`)
+                            try {
+                              await viewClinicalFile(file.storagePath)
+                            } catch (error) {
+                              notify('View failed', (error as Error).message, 'critical')
+                            } finally {
+                              setFileBusyId(null)
+                            }
+                          }}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="px-3 py-2 text-xs"
+                          loading={fileBusyId === `${file.id}-print`}
+                          onClick={async () => {
+                            setFileBusyId(`${file.id}-print`)
+                            try {
+                              await viewClinicalFile(file.storagePath)
+                            } finally {
+                              setFileBusyId(null)
+                            }
+                          }}
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="px-3 py-2 text-xs"
+                          loading={fileBusyId === file.id}
+                          onClick={async () => {
+                            setFileBusyId(file.id)
+                            try {
+                              await downloadClinicalFile(file.storagePath, file.filename)
+                            } finally {
+                              setFileBusyId(null)
+                            }
+                          }}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="px-3 py-2 text-xs"
+                          loading={deleteAttachment.isPending}
+                          onClick={() => deleteAttachment.mutate(file.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {(activeRequest.items ?? []).length ? (
+                <form
+                  className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    enterResult.mutate(e.currentTarget)
+                  }}
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Quick single result</p>
+                  <SelectField name="requestItemId" label="Analyte" required>
+                    {(activeRequest.items ?? []).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.orderableTest?.name ?? item.test?.name ?? item.panel?.name ?? item.id}
+                      </option>
+                    ))}
+                  </SelectField>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field name="value" label="Value" required />
+                    <Field name="unit" label="Unit" />
+                  </div>
+                  <Button type="submit" loading={enterResult.isPending} className="px-3 py-2 text-xs">
+                    Save result
+                  </Button>
+                </form>
+              ) : null}
+            </div>
+          )}
+        </LabSection>
+      </div>
     </div>
   )
 }
