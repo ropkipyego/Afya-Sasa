@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
-import { User } from '../core/core.entities';
+import { User, Role, UserRole } from '../core/core.entities';
+import { defaultTenantCode } from '../common/tenant-defaults';
+import { NotificationsService } from '../notifications/notifications.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { Patient } from '../patients/patient.entities';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
 import {
@@ -56,7 +59,13 @@ export class OpdService {
     private readonly attachments: Repository<EncounterAttachment>,
     @InjectRepository(SickSheet)
     private readonly sickSheets: Repository<SickSheet>,
+    @InjectRepository(Role)
+    private readonly roles: Repository<Role>,
+    @InjectRepository(UserRole)
+    private readonly userRoles: Repository<UserRole>,
     private readonly workflow: EncounterWorkflowService,
+    private readonly notifications: NotificationsService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   async createEncounter(dto: CreateEncounterDto, request: RequestContext) {
@@ -179,7 +188,69 @@ export class OpdService {
       }),
     );
     await this.workflow.requireTransition(id, 'triaged', request);
+    const fullEncounter = await this.encounters.findOne({
+      where: { id },
+      relations: { patient: true, attendingDoctor: true },
+    });
+    if (fullEncounter) {
+      await this.notifyDoctorsAfterTriage(fullEncounter, triage, request);
+      this.realtime.publish(
+        request.tenant?.code ?? defaultTenantCode(),
+        'triage.updated',
+        {
+          encounterId: id,
+          patientId: fullEncounter.patient.id,
+          colour: triage.colour,
+        },
+      );
+    }
     return triage;
+  }
+
+  private async notifyDoctorsAfterTriage(
+    encounter: Encounter & { patient: Patient; attendingDoctor?: User | null },
+    triage: TriageAssessment,
+    request: RequestContext,
+  ) {
+    const patientName = `${encounter.patient.firstName} ${encounter.patient.lastName}`;
+    const severity =
+      triage.colour === 'red' || triage.colour === 'orange' ? 'critical' : 'warning';
+    let recipientIds: string[] = [];
+    if (encounter.attendingDoctor?.id) {
+      recipientIds = [encounter.attendingDoctor.id];
+    } else {
+      recipientIds = await this.listClinicalStaffUserIds();
+    }
+    if (!recipientIds.length) return;
+    await this.notifications.notifyUsers(recipientIds, {
+      title: 'Patient ready for consultation',
+      body: `${patientName} (${encounter.patient.patientNo}) — ${triage.colour.toUpperCase()} triage. ${triage.chiefComplaint}`,
+      severity,
+      link: 'Doctor Queue',
+      createdBy: request.user?.sub ?? null,
+      tenantCode: request.tenant?.code ?? defaultTenantCode(),
+    });
+  }
+
+  private async listClinicalStaffUserIds() {
+    const assignments = await this.userRoles
+      .createQueryBuilder('assignment')
+      .innerJoinAndSelect('assignment.user', 'user')
+      .innerJoinAndSelect('assignment.role', 'role')
+      .where('user.active = :active', { active: true })
+      .andWhere('role.name IN (:...roles)', {
+        roles: ['doctor', 'consultant', 'clinical_officer'],
+      })
+      .getMany();
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const assignment of assignments) {
+      const userId = assignment.user?.id;
+      if (!userId || seen.has(userId)) continue;
+      seen.add(userId);
+      ids.push(userId);
+    }
+    return ids;
   }
 
   async triageQueue() {
@@ -236,16 +307,10 @@ export class OpdService {
       relations: { patient: true, attendingDoctor: true },
       order: { startedAt: 'ASC' },
     });
-    const visible = doctorId
-      ? encounters.filter(
-          (encounter) =>
-            !encounter.attendingDoctor || encounter.attendingDoctor.id === doctorId,
-        )
-      : encounters;
     const triageByEncounter = new Map(
       (
         await this.triages.find({
-          where: visible.map((encounter) => ({
+          where: encounters.map((encounter) => ({
             encounter: { id: encounter.id },
           })),
           relations: { encounter: true },
@@ -253,12 +318,18 @@ export class OpdService {
         })
       ).map((triage) => [triage.encounter?.id, triage]),
     );
-    return visible
+    return encounters
       .map((encounter) => ({
         ...encounter,
         triage: triageByEncounter.get(encounter.id) ?? null,
+        assignedToMe: doctorId
+          ? !encounter.attendingDoctor || encounter.attendingDoctor.id === doctorId
+          : true,
       }))
       .sort((a, b) => {
+        const aMine = a.assignedToMe ? 0 : 1;
+        const bMine = b.assignedToMe ? 0 : 1;
+        if (aMine !== bMine) return aMine - bMine;
         const aPriority = TRIAGE_PRIORITY[a.triage?.colour ?? 'green'];
         const bPriority = TRIAGE_PRIORITY[b.triage?.colour ?? 'green'];
         return aPriority - bPriority || a.startedAt.getTime() - b.startedAt.getTime();

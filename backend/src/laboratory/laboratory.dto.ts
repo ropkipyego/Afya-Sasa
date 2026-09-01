@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 export class CreateLabPanelDto {
   @ApiProperty()
@@ -97,6 +98,11 @@ export class CreateLabRequestDto {
   @IsOptional()
   @IsArray()
   panelIds?: string[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Orderable catalog test/panel IDs' })
+  @IsOptional()
+  @IsArray()
+  orderableTestIds?: string[];
 }
 
 export class CollectSampleDto {
@@ -154,4 +160,41 @@ export class EnterLabResultDto {
   @IsOptional()
   @IsString()
   unit?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  parameterId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  parameterCode?: string;
+}
+
+export class EnterLabPanelResultValueDto {
+  @ApiProperty()
+  @IsString()
+  parameterCode!: string;
+
+  @ApiProperty()
+  @IsString()
+  value!: string;
+}
+
+export class EnterLabPanelResultsDto {
+  @ApiProperty()
+  @IsString()
+  requestItemId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sampleId?: string;
+
+  @ApiProperty({ type: [EnterLabPanelResultValueDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EnterLabPanelResultValueDto)
+  results!: EnterLabPanelResultValueDto[];
 }

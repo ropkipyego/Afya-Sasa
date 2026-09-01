@@ -296,3 +296,17 @@ nav::-webkit-scrollbar-thumb {
   }
 }
 
+@keyframes critical-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.15);
+  }
+}
+
+.critical-flash {
+  animation: critical-flash 1.2s ease-in-out infinite;
+}
+

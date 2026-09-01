@@ -1,5 +1,6 @@
 import type { HospitalProfile } from './clinical-catalog'
 import { useAuthStore } from './auth-store'
+import { buildLetterheadHtml, buildStampHtml } from './letterhead'
 
 export type TemplateVariables = Record<string, string | number | undefined | null>
 
@@ -15,11 +16,14 @@ const baseStyles = `
 body{font-family:system-ui,sans-serif;padding:48px;max-width:720px;margin:0 auto;line-height:1.6;color:#0f172a}
 .header{text-align:center;border-bottom:2px solid {{primaryColor}};padding-bottom:16px;margin-bottom:32px}
 .header h1{color:{{primaryColor}};margin:0 0 8px;font-size:1.35rem}
-.stamp{margin-top:48px;display:flex;justify-content:space-between;gap:16px}
+.patient-name{font-size:1.25rem;font-weight:700;margin:24px 0 8px;color:#0f172a}
+.patient-meta{color:#64748b;font-size:13px;margin-bottom:24px}
+.stamp{margin-top:48px;display:flex;justify-content:space-between;gap:16px;align-items:flex-end}
 .box{border:1px dashed #94a3b8;min-width:140px;height:72px;text-align:center;padding-top:26px;color:#64748b;font-size:11px}
 .footer{margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b}
 .meta{color:#64748b;font-size:13px;margin-bottom:24px}
 .letter{white-space:pre-wrap;line-height:1.6}
+.notes{margin-top:16px;padding:12px;background:#f8fafc;border-radius:8px;font-size:13px}
 `
 
 export const defaultPrintTemplates: Record<string, PrintTemplate> = {
@@ -27,14 +31,18 @@ export const defaultPrintTemplates: Record<string, PrintTemplate> = {
     key: 'sick_sheet',
     name: 'Sick sheet / medical certificate',
     html: `<!DOCTYPE html><html><head><title>Sick Sheet</title><style>${baseStyles}</style></head><body>
-<div class="header"><h1>{{facilityName}}</h1><p>Medical Certificate / Sick Sheet</p></div>
-<p><strong>Patient:</strong> {{patientName}} ({{patientNo}})</p>
+<div class="header">{{letterheadHtml}}</div>
+<p style="text-align:center;font-weight:600;margin:0 0 24px">Medical Certificate / Sick Sheet</p>
+<p class="patient-name">{{patientName}}</p>
+<p class="patient-meta">MRN: {{patientNo}}</p>
 <p><strong>Diagnosis:</strong> {{diagnosis}}</p>
 <p><strong>Period of incapacity:</strong> {{startDate}} to {{endDate}} ({{daysOff}} days)</p>
 <p>This is to certify that the above-named patient is unfit for work/school during the stated period.</p>
+{{notesBlock}}
 <div class="stamp">
 <div><p><strong>Doctor:</strong> {{doctorName}}</p><p><strong>License No:</strong> {{licenseNumber}}</p><p>Date: {{issuedDate}}</p></div>
-<div class="box">Hospital stamp</div><div class="box">Signature</div>
+{{stampHtml}}
+<div class="box">Signature</div>
 </div>
 <p class="footer">{{footerText}}</p>
 </body></html>`,
@@ -43,9 +51,11 @@ export const defaultPrintTemplates: Record<string, PrintTemplate> = {
     key: 'referral_letter',
     name: 'Referral letter',
     html: `<!DOCTYPE html><html><head><title>Referral</title><style>${baseStyles}</style></head><body>
-<div class="header"><h1>{{facilityName}}</h1><p>Referral Letter</p></div>
+<div class="header">{{letterheadHtml}}</div>
+<p style="text-align:center;font-weight:600;margin:0 0 24px">Referral Letter</p>
+<p class="patient-name">{{patientName}}</p>
+<p class="patient-meta">MRN: {{patientNo}}</p>
 <div class="meta">
-Patient: {{patientName}} ({{patientNo}})<br/>
 Type: {{referralType}} · Status: {{referralStatus}}<br/>
 {{targetDepartmentLine}}{{targetFacilityLine}}
 </div>
@@ -83,11 +93,31 @@ export function interpolateTemplate(template: string, variables: TemplateVariabl
 }
 
 export function hospitalTemplateVars(profile?: Partial<HospitalProfile> | null): TemplateVariables {
+  const notesBlock = ''
   return {
     facilityName: profile?.facilityName ?? 'Hospital',
     primaryColor: profile?.primaryColor ?? '#0d9488',
     footerText: profile?.footerText ?? 'Confidential medical record',
     tagline: profile?.tagline ?? '',
+    logoUrl: profile?.logoUrl ?? '',
+    stampUrl: profile?.stampUrl ?? '',
+    address: profile?.address ?? profile?.physicalAddress ?? '',
+    contactPhone: profile?.contactPhone ?? '',
+    letterheadHtml: buildLetterheadHtml(profile),
+    stampHtml: buildStampHtml(profile),
+    notesBlock,
+  }
+}
+
+export function sickSheetTemplateVars(
+  profile: Partial<HospitalProfile> | null | undefined,
+  input: { notes?: string | null },
+): TemplateVariables {
+  const base = hospitalTemplateVars(profile)
+  const notes = input.notes?.trim()
+  return {
+    ...base,
+    notesBlock: notes ? `<div class="notes"><strong>Additional information:</strong><br/>${notes.replace(/</g, '&lt;')}</div>` : '',
   }
 }
 

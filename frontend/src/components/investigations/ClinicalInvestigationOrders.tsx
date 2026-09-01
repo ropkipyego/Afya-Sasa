@@ -24,8 +24,15 @@ export type InvestigationOrderContext = {
   defaultClinicalIndication?: string
 }
 
-type LabTest = { id: string; name: string; code?: string }
-type LabPanel = { id: string; name: string; code?: string }
+type CatalogTest = {
+  id: string
+  name: string
+  code: string
+  isPanel: boolean
+  standardTatMinutes?: number
+  department?: { name: string; code: string }
+  specimen?: { name: string; code: string }
+}
 type RadiologyModality = { id: string; name: string }
 
 export function ClinicalInvestigationOrders({
@@ -47,15 +54,13 @@ export function ClinicalInvestigationOrders({
   const [testQuery, setTestQuery] = useState('')
   const [message, setMessage] = useState<string | null>(null)
 
-  const { data: tests = [] } = useQuery({
-    queryKey: ['clinical-order-tests'],
-    queryFn: () => apiRequest<LabTest[]>('/laboratory/tests'),
+  const { data: catalogTests = [] } = useQuery({
+    queryKey: ['clinical-order-catalog-tests'],
+    queryFn: () => apiRequest<CatalogTest[]>('/laboratory/catalog/tests'),
   })
 
-  const { data: panels = [] } = useQuery({
-    queryKey: ['clinical-order-panels'],
-    queryFn: () => apiRequest<LabPanel[]>('/laboratory/panels'),
-  })
+  const panels = useMemo(() => catalogTests.filter((test) => test.isPanel), [catalogTests])
+  const tests = useMemo(() => catalogTests.filter((test) => !test.isPanel), [catalogTests])
 
   const { data: modalities = [] } = useQuery({
     queryKey: ['clinical-order-modalities'],
@@ -68,7 +73,8 @@ export function ClinicalInvestigationOrders({
     return tests.filter(
       (t) =>
         t.name.toLowerCase().includes(q) ||
-        (t.code ?? '').toLowerCase().includes(q),
+        (t.code ?? '').toLowerCase().includes(q) ||
+        (t.department?.name ?? '').toLowerCase().includes(q),
     )
   }, [tests, testQuery])
 
@@ -81,9 +87,9 @@ export function ClinicalInvestigationOrders({
   const orderLab = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
-      const testIds = labKind === 'tests' ? selectedTestIds : []
-      const panelIds = labKind === 'panel' && panelId ? [panelId] : []
-      if (!testIds.length && !panelIds.length) {
+      const orderableTestIds =
+        labKind === 'tests' ? selectedTestIds : panelId ? [panelId] : []
+      if (!orderableTestIds.length) {
         throw new Error(
           labKind === 'panel'
             ? 'Select a laboratory panel.'
@@ -98,8 +104,7 @@ export function ClinicalInvestigationOrders({
           admissionId: context.admissionId || undefined,
           priority: form.get('priority'),
           notes: form.get('notes') || undefined,
-          testIds,
-          panelIds,
+          orderableTestIds,
         }),
       })
     },
@@ -245,7 +250,7 @@ export function ClinicalInvestigationOrders({
             <SelectField
               name="panelId"
               label="Laboratory panel"
-              hint="Orders every test in the panel"
+              hint="Structured panels with reference ranges (CBC, LFT, RFT, etc.)"
               required
               value={panelId}
               onChange={(e) => setPanelId(e.target.value)}
@@ -255,6 +260,7 @@ export function ClinicalInvestigationOrders({
                 <option key={panel.id} value={panel.id}>
                   {panel.code ? `${panel.code} — ` : ''}
                   {panel.name}
+                  {panel.standardTatMinutes ? ` · ${Math.round(panel.standardTatMinutes / 60)}h TAT` : ''}
                 </option>
               ))}
             </SelectField>
@@ -269,7 +275,7 @@ export function ClinicalInvestigationOrders({
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     className="input pl-10"
-                    placeholder="Search tests by name or code…"
+                    placeholder="Search tests by name, code, or department…"
                     value={testQuery}
                     onChange={(e) => setTestQuery(e.target.value)}
                   />
@@ -373,8 +379,9 @@ export function ClinicalInvestigationOrders({
       {!compact ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
           <p className="text-xs text-slate-600">
-            Orders are linked to this visit automatically. The ordering clinician and attending
-            doctor receive inbox notifications when results are verified.
+            Orders use the Kenya LIS catalog with SI units and age/gender reference ranges. The
+            ordering clinician and attending doctor receive inbox notifications when results are
+            verified.
           </p>
         </div>
       ) : null}

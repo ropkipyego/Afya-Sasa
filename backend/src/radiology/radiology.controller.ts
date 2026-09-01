@@ -42,6 +42,12 @@ export class RadiologyController {
     return this.radiologyService.listStudies(request);
   }
 
+  @Get('patients/:patientId/requests')
+  @RequirePermissions('radiology_requests:read')
+  listPatientRequests(@Param('patientId') patientId: string) {
+    return this.radiologyService.listPatientRequests(patientId);
+  }
+
   @Get('requests')
   @RequirePermissions('radiology_requests:read')
   listRequests(

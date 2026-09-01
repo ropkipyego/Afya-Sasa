@@ -242,6 +242,15 @@ export class RadiologyService {
     return radiologyRequest;
   }
 
+  async listPatientRequests(patientId: string) {
+    return this.requests.find({
+      where: { patient: { id: patientId } },
+      relations: { patient: true, modality: true, encounter: true },
+      order: { createdAt: 'DESC' },
+      take: 100,
+    });
+  }
+
   async listRequests(status?: string, limit?: number, offset?: number) {
     const where: { status?: RadiologyRequest['status'] } = {};
     if (status) where.status = status as RadiologyRequest['status'];

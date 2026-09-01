@@ -17,6 +17,16 @@ type LabTest = {
   turnaroundHours?: number | null
   panel?: { name: string } | null
 }
+type CatalogTest = {
+  id: string
+  name: string
+  code: string
+  isPanel: boolean
+  standardTatMinutes?: number
+  department?: { name: string; code: string }
+  specimen?: { name: string; code: string }
+}
+type CatalogDepartment = { id: string; code: string; name: string }
 
 const categories = [
   'haematology',
@@ -49,6 +59,17 @@ export function LabCatalogPanel() {
     queryKey: ['lab-tests'],
     queryFn: () => apiRequest<LabTest[]>('/laboratory/tests'),
   })
+  const { data: catalogTests = [], isLoading: catalogLoading } = useQuery({
+    queryKey: ['lab-catalog-tests'],
+    queryFn: () => apiRequest<CatalogTest[]>('/laboratory/catalog/tests'),
+  })
+  const { data: departments = [] } = useQuery({
+    queryKey: ['lab-catalog-departments'],
+    queryFn: () => apiRequest<CatalogDepartment[]>('/laboratory/catalog/departments'),
+  })
+
+  const catalogPanels = catalogTests.filter((test) => test.isPanel)
+  const catalogSingles = catalogTests.filter((test) => !test.isPanel)
 
   const createPanel = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
@@ -168,8 +189,76 @@ export function LabCatalogPanel() {
 
       <Card className="p-8">
         <PageHeader
-          title="Laboratory catalog"
-          description="Panels, tests, reference ranges, and turnaround times used across ordering and worklists."
+          title="LIS catalog (Kenya / Jalaram)"
+          description="Production orderable tests and panels with SI units, specimen types, departments, and stratified reference ranges."
+        />
+        <div className="mt-6 grid gap-6 lg:grid-cols-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+              Departments ({departments.length})
+            </h3>
+            <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+              {departments.map((department) => (
+                <li key={department.id} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                  <p className="font-semibold">{department.name}</p>
+                  <p className="text-xs text-slate-500">{department.code}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+              Panels ({catalogPanels.length})
+            </h3>
+            {catalogLoading ? (
+              <div className="mt-3 h-24 animate-skeleton rounded-xl" />
+            ) : (
+              <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                {catalogPanels.slice(0, 20).map((panel) => (
+                  <li key={panel.id} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                    <p className="font-semibold">{panel.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {panel.code}
+                      {panel.standardTatMinutes ? ` · ${Math.round(panel.standardTatMinutes / 60)}h TAT` : ''}
+                    </p>
+                  </li>
+                ))}
+                {catalogPanels.length > 20 ? (
+                  <p className="text-xs text-slate-500">+ {catalogPanels.length - 20} more panels</p>
+                ) : null}
+              </ul>
+            )}
+          </div>
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+              Orderable tests ({catalogSingles.length})
+            </h3>
+            {catalogLoading ? (
+              <div className="mt-3 h-24 animate-skeleton rounded-xl" />
+            ) : (
+              <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+                {catalogSingles.slice(0, 20).map((test) => (
+                  <li key={test.id} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                    <p className="font-semibold">{test.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {test.code}
+                      {test.department?.name ? ` · ${test.department.name}` : ''}
+                    </p>
+                  </li>
+                ))}
+                {catalogSingles.length > 20 ? (
+                  <p className="text-xs text-slate-500">+ {catalogSingles.length - 20} more tests</p>
+                ) : null}
+              </ul>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-8">
+        <PageHeader
+          title="Legacy laboratory catalog"
+          description="Older panel/test rows still supported for CSV import and backward-compatible workflows."
         />
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <div>

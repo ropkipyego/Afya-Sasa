@@ -8,6 +8,7 @@ import {
   CreateLabPanelDto,
   CreateLabRequestDto,
   CreateLabTestDto,
+  EnterLabPanelResultsDto,
   EnterLabResultDto,
   ImportLabCatalogDto,
   ReceiveSampleDto,
@@ -120,6 +121,12 @@ export class LaboratoryController {
   @RequirePermissions('lab_results:enter')
   enterResult(@Body() dto: EnterLabResultDto, @Req() request: RequestContext) {
     return this.laboratoryService.enterResult(dto, request);
+  }
+
+  @Post('results/panel')
+  @RequirePermissions('lab_results:enter')
+  enterPanelResults(@Body() dto: EnterLabPanelResultsDto, @Req() request: RequestContext) {
+    return this.laboratoryService.enterPanelResults(dto, request);
   }
 
   @Post('requests/:id/verify')

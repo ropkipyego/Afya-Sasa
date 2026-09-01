@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileUp, ScanLine } from 'lucide-react'
 import clsx from 'clsx'
 import { Button, Card, PageHeader, TextareaField } from '../ui'
+import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { formDataFromElement } from '../../lib/form-utils'
@@ -23,14 +24,25 @@ export function ImagingResultsEntry() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['radiology-requests'],
     queryFn: () => apiRequest<RadiologyRequestRow[]>('/radiology/requests'),
     refetchInterval: 30_000,
+    enabled: !selectedPatient?.id,
   })
 
-  const activeRequests = requests.filter((r) => !['verified', 'cancelled'].includes(r.status))
+  const { data: patientRequests = [], isLoading: patientLoading } = useQuery({
+    queryKey: ['radiology-patient-requests', selectedPatient?.id],
+    queryFn: () =>
+      apiRequest<RadiologyRequestRow[]>(`/radiology/patients/${selectedPatient!.id}/requests`),
+    enabled: Boolean(selectedPatient?.id),
+  })
+
+  const listSource = selectedPatient ? patientRequests : requests
+  const listLoading = selectedPatient ? patientLoading : isLoading
+  const activeRequests = listSource.filter((r) => !['verified', 'cancelled'].includes(r.status))
 
   const { data: detail } = useQuery({
     queryKey: ['radiology-request', selectedId],
@@ -98,13 +110,36 @@ export function ImagingResultsEntry() {
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="Enter & upload imaging reports"
-        description="Select a request, write findings, or upload a PDF report. Doctors are notified when a PDF is attached."
+        description="Search a patient first for patient-centric entry, or browse all open imaging requests."
       />
+
+      <PatientSearchAutocomplete
+        selected={selectedPatient}
+        onSelect={(patient) => {
+          setSelectedPatient(patient)
+          setSelectedId(null)
+        }}
+      />
+      {selectedPatient ? (
+        <p className="text-sm text-teal-800">
+          Showing imaging for{' '}
+          <strong>
+            {selectedPatient.firstName} {selectedPatient.lastName}
+          </strong>{' '}
+          ({selectedPatient.patientNo})
+          {' · '}
+          <button type="button" className="font-semibold underline" onClick={() => setSelectedPatient(null)}>
+            Show all requests
+          </button>
+        </p>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Card className="p-5">
-          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Open requests</h3>
-          {isLoading ? (
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+            {selectedPatient ? 'Patient requests' : 'Open requests'}
+          </h3>
+          {listLoading ? (
             <div className="mt-4 h-48 animate-skeleton rounded-xl" />
           ) : (
             <ul className="mt-4 max-h-[28rem] space-y-2 overflow-y-auto">

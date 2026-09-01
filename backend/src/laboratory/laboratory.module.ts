@@ -15,8 +15,17 @@ import {
   LabSample,
   LabTest,
 } from './laboratory.entities';
+import {
+  LabDepartment,
+  LabReferenceRange,
+  LabTestParameter,
+  OrderableLabTest,
+  SpecimenType,
+} from './lab-catalog.entities';
 import { LaboratoryController } from './laboratory.controller';
 import { LaboratoryService } from './laboratory.service';
+import { LabCatalogController } from './lab-catalog.controller';
+import { LabCatalogService } from './lab-catalog.service';
 
 @Module({
   imports: [
@@ -34,9 +43,15 @@ import { LaboratoryService } from './laboratory.service';
       LabSample,
       LabResult,
       LabAttachment,
+      LabDepartment,
+      SpecimenType,
+      OrderableLabTest,
+      LabTestParameter,
+      LabReferenceRange,
     ]),
   ],
-  controllers: [LaboratoryController],
-  providers: [LaboratoryService],
+  controllers: [LaboratoryController, LabCatalogController],
+  providers: [LaboratoryService, LabCatalogService],
+  exports: [LabCatalogService],
 })
 export class LaboratoryModule {}

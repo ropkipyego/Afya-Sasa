@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
-import { Button, Card, Field, PageHeader, SelectField, TextareaField } from '../ui'
+import { AlertTriangle, ArrowLeft } from 'lucide-react'
+import { Button, Card, Field, FormSection, PageHeader, SelectField, TextareaField } from '../ui'
+import { VitalsForm } from '../VitalsFields'
 import { ClinicalInvestigationOrders } from '../investigations/ClinicalInvestigationOrders'
 import { PatientTimeline, type TimelineEvent } from '../PatientTimeline'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { playNotificationSound } from '../../lib/notification-sound'
 
 type Workspace = {
   id: string
@@ -51,6 +53,33 @@ const tabs = [
 
 type TabId = (typeof tabs)[number]['id']
 
+const VITALS_INTERVAL_MS = 3 * 60 * 1000
+
+function vitalsAreCritical(form: FormData) {
+  const systolic = Number(form.get('bpSystolic') || 0)
+  const diastolic = Number(form.get('bpDiastolic') || 0)
+  const pulse = Number(form.get('pulse') || 0)
+  const spo2 = Number(form.get('spo2') || 0)
+  return (
+    (systolic > 0 && systolic < 90) ||
+    systolic > 180 ||
+    diastolic > 110 ||
+    (pulse > 0 && (pulse < 50 || pulse > 120)) ||
+    (spo2 > 0 && spo2 < 92)
+  )
+}
+
+function formatVitalsSummary(form: FormData) {
+  const parts = [
+    `BP ${form.get('bpSystolic')}/${form.get('bpDiastolic')}`,
+    `HR ${form.get('pulse')}`,
+    `RR ${form.get('respiratoryRate')}`,
+    `SpO2 ${form.get('spo2')}%`,
+    `Temp ${form.get('temperature')}°C`,
+  ]
+  return parts.join(' · ')
+}
+
 const outcomes = [
   ['discharged_home', 'Discharge home'],
   ['admitted_ipd', 'Admit to ward (IPD)'],
@@ -66,12 +95,16 @@ const outcomes = [
 export function EmergencyPatientWorkspace({
   emergencyId,
   onBack,
+  focusTriage = false,
 }: {
   emergencyId: string
   onBack: () => void
+  focusTriage?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<TabId>('overview')
+  const [tab, setTab] = useState<TabId>(focusTriage ? 'overview' : 'overview')
+  const [vitalsDue, setVitalsDue] = useState(false)
+  const alertedDueRef = useRef(false)
 
   const { data: workspace, isLoading } = useQuery({
     queryKey: ['emergency-workspace', emergencyId],
@@ -162,22 +195,69 @@ export function EmergencyPatientWorkspace({
   })
 
   const addObservation = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
+    mutationFn: async (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
-      return apiRequest(`/emergency/${emergencyId}/observation`, {
+      const vitalsSummary = formatVitalsSummary(form)
+      const nursingNotes = form.get('nursingNotes')?.toString()
+      const doctorReview = form.get('doctorReview')?.toString()
+      await apiRequest(`/emergency/${emergencyId}/observation`, {
         method: 'POST',
         body: JSON.stringify({
-          vitalsSummary: form.get('vitalsSummary') || undefined,
-          nursingNotes: form.get('nursingNotes') || undefined,
-          doctorReview: form.get('doctorReview') || undefined,
+          vitalsSummary,
+          nursingNotes: nursingNotes || undefined,
+          doctorReview: doctorReview || undefined,
         }),
       })
+      if (vitalsAreCritical(form)) {
+        await apiRequest('/emergency/alerts', {
+          method: 'POST',
+          body: JSON.stringify({
+            encounterId: workspace?.encounter.id,
+            type: 'critical_vitals',
+            severity: 'critical',
+            message: `Critical vitals — ${vitalsSummary}`,
+          }),
+        })
+      }
     },
     onSuccess: async () => {
-      notify('Observation logged', '', 'success')
+      setVitalsDue(false)
+      alertedDueRef.current = false
+      notify('Observation logged', 'Vitals recorded.', 'success')
       await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['emergency-alerts'] })
     },
   })
+
+  const lastVitalsAt = useMemo(() => {
+    const times = (workspace?.observationLogs ?? [])
+      .map((log) => new Date(log.recordedAt).getTime())
+      .filter((value) => Number.isFinite(value))
+    return times.length ? Math.max(...times) : null
+  }, [workspace?.observationLogs])
+
+  useEffect(() => {
+    if (!workspace || workspace.status === 'disposed') return
+    if (focusTriage && !workspace.triageCategory) {
+      setTab('overview')
+    }
+  }, [focusTriage, workspace])
+
+  useEffect(() => {
+    if (!workspace || workspace.status === 'disposed') return
+    const tick = () => {
+      const due = !lastVitalsAt || Date.now() - lastVitalsAt >= VITALS_INTERVAL_MS
+      setVitalsDue(due)
+      if (due && !alertedDueRef.current) {
+        alertedDueRef.current = true
+        playNotificationSound('critical')
+        notify('Vitals due', 'Record ED vitals — 3-minute monitoring interval.', 'critical')
+      }
+    }
+    tick()
+    const interval = window.setInterval(tick, 30_000)
+    return () => window.clearInterval(interval)
+  }, [lastVitalsAt, workspace])
 
   const disposition = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
@@ -249,6 +329,22 @@ export function EmergencyPatientWorkspace({
       </div>
 
       <WorkspaceTabs active={tab} onChange={setTab} tabs={tabs.map((t) => ({ id: t.id, label: t.label }))} />
+
+      {vitalsDue && workspace.status !== 'disposed' ? (
+        <div className="critical-flash rounded-2xl border border-red-300 bg-red-50 p-4 text-sm font-semibold text-red-900">
+          <AlertTriangle className="mr-2 inline h-4 w-4" />
+          Vitals overdue — record now (every 3 minutes in ED).
+          <button type="button" className="ml-3 underline" onClick={() => setTab('observation')}>
+            Go to observation
+          </button>
+        </div>
+      ) : null}
+
+      {!workspace.triageCategory && focusTriage ? (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          Complete emergency triage immediately after registration.
+        </div>
+      ) : null}
 
       {tab === 'overview' ? (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -346,18 +442,20 @@ export function EmergencyPatientWorkspace({
       {tab === 'observation' ? (
         <Card>
           <PageHeader
-            title="Observation area"
+            title="Observation & vitals monitoring"
             description={
               workspace.observationStartedAt
-                ? `Started ${new Date(workspace.observationStartedAt).toLocaleString()}`
-                : 'Assign observation bay to start monitoring.'
+                ? `Started ${new Date(workspace.observationStartedAt).toLocaleString()} · repeat vitals every 3 minutes`
+                : 'Record structured vitals every 3 minutes while the patient is in ED.'
             }
           />
-          <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); addObservation.mutate(e.currentTarget) }}>
-            <TextareaField name="vitalsSummary" label="Vitals trend" placeholder="BP, pulse, SpO2, GCS…" />
+          <form className="mt-4 space-y-4" onSubmit={(e) => { e.preventDefault(); addObservation.mutate(e.currentTarget) }}>
+            <FormSection title="Structured vitals" columns={1}>
+              <VitalsForm />
+            </FormSection>
             <TextareaField name="nursingNotes" label="Nursing notes" />
             <TextareaField name="doctorReview" label="Doctor review" />
-            <Button type="submit" loading={addObservation.isPending}>Log observation</Button>
+            <Button type="submit" loading={addObservation.isPending}>Log vitals & observation</Button>
           </form>
           <div className="mt-6 space-y-2">
             {workspace.observationLogs.map((log) => (

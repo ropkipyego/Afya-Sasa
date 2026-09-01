@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from '../core/core.entities';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { Role, User, UserRole } from '../core/core.entities';
 import { Patient } from '../patients/patient.entities';
 import { WorkflowModule } from '../workflow/workflow.module';
 import {
@@ -20,6 +21,8 @@ import { OpdService } from './opd.service';
     TypeOrmModule.forFeature([
       Patient,
       User,
+      Role,
+      UserRole,
       Encounter,
       TriageAssessment,
       Consultation,
@@ -29,6 +32,7 @@ import { OpdService } from './opd.service';
       SickSheet,
     ]),
     WorkflowModule,
+    NotificationsModule,
   ],
   controllers: [OpdController],
   providers: [OpdService],

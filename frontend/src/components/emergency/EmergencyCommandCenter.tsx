@@ -8,7 +8,7 @@ import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSea
 import { EmergencyPatientWorkspace } from './EmergencyPatientWorkspace'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
-import { playEmergencyAlertSound } from '../../lib/emergency-alert-sound'
+import { playNotificationSound } from '../../lib/notification-sound'
 
 type EmergencyMetrics = {
   totalToday: number
@@ -81,6 +81,7 @@ export function EmergencyCommandCenter() {
   const queryClient = useQueryClient()
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [openEmergencyId, setOpenEmergencyId] = useState<string | null>(null)
+  const [focusTriage, setFocusTriage] = useState(false)
 
   const { data: metrics } = useQuery({
     queryKey: ['emergency-metrics'],
@@ -110,7 +111,7 @@ export function EmergencyCommandCenter() {
   useEffect(() => {
     const active = alerts.filter((a) => !a.acknowledgedAt)
     if (active.length > previousAlertCount.current) {
-      playEmergencyAlertSound()
+      playNotificationSound('critical')
       notify('Emergency alert', active[0]?.message ?? 'Critical ED alert', 'critical')
     }
     previousAlertCount.current = active.length
@@ -139,9 +140,10 @@ export function EmergencyCommandCenter() {
       })
     },
     onSuccess: async (row) => {
-      notify('Emergency arrival registered', 'Patient added to ED queue.', 'success')
+      notify('Emergency arrival registered', 'Complete triage immediately.', 'warning')
       await queryClient.invalidateQueries({ queryKey: ['emergency-metrics'] })
       await queryClient.invalidateQueries({ queryKey: ['emergency-queue'] })
+      setFocusTriage(true)
       setOpenEmergencyId(row.id)
     },
   })
@@ -178,8 +180,10 @@ export function EmergencyCommandCenter() {
     return (
       <EmergencyPatientWorkspace
         emergencyId={openEmergencyId}
+        focusTriage={focusTriage}
         onBack={() => {
           setOpenEmergencyId(null)
+          setFocusTriage(false)
           void queryClient.invalidateQueries({ queryKey: ['emergency-queue'] })
         }}
       />

@@ -12,6 +12,10 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
+import { OrderableLabTest, LabReferenceRange } from './lab-catalog.entities';
+import { LabCatalogService } from './lab-catalog.service';
+import type { PatientDemographics, SeedReferenceRange } from './lab-catalog.types';
+import { resolveLegacyResultFlag } from './lab-result-engine';
 import {
   LabAttachment,
   LabPanel,
@@ -27,6 +31,7 @@ import {
   CreateLabPanelDto,
   CreateLabRequestDto,
   CreateLabTestDto,
+  EnterLabPanelResultsDto,
   EnterLabResultDto,
   ImportLabCatalogDto,
   ReceiveSampleDto,
@@ -46,6 +51,9 @@ export class LaboratoryService {
     @InjectRepository(Patient) private readonly patients: Repository<Patient>,
     @InjectRepository(Encounter) private readonly encounters: Repository<Encounter>,
     @InjectRepository(Admission) private readonly admissions: Repository<Admission>,
+    @InjectRepository(OrderableLabTest)
+    private readonly orderableTests: Repository<OrderableLabTest>,
+    private readonly catalogService: LabCatalogService,
     private readonly orderContext: ClinicalOrderContextService,
     private readonly clinicalOrderMirror: ClinicalOrderMirrorService,
     private readonly encounterWorkflow: EncounterWorkflowService,
@@ -92,7 +100,7 @@ export class LaboratoryService {
   }
 
   async createRequest(dto: CreateLabRequestDto, request: RequestContext) {
-    if (!dto.testIds?.length && !dto.panelIds?.length) {
+    if (!dto.testIds?.length && !dto.panelIds?.length && !dto.orderableTestIds?.length) {
       throw new BadRequestException('Select at least one laboratory test or panel.');
     }
 
@@ -106,9 +114,12 @@ export class LaboratoryService {
       request,
     );
 
-    const [directTests, panels] = await Promise.all([
+    const [directTests, panels, orderableCatalogTests] = await Promise.all([
       dto.testIds?.length ? this.tests.findBy({ id: In(dto.testIds) }) : Promise.resolve([]),
       dto.panelIds?.length ? this.panels.findBy({ id: In(dto.panelIds) }) : Promise.resolve([]),
+      dto.orderableTestIds?.length
+        ? this.orderableTests.findBy({ id: In(dto.orderableTestIds), active: true })
+        : Promise.resolve([]),
     ]);
 
     if (dto.testIds?.length && directTests.length !== dto.testIds.length) {
@@ -116,6 +127,9 @@ export class LaboratoryService {
     }
     if (dto.panelIds?.length && panels.length !== dto.panelIds.length) {
       throw new BadRequestException('One or more selected panels are invalid or inactive.');
+    }
+    if (dto.orderableTestIds?.length && orderableCatalogTests.length !== dto.orderableTestIds.length) {
+      throw new BadRequestException('One or more selected catalog tests are invalid or inactive.');
     }
 
     const expandedPanelTests: LabTest[] = [];
@@ -142,8 +156,21 @@ export class LaboratoryService {
     }
 
     const itemRows = [
-      ...allTests.map((test) => ({ test, panel: null as LabPanel | null })),
-      ...panelOnlyItems.map((panel) => ({ test: null as LabTest | null, panel })),
+      ...allTests.map((test) => ({
+        test,
+        panel: null as LabPanel | null,
+        orderableTest: null as OrderableLabTest | null,
+      })),
+      ...panelOnlyItems.map((panel) => ({
+        test: null as LabTest | null,
+        panel,
+        orderableTest: null as OrderableLabTest | null,
+      })),
+      ...orderableCatalogTests.map((orderableTest) => ({
+        test: null as LabTest | null,
+        panel: null as LabPanel | null,
+        orderableTest,
+      })),
     ];
 
     if (!itemRows.length) {
@@ -168,11 +195,12 @@ export class LaboratoryService {
       }),
     );
     await this.items.save(
-      itemRows.map(({ test, panel }) =>
+      itemRows.map(({ test, panel, orderableTest }) =>
         this.items.create({
           request: labRequest,
           test,
           panel,
+          orderableTest,
           status: 'requested',
           createdBy: request.user?.sub ?? null,
           updatedBy: request.user?.sub ?? null,
@@ -251,7 +279,19 @@ export class LaboratoryService {
     });
     if (!labRequest) throw new NotFoundException('Lab request not found');
     const [items, samples, attachments] = await Promise.all([
-      this.items.find({ where: { request: { id } }, relations: { test: true, panel: true } }),
+      this.items.find({
+        where: { request: { id } },
+        relations: {
+          test: true,
+          panel: true,
+          orderableTest: {
+            department: true,
+            specimen: true,
+            parameters: { referenceRanges: true },
+          },
+        },
+        order: { createdAt: 'ASC' },
+      }),
       this.samples.find({ where: { request: { id } } }),
       this.attachments.find({ where: { request: { id } }, order: { createdAt: 'DESC' } }),
     ]);
@@ -342,25 +382,66 @@ export class LaboratoryService {
   async enterResult(dto: EnterLabResultDto, request: RequestContext) {
     const item = await this.items.findOne({
       where: { id: dto.requestItemId },
-      relations: { test: true, request: true },
+      relations: {
+        test: true,
+        orderableTest: { parameters: { referenceRanges: true } },
+        request: { patient: true },
+      },
     });
     if (!item) throw new NotFoundException('Lab request item not found');
+
     const sample = dto.sampleId ? await this.samples.findOne({ where: { id: dto.sampleId } }) : null;
-    const numericValue = Number(dto.value);
-    const criticalLow = Number(item.test?.criticalLow);
-    const criticalHigh = Number(item.test?.criticalHigh);
+    const parameter = dto.parameterId
+      ? item.orderableTest?.parameters?.find((entry) => entry.id === dto.parameterId) ??
+        item.orderableTest?.parameters?.find((entry) => entry.code === dto.parameterCode)
+      : item.orderableTest?.parameters?.find((entry) => entry.code === dto.parameterCode);
+
     let flag: LabResult['flag'] = 'normal';
-    if (!Number.isNaN(numericValue) && !Number.isNaN(criticalLow) && numericValue < criticalLow) flag = 'critically_low';
-    if (!Number.isNaN(numericValue) && !Number.isNaN(criticalHigh) && numericValue > criticalHigh) flag = 'critically_high';
+    let referenceRange = item.test?.referenceRange ?? null;
+    let unit = dto.unit ?? item.test?.unit ?? parameter?.unit ?? null;
+    let isCritical = false;
+
+    if (item.orderableTest && parameter) {
+      const patient = toPatientDemographics(item.request.patient);
+      const evaluation = await this.catalogService.evaluateResults({
+        orderableTestCode: item.orderableTest.code,
+        patient,
+        results: [{ parameterCode: parameter.code, value: parseResultValue(dto.value) }],
+      });
+      const flagged = evaluation.flagged.find((entry) => entry.parameterCode === parameter.code);
+      if (flagged) {
+        flag = resolveLegacyResultFlag(
+          flagged.flag,
+          parseResultValue(dto.value),
+          (parameter.referenceRanges ?? []).map(mapReferenceRangeEntity),
+          patient,
+        );
+        referenceRange = flagged.referenceRangeLabel ?? referenceRange;
+      }
+      isCritical = flag === 'critically_low' || flag === 'critically_high';
+    } else {
+      const numericValue = Number(dto.value);
+      const criticalLow = Number(item.test?.criticalLow);
+      const criticalHigh = Number(item.test?.criticalHigh);
+      if (!Number.isNaN(numericValue) && !Number.isNaN(criticalLow) && numericValue < criticalLow) {
+        flag = 'critically_low';
+      }
+      if (!Number.isNaN(numericValue) && !Number.isNaN(criticalHigh) && numericValue > criticalHigh) {
+        flag = 'critically_high';
+      }
+      isCritical = flag === 'critically_low' || flag === 'critically_high';
+    }
+
     const result = await this.results.save(
       this.results.create({
         requestItem: item,
         sample,
+        parameter: parameter ?? null,
         value: dto.value,
-        unit: dto.unit ?? item.test?.unit ?? null,
+        unit,
         flag,
-        referenceRange: item.test?.referenceRange ?? null,
-        isCritical: flag === 'critically_low' || flag === 'critically_high',
+        referenceRange,
+        isCritical,
         verifiedBy: null,
         verifiedAt: null,
         reviewedBy: null,
@@ -373,33 +454,128 @@ export class LaboratoryService {
     await this.requests.update(item.request.id, { status: 'resulted' });
 
     if (result.isCritical) {
-      const labRequest = await this.requests.findOne({
-        where: { id: item.request.id },
-        relations: {
-          patient: true,
-          encounter: { attendingDoctor: true },
-          admission: { admittingDoctor: true },
-        },
-      });
-      if (labRequest) {
-        await this.notifications.notifyInvestigationStakeholders(
-          this.notifications.investigationRecipients({
-            createdBy: labRequest.createdBy,
-            attendingDoctorId: labRequest.encounter?.attendingDoctor?.id,
-            admittingDoctorId: labRequest.admission?.admittingDoctor?.id,
-          }),
-          {
-            title: 'Critical lab result',
-            body: `${labRequest.patient.firstName} ${labRequest.patient.lastName} — ${item.test?.name ?? 'Lab test'}: ${dto.value} ${dto.unit ?? ''}`.trim(),
-            severity: 'critical',
-            link: `/laboratory`,
-            actorId: request.user?.sub ?? null,
-          },
-        );
-      }
+      await this.notifyCriticalResult(item, dto.value, unit, request);
     }
 
     return result;
+  }
+
+  async enterPanelResults(dto: EnterLabPanelResultsDto, request: RequestContext) {
+    const item = await this.items.findOne({
+      where: { id: dto.requestItemId },
+      relations: {
+        orderableTest: { parameters: { referenceRanges: true } },
+        request: { patient: true },
+      },
+    });
+    if (!item?.orderableTest) {
+      throw new BadRequestException('Structured panel entry requires a catalog orderable test.');
+    }
+    if (!dto.results.length) {
+      throw new BadRequestException('Enter at least one parameter result.');
+    }
+
+    const patient = toPatientDemographics(item.request.patient);
+    const sample = dto.sampleId ? await this.samples.findOne({ where: { id: dto.sampleId } }) : null;
+    const evaluation = await this.catalogService.evaluateResults({
+      orderableTestCode: item.orderableTest.code,
+      patient,
+      results: dto.results.map((entry) => ({
+        parameterCode: entry.parameterCode,
+        value: parseResultValue(entry.value),
+      })),
+    });
+
+    const flaggedByCode = new Map(evaluation.flagged.map((entry) => [entry.parameterCode, entry]));
+    const parameterByCode = new Map((item.orderableTest.parameters ?? []).map((entry) => [entry.code, entry]));
+    const entriesToSave = new Map<string, string>();
+    for (const entry of dto.results) entriesToSave.set(entry.parameterCode, entry.value);
+    for (const derived of evaluation.derived) entriesToSave.set(derived.parameterCode, String(derived.value));
+
+    const saved: LabResult[] = [];
+    let hasCritical = false;
+
+    for (const [parameterCode, value] of entriesToSave) {
+      const parameter = parameterByCode.get(parameterCode);
+      if (!parameter) continue;
+
+      const flagged = flaggedByCode.get(parameterCode);
+      const parsedValue = parseResultValue(value);
+      const flag = flagged
+        ? resolveLegacyResultFlag(
+            flagged.flag,
+            parsedValue,
+            (parameter.referenceRanges ?? []).map(mapReferenceRangeEntity),
+            patient,
+          )
+        : 'normal';
+      const isCritical = flag === 'critically_low' || flag === 'critically_high';
+      hasCritical = hasCritical || isCritical;
+
+      saved.push(
+        await this.results.save(
+          this.results.create({
+            requestItem: item,
+            sample,
+            parameter,
+            value,
+            unit: parameter.unit,
+            flag,
+            referenceRange: flagged?.referenceRangeLabel ?? null,
+            isCritical,
+            verifiedBy: null,
+            verifiedAt: null,
+            reviewedBy: null,
+            reviewedAt: null,
+            createdBy: request.user?.sub ?? null,
+            updatedBy: request.user?.sub ?? null,
+          }),
+        ),
+      );
+    }
+
+    await this.items.update(item.id, { status: 'resulted' });
+    await this.requests.update(item.request.id, { status: 'resulted' });
+
+    if (hasCritical) {
+      await this.notifyCriticalResult(item, 'Panel results', null, request);
+    }
+
+    return { saved, derived: evaluation.derived, flagged: evaluation.flagged };
+  }
+
+  private async notifyCriticalResult(
+    item: LabRequestItem,
+    value: string,
+    unit: string | null,
+    request: RequestContext,
+  ) {
+    const labRequest = await this.requests.findOne({
+      where: { id: item.request.id },
+      relations: {
+        patient: true,
+        encounter: { attendingDoctor: true },
+        admission: { admittingDoctor: true },
+      },
+    });
+    if (!labRequest) return;
+
+    await this.notifications.notifyInvestigationStakeholders(
+      this.notifications.investigationRecipients({
+        createdBy: labRequest.createdBy,
+        attendingDoctorId: labRequest.encounter?.attendingDoctor?.id,
+        admittingDoctorId: labRequest.admission?.admittingDoctor?.id,
+      }),
+      {
+        title: 'Critical lab result',
+        body: `${labRequest.patient.firstName} ${labRequest.patient.lastName} — ${
+          item.orderableTest?.name ?? item.test?.name ?? 'Lab test'
+        }: ${value} ${unit ?? ''}`.trim(),
+        severity: 'critical',
+        link: `/laboratory`,
+        actorId: request.user?.sub ?? null,
+      },
+    );
   }
 
   async verifyRequest(id: string, request: RequestContext) {
@@ -665,4 +841,32 @@ function splitCsvLine(line: string): string[] {
   }
   values.push(current);
   return values;
+}
+
+function toPatientDemographics(patient: Patient): PatientDemographics {
+  const gender: 'M' | 'F' = patient.gender === 'male' ? 'M' : 'F';
+  const dob = new Date(patient.dateOfBirth);
+  const ageDays = Math.max(0, Math.floor((Date.now() - dob.getTime()) / 86400000));
+  return { gender, ageDays };
+}
+
+function parseResultValue(value: string): number | string | boolean {
+  const trimmed = value.trim();
+  if (trimmed.toLowerCase() === 'positive') return true;
+  if (trimmed.toLowerCase() === 'negative') return false;
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) && trimmed !== '' ? numeric : trimmed;
+}
+
+function mapReferenceRangeEntity(range: LabReferenceRange): SeedReferenceRange {
+  return {
+    gender: range.gender,
+    ageMinDays: range.ageMinDays ?? undefined,
+    ageMaxDays: range.ageMaxDays ?? undefined,
+    rangeLow: range.rangeLow !== null ? Number(range.rangeLow) : undefined,
+    rangeHigh: range.rangeHigh !== null ? Number(range.rangeHigh) : undefined,
+    criticalLow: range.criticalLow !== null ? Number(range.criticalLow) : undefined,
+    criticalHigh: range.criticalHigh !== null ? Number(range.criticalHigh) : undefined,
+    normalTextValue: range.normalTextValue ?? undefined,
+  };
 }

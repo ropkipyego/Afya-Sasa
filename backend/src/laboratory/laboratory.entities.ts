@@ -3,6 +3,7 @@ import { SoftDeleteClinicalEntity } from '../common/auditable.entity';
 import { Admission } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
+import { LabTestParameter, OrderableLabTest } from './lab-catalog.entities';
 
 @Entity({ name: 'lab_panels', schema: 'demo' })
 export class LabPanel extends SoftDeleteClinicalEntity {
@@ -95,6 +96,10 @@ export class LabRequestItem extends SoftDeleteClinicalEntity {
   @JoinColumn({ name: 'panel_id' })
   panel!: LabPanel | null;
 
+  @ManyToOne(() => OrderableLabTest, { nullable: true })
+  @JoinColumn({ name: 'orderable_test_id' })
+  orderableTest!: OrderableLabTest | null;
+
   @Column({ type: 'varchar' })
   status!: 'requested' | 'sample_collected' | 'processing' | 'resulted' | 'verified' | 'cancelled';
 }
@@ -131,6 +136,10 @@ export class LabResult extends SoftDeleteClinicalEntity {
   @ManyToOne(() => LabSample, { nullable: true })
   @JoinColumn({ name: 'sample_id' })
   sample!: LabSample | null;
+
+  @ManyToOne(() => LabTestParameter, { nullable: true })
+  @JoinColumn({ name: 'parameter_id' })
+  parameter!: LabTestParameter | null;
 
   @Column({ type: 'text' })
   value!: string;

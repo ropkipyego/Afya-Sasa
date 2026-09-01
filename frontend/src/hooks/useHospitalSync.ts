@@ -13,6 +13,8 @@ const SYNC_QUERY_PREFIXES = [
   'available-beds',
   'ipd-workspace',
   'triage-queue',
+  'triage-board',
+  'doctor-queue',
   'encounters',
   'lab-requests',
   'radiology-requests',

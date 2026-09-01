@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
@@ -63,8 +63,10 @@ import { SINGLE_TENANT_MODE } from './lib/tenant-config'
 import { filterNavigationByModules } from './lib/nav-module-filter'
 import { navigation, workflowDescriptions } from './lib/navigation'
 import { AppMobileNav } from './components/layout/AppMobileNav'
+import { UserSettingsMenu } from './components/layout/UserSettingsMenu'
 import { printPatientCard } from './lib/print-patient-card'
 import { notify } from './lib/notify'
+import { playNotificationSound } from './lib/notification-sound'
 
 const KNOWN_SCREENS = new Set(navigation.map((item) => item.label))
 
@@ -307,6 +309,7 @@ function App() {
                   </span>
                 ) : null}
               </button>
+              <UserSettingsMenu />
               <div className="hidden text-right text-sm sm:block">
                 <p className="max-w-[8rem] truncate font-semibold sm:max-w-none">
                   {user.firstName} {user.lastName}
@@ -468,10 +471,26 @@ function ForcedPasswordChangeScreen() {
 
 function NotificationCenter() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const previousUnread = useRef(0)
+
+  const { data: inboxSummary } = useQuery({
+    queryKey: ['notification-summary'],
+    queryFn: () => apiRequest<{ unread: number }>('/notifications/inbox/summary'),
+    refetchInterval: 15_000,
+  })
+
+  useEffect(() => {
+    const unread = inboxSummary?.unread ?? 0
+    if (unread > previousUnread.current && previousUnread.current >= 0) {
+      playNotificationSound(unread - previousUnread.current > 2 ? 'critical' : 'warning')
+    }
+    previousUnread.current = unread
+  }, [inboxSummary?.unread])
 
   useEffect(() => {
     const handler = (event: Event) => {
       const notification = (event as CustomEvent<AppNotification>).detail
+      playNotificationSound(notification.severity ?? 'info')
       const duration = notification.severity === 'critical' ? 10000 : 6000
       setNotifications((current) =>
         [{ ...notification, _duration: duration } as AppNotification & { _duration?: number }, ...current].slice(
@@ -921,6 +940,8 @@ interface EncounterItem {
   patient: PatientSummary
   triage?: TriageRecord | null
   consultation?: { id: string; status: string } | null
+  assignedToMe?: boolean
+  attendingDoctor?: { id: string; firstName: string; lastName: string } | null
 }
 
 function DoctorQueue() {
@@ -930,6 +951,7 @@ function DoctorQueue() {
   const { data: queue = [] } = useQuery({
     queryKey: ['doctor-queue'],
     queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
+    refetchInterval: 20_000,
   })
   const createConsultation = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
@@ -1043,6 +1065,14 @@ function DoctorQueue() {
               <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">
                 {encounter.triage?.chiefComplaint ?? encounter.presentingComplaint ?? '—'}
               </p>
+              {encounter.attendingDoctor ? (
+                <p className="mt-1 text-[10px] font-medium text-slate-500">
+                  Assigned: Dr. {encounter.attendingDoctor.firstName} {encounter.attendingDoctor.lastName}
+                  {encounter.assignedToMe === false ? ' · other doctor' : ''}
+                </p>
+              ) : (
+                <p className="mt-1 text-[10px] font-medium text-teal-700">Unassigned — any doctor</p>
+              )}
             </button>
           ))}
           {!queue.length ? (

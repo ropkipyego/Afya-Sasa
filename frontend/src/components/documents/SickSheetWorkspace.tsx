@@ -16,7 +16,9 @@ import { apiRequest } from '../../lib/api'
 import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
-import { hospitalTemplateVars, printOrDownloadTemplate } from '../../lib/template-engine'
+import { printOrDownloadTemplate, sickSheetTemplateVars } from '../../lib/template-engine'
+import { addInclusiveDays, inclusiveDaysBetween } from '../../lib/sick-sheet-dates'
+import { buildLetterheadHtml, buildStampHtml } from '../../lib/letterhead'
 
 type SickSheetRow = {
   id: string
@@ -37,7 +39,6 @@ export function SickSheetWorkspace() {
   const { data: catalog } = useClinicalCatalog()
   const profile = catalog?.hospitalProfile
   const printTemplates = catalog?.printTemplates
-  const facilityName = profile?.facilityName ?? 'Hospital'
   const printRef = useRef<HTMLDivElement>(null)
   const today = new Date().toISOString().slice(0, 10)
   const doctorName = user ? `Dr. ${user.firstName} ${user.lastName}` : ''
@@ -49,7 +50,35 @@ export function SickSheetWorkspace() {
     endDate: today,
     doctorName,
     licenseNumber: '',
+    notes: '',
   })
+
+  const syncPreviewFromForm = (form: HTMLFormElement, changedField?: string) => {
+    const fd = new FormData(form)
+    let daysOff = Number(fd.get('daysOff') || 1)
+    let startDate = String(fd.get('startDate') || today)
+    let endDate = String(fd.get('endDate') || today)
+
+    if (changedField === 'daysOff' || changedField === 'startDate') {
+      endDate = addInclusiveDays(startDate, daysOff)
+      const endInput = form.elements.namedItem('endDate') as HTMLInputElement | null
+      if (endInput) endInput.value = endDate
+    } else if (changedField === 'endDate') {
+      daysOff = inclusiveDaysBetween(startDate, endDate)
+      const daysInput = form.elements.namedItem('daysOff') as HTMLInputElement | null
+      if (daysInput) daysInput.value = String(daysOff)
+    }
+
+    setPreview({
+      diagnosis: String(fd.get('diagnosis') || ''),
+      daysOff,
+      startDate,
+      endDate,
+      doctorName: String(fd.get('doctorName') || doctorName),
+      licenseNumber: String(fd.get('licenseNumber') || ''),
+      notes: String(fd.get('notes') || ''),
+    })
+  }
 
   const { data: history = [] } = useQuery({
     queryKey: ['sick-sheets', selectedPatient?.id],
@@ -89,12 +118,13 @@ export function SickSheetWorkspace() {
     endDate: string
     doctorName: string
     licenseNumber: string
+    notes?: string
   }) => {
     try {
       await printOrDownloadTemplate(
         'sick_sheet',
         {
-          ...hospitalTemplateVars(profile),
+          ...sickSheetTemplateVars(profile, { notes: data.notes }),
           patientName: data.patientName,
           patientNo: data.patientNo,
           diagnosis: data.diagnosis,
@@ -133,22 +163,24 @@ export function SickSheetWorkspace() {
               createSheet.mutate(e.currentTarget)
             }}
             onChange={(e) => {
-              const form = e.currentTarget
-              const fd = new FormData(form)
-              setPreview({
-                diagnosis: String(fd.get('diagnosis') || ''),
-                daysOff: Number(fd.get('daysOff') || 1),
-                startDate: String(fd.get('startDate') || today),
-                endDate: String(fd.get('endDate') || today),
-                doctorName: String(fd.get('doctorName') || doctorName),
-                licenseNumber: String(fd.get('licenseNumber') || ''),
-              })
+              const target = e.target
+              const fieldName =
+                target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+                  ? target.name
+                  : undefined
+              syncPreviewFromForm(e.currentTarget, fieldName)
             }}
           >
             <Field name="diagnosis" label="Diagnosis" required />
             <Field name="daysOff" label="Days off" type="number" min={1} required defaultValue={1} />
             <Field name="startDate" label="Start date" type="date" required defaultValue={today} />
-            <Field name="endDate" label="End date" type="date" required />
+            <Field
+              name="endDate"
+              label="End date"
+              type="date"
+              required
+              defaultValue={addInclusiveDays(today, 1)}
+            />
             <Field name="doctorName" label="Doctor" required defaultValue={doctorName} />
             <Field name="licenseNumber" label="License number" />
             <TextareaField name="notes" label="Additional notes" />
@@ -176,6 +208,7 @@ export function SickSheetWorkspace() {
                     endDate: String(fd.get('endDate') || today),
                     doctorName: String(fd.get('doctorName') || doctorName),
                     licenseNumber: String(fd.get('licenseNumber') || ''),
+                    notes: String(fd.get('notes') || ''),
                   })
                 }}
               >
@@ -191,16 +224,20 @@ export function SickSheetWorkspace() {
           <Card className="p-5 md:p-8">
             <PageHeader title="Live preview" description="Certificate as it will print." />
             <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-inner">
-              <div className="border-b border-teal-700 pb-4 text-center">
-                <p className="text-lg font-bold text-teal-800">{facilityName}</p>
-                <p className="text-sm font-semibold text-slate-600">Medical Certificate / Sick Sheet</p>
-              </div>
+              <div
+                className="border-b pb-4 text-center"
+                style={{ borderColor: profile?.primaryColor ?? '#0d9488' }}
+                dangerouslySetInnerHTML={{ __html: buildLetterheadHtml(profile) }}
+              />
+              <p className="mt-4 text-center text-sm font-semibold text-slate-600">
+                Medical Certificate / Sick Sheet
+              </p>
               {selectedPatient ? (
                 <div className="mt-6 space-y-3 text-sm text-slate-700">
-                  <p>
-                    <strong>Patient:</strong> {selectedPatient.firstName} {selectedPatient.lastName} (
-                    {selectedPatient.patientNo})
+                  <p className="text-lg font-bold text-slate-900">
+                    {selectedPatient.firstName} {selectedPatient.lastName}
                   </p>
+                  <p className="text-slate-500">MRN: {selectedPatient.patientNo}</p>
                   <p>
                     <strong>Diagnosis:</strong> {preview.diagnosis || '—'}
                   </p>
@@ -208,6 +245,11 @@ export function SickSheetWorkspace() {
                     <strong>Period:</strong> {preview.startDate || today} → {preview.endDate || today} (
                     {preview.daysOff} days)
                   </p>
+                  {preview.notes ? (
+                    <p className="rounded-lg bg-slate-50 p-3">
+                      <strong>Additional information:</strong> {preview.notes}
+                    </p>
+                  ) : null}
                   <p className="text-slate-600">
                     This certifies the patient is unfit for work/school during the stated period.
                   </p>
@@ -220,9 +262,10 @@ export function SickSheetWorkspace() {
                         <strong>License:</strong> {preview.licenseNumber || '—'}
                       </p>
                     </div>
-                    <div className="rounded border border-dashed border-slate-300 px-6 py-4 text-slate-400">
-                      Stamp
-                    </div>
+                    <div
+                      className="flex items-center justify-center px-4"
+                      dangerouslySetInnerHTML={{ __html: buildStampHtml(profile) }}
+                    />
                   </div>
                 </div>
               ) : (
@@ -243,6 +286,9 @@ export function SickSheetWorkspace() {
                       {sheet.startDate} → {sheet.endDate} · {sheet.daysOff} days
                     </p>
                     <p className="text-sm text-slate-600">Dr. {sheet.doctorName}</p>
+                    {sheet.notes ? (
+                      <p className="mt-1 text-xs text-slate-500">{sheet.notes}</p>
+                    ) : null}
                   </div>
                   <Button
                     type="button"
@@ -258,6 +304,7 @@ export function SickSheetWorkspace() {
                         endDate: sheet.endDate,
                         doctorName: sheet.doctorName,
                         licenseNumber: sheet.licenseNumber ?? '',
+                        notes: sheet.notes ?? '',
                       })
                     }
                   >

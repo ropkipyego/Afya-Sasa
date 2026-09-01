@@ -170,8 +170,8 @@ export function TriageWorkspace() {
               className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
               onClick={() => setActiveId(null)}
             />
-            <div className="relative z-10 flex max-h-[95dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-6">
+            <div className="relative z-10 flex max-h-[95dvh] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-6">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-widest text-teal-700">
                     Triage assessment
@@ -191,7 +191,17 @@ export function TriageWorkspace() {
                 </button>
               </div>
 
-              <div className="space-y-5 overflow-y-auto p-4 sm:p-6">
+              <ClinicalForm
+                className="flex min-h-0 flex-1 flex-col"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  triage.mutate({
+                    formElement: event.currentTarget,
+                    encounterId: activeEncounter.id,
+                  })
+                }}
+              >
+                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 sm:p-6">
                 <PatientContextHeader patient={activeEncounter.patient} workflowStep="in_triage" />
 
                 {alerts.length ? (
@@ -246,15 +256,6 @@ export function TriageWorkspace() {
                       description="Abnormal values generate alerts for the doctor."
                     />
                   </div>
-                  <ClinicalForm
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      triage.mutate({
-                        formElement: event.currentTarget,
-                        encounterId: activeEncounter.id,
-                      })
-                    }}
-                  >
                     <FormSection title="Triage category" columns={3}>
                       <SelectField name="colour" label="Triage colour" required>
                         <option value="red">Emergency — Red</option>
@@ -289,7 +290,10 @@ export function TriageWorkspace() {
                     <FormSection title="Vitals" description="Normal ranges shown below each field." columns={1}>
                       <VitalsForm />
                     </FormSection>
+                </Card>
+                </div>
 
+                <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:px-6">
                     <FormActions>
                       <Button
                         type="button"
@@ -302,9 +306,8 @@ export function TriageWorkspace() {
                         Submit triage → doctor queue
                       </Button>
                     </FormActions>
-                  </ClinicalForm>
-                </Card>
-              </div>
+                </div>
+              </ClinicalForm>
             </div>
           </div>,
           document.body,
