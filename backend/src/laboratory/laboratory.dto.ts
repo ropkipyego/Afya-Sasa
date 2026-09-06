@@ -103,6 +103,36 @@ export class CreateLabRequestDto {
   @IsOptional()
   @IsArray()
   orderableTestIds?: string[];
+
+  @ApiPropertyOptional({ enum: ['cash', 'mpesa', 'card', 'insurance', 'quickbooks', 'waived'] })
+  @IsOptional()
+  @IsIn(['cash', 'mpesa', 'card', 'insurance', 'quickbooks', 'waived'])
+  paymentMethod?: 'cash' | 'mpesa' | 'card' | 'insurance' | 'quickbooks' | 'waived';
+
+  @ApiPropertyOptional({ description: 'Insurance scheme code e.g. sha, jubilee' })
+  @IsOptional()
+  @IsString()
+  payerScheme?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  paymentReference?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  mpesaPhone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  billingAmount?: number;
+
+  @ApiPropertyOptional({ enum: ['self_request', 'walk_in', 'referral'] })
+  @IsOptional()
+  @IsIn(['self_request', 'walk_in', 'referral'])
+  walkInSource?: 'self_request' | 'walk_in' | 'referral';
 }
 
 export class CollectSampleDto {

@@ -32,6 +32,20 @@ export class PaginationQueryDto {
   @IsOptional()
   @IsString()
   sortBy?: string;
+
+  @ApiPropertyOptional({ description: 'Minimum patient age in years (inclusive)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  ageMin?: number;
+
+  @ApiPropertyOptional({ description: 'Maximum patient age in years (inclusive)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  ageMax?: number;
 }
 
 export type PaginatedMeta = {

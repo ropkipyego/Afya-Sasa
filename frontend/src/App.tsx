@@ -31,6 +31,7 @@ import { HospitalControlCenter } from './components/admin/HospitalControlCenter'
 import { HospitalBrandMark, HospitalFacilityBadge } from './components/branding/HospitalBrandMark'
 import { useClinicalCatalog } from './hooks/useClinicalCatalog'
 import { resolveHospitalBranding } from './lib/hospital-configuration'
+import { PaymentDesk } from './components/payments/PaymentDesk'
 import { OpdCheckInWorkspace } from './components/opd/OpdCheckInWorkspace'
 import { TriageWorkspace } from './components/opd/TriageWorkspace'
 import { AppointmentCenter } from './components/appointments/AppointmentCenter'
@@ -50,6 +51,7 @@ import { MaternityServiceLine } from './components/maternity/MaternityServiceLin
 import { EmergencyCommandCenter } from './components/emergency/EmergencyCommandCenter'
 import { NotificationInbox } from './components/notifications/NotificationInbox'
 import { OperationalWorklists } from './components/worklists/OperationalWorklists'
+import { PatientRegistry } from './components/patients/PatientRegistry'
 import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
 import { PatientCardPrint } from './components/patients/PatientCardPrint'
 import { useHospitalSync } from './hooks/useHospitalSync'
@@ -230,7 +232,7 @@ function App() {
 
         <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
           {Object.entries(groupedNavigation).map(([group, items]) => (
-            <NavGroup key={group} title={group} defaultOpen={group === 'Reception' || group === 'Outpatient'}>
+            <NavGroup key={group} title={group} defaultOpen={group === 'Front Office' || group === 'Outpatient'}>
               {items.map((item) => {
                 const Icon = item.icon
                 const active = activeScreen === item.label
@@ -284,7 +286,7 @@ function App() {
                 {greeting}
                 <span className="welcome-accent font-medium text-teal-700">
                   {' '}
-                  — welcome to the system
+                  — welcome to Afyasasa
                 </span>
               </p>
               <p className="mt-0.5 truncate text-sm text-slate-500 animate-fade-in">
@@ -332,8 +334,12 @@ function App() {
         <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24 md:p-6 md:pb-24">
           {activeScreen === 'Register Patient' ? <PatientRegistrationForm /> : null}
           {activeScreen === 'OPD Check-In' ? <OpdCheckInWorkspace /> : null}
+          {activeScreen === 'Payments' ? <PaymentDesk /> : null}
           {activeScreen === 'Triage Queue' ? <TriageWorkspace /> : null}
-          {activeScreen === 'Worklists' ? (
+          {activeScreen === 'Patient Registry' ? (
+            <PatientRegistry onOpenPatient={setSelectedPatientId} />
+          ) : null}
+          {activeScreen === 'Care Queues' || activeScreen === 'Worklists' ? (
             <OperationalWorklists onOpenPatient={setSelectedPatientId} initialModule="opd" />
           ) : null}
           {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}

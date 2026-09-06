@@ -200,6 +200,7 @@ export class RadiologyService {
         patientId: dto.patientId,
         encounterId: dto.encounterId,
         admissionId: dto.admissionId,
+        allowWalkIn: true,
       },
       request,
     );
@@ -221,6 +222,8 @@ export class RadiologyService {
         bodyPart: dto.bodyPart,
         views: dto.views ?? null,
         clinicalIndication: dto.clinicalIndication,
+        referringClinician: dto.referringClinician ?? null,
+        requestFormData: dto.requestFormData ?? null,
         priority: dto.priority,
         status: 'requested',
         createdBy: request.user?.sub ?? null,

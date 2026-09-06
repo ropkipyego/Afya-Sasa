@@ -13,6 +13,7 @@ export function useClinicalCatalog() {
         return normalizeClinicalCatalog(null)
       }
     },
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 15 * 60_000,
   })
 }

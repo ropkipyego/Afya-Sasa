@@ -24,6 +24,10 @@ export class ClinicalOrderContextService {
       encounterId?: string;
       admissionId?: string;
       allowWalkIn?: boolean;
+      paymentMethod?: string | null;
+      payerScheme?: string | null;
+      paymentReference?: string | null;
+      mpesaPhone?: string | null;
     },
     request: RequestContext,
   ): Promise<{ encounter: Encounter; admission: Admission | null }> {
@@ -56,7 +60,7 @@ export class ClinicalOrderContextService {
       }
 
       if (params.allowWalkIn) {
-        const walkIn = await this.encounters.save(
+        const saved = await this.encounters.save(
           this.encounters.create({
             encounterNo: await this.generateLabWalkInNo(),
             patient,
@@ -69,12 +73,13 @@ export class ClinicalOrderContextService {
             referralReason: null,
             destination: null,
             departmentName: 'Laboratory',
-            paymentMethod: null,
-            receiptNumber: null,
+            paymentMethod: (params.paymentMethod as Encounter['paymentMethod']) ?? null,
+            receiptNumber: params.paymentReference ?? null,
             createdBy: request.user?.sub ?? null,
             updatedBy: request.user?.sub ?? null,
           }),
         );
+        const walkIn = Array.isArray(saved) ? saved[0] : saved;
         return { encounter: walkIn, admission: null };
       }
 

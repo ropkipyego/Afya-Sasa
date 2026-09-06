@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
+import { ImportOrderableCatalogDto } from '../payments/payments.dto';
 import { LabCatalogService, type EvaluateLabResultsDto } from './lab-catalog.service';
 
 @ApiBearerAuth()
@@ -43,5 +45,11 @@ export class LabCatalogController {
   @RequirePermissions('lab_catalogue:manage')
   seed() {
     return this.catalogService.ensureSeeded();
+  }
+
+  @Post('import')
+  @RequirePermissions('lab_catalogue:manage')
+  importOrderableCatalog(@Body() dto: ImportOrderableCatalogDto, @Req() request: RequestContext) {
+    return this.catalogService.importOrderableCatalog(dto.csv, request);
   }
 }

@@ -44,6 +44,12 @@ export class RadiologyRequest extends SoftDeleteClinicalEntity {
   @Column({ name: 'clinical_indication', type: 'text' })
   clinicalIndication!: string;
 
+  @Column({ type: 'varchar', name: 'referring_clinician', nullable: true })
+  referringClinician!: string | null;
+
+  @Column({ type: 'jsonb', name: 'request_form_data', nullable: true })
+  requestFormData!: Record<string, unknown> | null;
+
   @Column({ type: 'varchar' })
   priority!: 'routine' | 'urgent' | 'stat';
 

@@ -1,7 +1,7 @@
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Trash2 } from 'lucide-react'
 import { Button, Card, Field, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { bedStatusStyles } from './ipd-utils'
@@ -74,6 +74,24 @@ export function IpdAdminSetup({ onBack }: { onBack?: () => void }) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
       await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+      await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
+    },
+  })
+
+  const deleteBed = useMutation({
+    mutationFn: (bedId: string) => apiRequest(`/inpatient/beds/${bedId}`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['wards'] })
+      await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
+    },
+  })
+
+  const deleteWard = useMutation({
+    mutationFn: (wardId: string) => apiRequest(`/inpatient/wards/${wardId}`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['wards'] })
       await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
     },
   })
@@ -160,6 +178,33 @@ export function IpdAdminSetup({ onBack }: { onBack?: () => void }) {
         </Card>
       </div>
 
+      <Card>
+        <h3 className="text-lg font-bold">Configured wards</h3>
+        <div className="mt-4 space-y-2">
+          {wards.map((ward) => (
+            <div
+              key={ward.id}
+              className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3"
+            >
+              <span className="font-semibold">{ward.name}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-xs text-rose-700"
+                loading={deleteWard.isPending}
+                onClick={() => {
+                  if (window.confirm(`Remove ward ${ward.name} and all its beds?`)) deleteWard.mutate(ward.id)
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Remove ward
+              </Button>
+            </div>
+          ))}
+          {!wards.length ? <p className="text-sm text-slate-500">No wards configured yet.</p> : null}
+        </div>
+      </Card>
+
       <div>
         <h3 className="mb-4 text-lg font-bold">Bed board</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -196,6 +241,17 @@ export function IpdAdminSetup({ onBack }: { onBack?: () => void }) {
                 </select>
                 <Button type="submit" variant="secondary" className="text-xs">
                   Update
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-xs text-rose-700"
+                  loading={deleteBed.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Remove bed ${bed.bedNo}?`)) deleteBed.mutate(bed.id)
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </form>
             </div>

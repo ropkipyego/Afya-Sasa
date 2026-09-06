@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Printer, Search, Trash2 } from 'lucide-react'
 import { Alert, Button, Card, Field, FileUploadZone, Input, PageHeader, SelectField } from '../ui'
 import { apiRequest } from '../../lib/api'
-import { downloadClinicalFile, uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
+import { DocumentViewerModal } from './DocumentViewerModal'
+import { downloadClinicalFile, uploadClinicalFile } from '../../lib/clinical-upload'
 import { notify } from '../../lib/notify'
 import { ALLOWED_UPLOAD_ACCEPT } from '../../lib/upload-limits'
 import { useAuthStore } from '../../lib/auth-store'
@@ -36,7 +37,7 @@ const audiences = [
   { value: 'lab', label: 'Laboratory' },
   { value: 'radiology', label: 'Radiology' },
   { value: 'nursing', label: 'Nursing' },
-  { value: 'reception', label: 'Reception' },
+  { value: 'reception', label: 'Front Office' },
   { value: 'admin', label: 'Administration' },
 ]
 
@@ -48,6 +49,7 @@ export function HospitalLibrary({ adminMode = false }: { adminMode?: boolean }) 
   const [uploading, setUploading] = useState(false)
   const [publishFile, setPublishFile] = useState<File | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [viewerDoc, setViewerDoc] = useState<HospitalDocumentRow | null>(null)
   const [publishForm, setPublishForm] = useState({
     title: '',
     description: '',
@@ -237,34 +239,14 @@ export function HospitalLibrary({ adminMode = false }: { adminMode?: boolean }) 
                   <Button
                     type="button"
                     variant="secondary"
-                    loading={busyId === `${doc.id}-view`}
-                    onClick={async () => {
-                      setBusyId(`${doc.id}-view`)
-                      try {
-                        await viewClinicalFile(doc.storagePath)
-                      } catch (error) {
-                        notify('View failed', (error as Error).message, 'critical')
-                      } finally {
-                        setBusyId(null)
-                      }
-                    }}
+                    onClick={() => setViewerDoc(doc)}
                   >
                     View
                   </Button>
                   <Button
                     type="button"
                     variant="secondary"
-                    loading={busyId === `${doc.id}-print`}
-                    onClick={async () => {
-                      setBusyId(`${doc.id}-print`)
-                      try {
-                        await viewClinicalFile(doc.storagePath)
-                      } catch (error) {
-                        notify('Print failed', (error as Error).message, 'critical')
-                      } finally {
-                        setBusyId(null)
-                      }
-                    }}
+                    onClick={() => setViewerDoc(doc)}
                   >
                     <Printer className="h-4 w-4" />
                   </Button>
@@ -300,6 +282,16 @@ export function HospitalLibrary({ adminMode = false }: { adminMode?: boolean }) 
           </Alert>
         )}
       </Card>
+
+      <DocumentViewerModal
+        open={Boolean(viewerDoc)}
+        onClose={() => setViewerDoc(null)}
+        title={viewerDoc?.title ?? 'Document'}
+        filename={viewerDoc?.filename ?? ''}
+        mimeType={viewerDoc?.mimeType ?? ''}
+        storagePath={viewerDoc?.storagePath ?? ''}
+        autoDownload={false}
+      />
     </div>
   )
 }

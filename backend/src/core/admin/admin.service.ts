@@ -240,9 +240,36 @@ export class AdminService {
 
   async getClinicalCatalog(request: RequestContext) {
     const settings = await this.getSettings(request);
-    const catalog = settings.clinicalCatalog ?? {};
+    const catalog = { ...(settings.clinicalCatalog ?? {}) } as Record<string, unknown>;
+    if (!this.isDirector(request)) {
+      delete catalog.servicePricingScaffold;
+    }
     const staffClinicians = await this.listClinicalStaff();
     return { ...catalog, staffClinicians };
+  }
+
+  async getPricingScaffold(request: RequestContext) {
+    if (!this.isDirector(request)) {
+      return { enabled: false, items: [] };
+    }
+    const settings = await this.getSettings(request);
+    const scaffold = (settings.clinicalCatalog ?? {}) as {
+      servicePricingScaffold?: {
+        enabled?: boolean;
+        items?: Array<{ code: string; name: string; category: string; active: boolean }>;
+      };
+    };
+    return scaffold.servicePricingScaffold ?? { enabled: false, items: [] };
+  }
+
+  private isDirector(request: RequestContext) {
+    const roles = request.user?.roles ?? [];
+    const permissions = request.user?.permissions ?? [];
+    return (
+      roles.includes('administrator') ||
+      roles.includes('superadmin') ||
+      permissions.includes('settings:manage')
+    );
   }
 
   async listActiveAdministrators() {
@@ -598,6 +625,17 @@ export class AdminService {
         { user: { id: userId } },
         { isPrimary: false },
       );
+    }
+    const existing = await this.userDepartments.findOne({
+      where: { user: { id: userId }, department: { id: dto.departmentId } },
+    });
+    if (existing) {
+      if (dto.isPrimary) {
+        existing.isPrimary = true;
+        existing.updatedBy = request.user?.sub ?? null;
+        return this.userDepartments.save(existing);
+      }
+      return existing;
     }
     return this.userDepartments.save(
       this.userDepartments.create({

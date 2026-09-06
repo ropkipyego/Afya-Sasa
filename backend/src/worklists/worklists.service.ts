@@ -57,6 +57,7 @@ export class WorklistsService {
   availableLists() {
     return {
       registration: [
+        'all-patients',
         'recently-registered',
         'today',
         'inactive',
@@ -91,6 +92,8 @@ export class WorklistsService {
       qb.andWhere('patient.created_at >= :weekAgo', { weekAgo });
     } else if (listKey === 'today') {
       qb.andWhere('patient.created_at >= :startOfDay', { startOfDay });
+    } else if (listKey === 'all-patients') {
+      // Full registry — optional age filters applied below
     } else if (listKey === 'inactive') {
       const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
       qb.andWhere(
@@ -131,6 +134,21 @@ export class WorklistsService {
         `(patient.first_name ILIKE :term OR patient.last_name ILIKE :term OR patient.patient_no ILIKE :term)`,
         { term },
       );
+    }
+
+    if (query.ageMin !== undefined || query.ageMax !== undefined) {
+      const today = new Date();
+      if (query.ageMax !== undefined) {
+        const minDob = new Date(today);
+        minDob.setFullYear(today.getFullYear() - query.ageMax - 1);
+        minDob.setDate(minDob.getDate() + 1);
+        qb.andWhere('patient.date_of_birth >= :minDob', { minDob: minDob.toISOString().slice(0, 10) });
+      }
+      if (query.ageMin !== undefined) {
+        const maxDob = new Date(today);
+        maxDob.setFullYear(today.getFullYear() - query.ageMin);
+        qb.andWhere('patient.date_of_birth <= :maxDob', { maxDob: maxDob.toISOString().slice(0, 10) });
+      }
     }
 
     qb.orderBy('patient.created_at', query.sortDir === 'asc' ? 'ASC' : 'DESC');

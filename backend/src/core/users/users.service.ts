@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
   Permission,
-  Role,
   RolePermission,
   User,
   UserRole,
@@ -28,34 +27,26 @@ export class UsersService {
     roles: string[];
     permissions: string[];
   }> {
-    const assignments = await this.userRoles.find({
-      where: { user: { id: userId } },
-      relations: { role: true },
-    });
-    const roles = assignments.map((assignment) => assignment.role.name);
+    const rows = await this.userRoles
+      .createQueryBuilder('ur')
+      .innerJoin('ur.role', 'role')
+      .leftJoin(RolePermission, 'rp', 'rp.role_id = role.id')
+      .leftJoin(Permission, 'perm', 'perm.id = rp.permission_id')
+      .where('ur.user_id = :userId', { userId })
+      .select('role.name', 'roleName')
+      .addSelect('perm.permission_key', 'permissionKey')
+      .getRawMany<{ roleName: string; permissionKey: string | null }>();
 
-    if (!roles.length) {
-      return { roles: [], permissions: [] };
-    }
+    const roles = [...new Set(rows.map((row) => row.roleName).filter(Boolean))];
+    const permissions = [
+      ...new Set(
+        rows
+          .map((row) => row.permissionKey)
+          .filter((key): key is string => Boolean(key)),
+      ),
+    ];
 
-    const rolePermissions = await this.rolePermissions.find({
-      where: assignments.map((assignment) => ({
-        role: { id: assignment.role.id } as Role,
-      })),
-      relations: { permission: true },
-    });
-
-    return {
-      roles,
-      permissions: [
-        ...new Set(
-          rolePermissions.map(
-            (assignment: RolePermission & { permission: Permission }) =>
-              assignment.permission.permissionKey,
-          ),
-        ),
-      ],
-    };
+    return { roles, permissions };
   }
 
   async recordSuccessfulLogin(user: User): Promise<void> {

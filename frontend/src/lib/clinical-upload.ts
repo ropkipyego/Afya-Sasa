@@ -10,7 +10,7 @@ export type UploadedClinicalFile = {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
-async function fetchClinicalFileBlob(storagePath: string): Promise<Blob> {
+export async function fetchClinicalFileBlob(storagePath: string): Promise<Blob> {
   const { tenant, accessToken } = useAuthStore.getState()
   const response = await fetch(`${API_BASE}/storage/fetch`, {
     method: 'POST',

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsObject, IsOptional, IsString } from 'class-validator';
 
 export class CreateModalityDto {
   @ApiProperty()
@@ -46,6 +46,16 @@ export class CreateRadiologyRequestDto {
   @ApiProperty({ enum: ['routine', 'urgent', 'stat'] })
   @IsIn(['routine', 'urgent', 'stat'])
   priority!: 'routine' | 'urgent' | 'stat';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  referringClinician?: string;
+
+  @ApiPropertyOptional({ description: 'Structured online request template fields' })
+  @IsOptional()
+  @IsObject()
+  requestFormData?: Record<string, unknown>;
 }
 
 export class UpdateRadiologyStatusDto {

@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, FileUp, FlaskConical, Inbox, LayoutDashboard } from 'lucide-react'
+import { AlertTriangle, FileUp, FlaskConical, Inbox, LayoutDashboard, UserRound } from 'lucide-react'
 import { LabDashboard } from './LabDashboard'
 import { LabWorklist } from './LabWorklist'
+import { LabWalkInDesk } from './LabWalkInDesk'
 import { LabResultsEntry } from './LabResultsEntry'
 import { ResultsInbox } from './ResultsInbox'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { LabHero } from './lab-ui'
 import { apiRequest } from '../../lib/api'
 
-type LabTab = 'overview' | 'worklist' | 'results' | 'upload'
+type LabTab = 'overview' | 'walkin' | 'worklist' | 'results' | 'upload'
 
 async function fetchLabSummary() {
   const [requests, critical] = await Promise.all([
@@ -57,6 +58,7 @@ export function LabModule({ initialTab = 'worklist' }: { initialTab?: LabTab }) 
         onChange={setTab}
         tabs={[
           { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="h-4 w-4" /> },
+          { id: 'walkin', label: 'Walk-in desk', icon: <UserRound className="h-4 w-4" /> },
           { id: 'worklist', label: 'Worklist', icon: <FlaskConical className="h-4 w-4" /> },
           { id: 'upload', label: 'Result entry', icon: <FileUp className="h-4 w-4" /> },
           { id: 'results', label: 'Results inbox', icon: <Inbox className="h-4 w-4" /> },
@@ -65,6 +67,7 @@ export function LabModule({ initialTab = 'worklist' }: { initialTab?: LabTab }) 
 
       <div className="lab-tab-panel">
         {tab === 'overview' ? <LabDashboard embedded /> : null}
+        {tab === 'walkin' ? <LabWalkInDesk /> : null}
         {tab === 'worklist' ? <LabWorklist /> : null}
         {tab === 'upload' ? <LabResultsEntry /> : null}
         {tab === 'results' ? <ResultsInbox /> : null}

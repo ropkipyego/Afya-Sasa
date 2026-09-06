@@ -162,7 +162,7 @@ export function PatientRegistrationForm() {
       <div className="grid gap-8 xl:grid-cols-[1.35fr_0.65fr]">
         <Card className="p-5 md:p-8">
           <PageHeader
-            eyebrow="Reception"
+            eyebrow="Front Office"
             title="Register a patient"
             description="Search first. Only continue if no matching patient exists."
           />
@@ -256,7 +256,7 @@ export function PatientRegistrationForm() {
     <div className="workspace-shell animate-fade-in">
     <Card className="max-w-5xl p-5 md:p-8">
       <PageHeader
-        eyebrow="Reception"
+        eyebrow="Front Office"
         title="New patient registration"
         description="Required fields only upfront. Expand optional sections as needed."
       />

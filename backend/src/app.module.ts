@@ -30,6 +30,7 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { WorklistsModule } from './worklists/worklists.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { PaymentsModule } from './payments/payments.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
@@ -96,6 +97,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     WorkflowModule,
     InventoryModule,
     HealthModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

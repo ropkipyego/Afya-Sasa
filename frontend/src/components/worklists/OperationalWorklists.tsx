@@ -41,6 +41,7 @@ const moduleLabels: Record<string, string> = {
 }
 
 const listLabels: Record<string, string> = {
+  'all-patients': 'All registered patients',
   'recently-registered': 'Recently registered',
   today: 'Registered today',
   inactive: 'Inactive (no visit 12+ months)',
@@ -142,7 +143,7 @@ export function OperationalWorklists({
     <div className="space-y-6 animate-fade-in">
       <Card>
         <PageHeader
-          title="Operational worklists"
+          title="Care queues"
           description="Unified, paginated queues across registration, OPD, ED, IPD, lab, and radiology."
         />
       </Card>

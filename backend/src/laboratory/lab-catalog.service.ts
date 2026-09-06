@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import type { RequestContext } from '../common/request-context';
 import { seedLabCatalog } from './data/lab-catalog.seed-runner';
 import {
   LabDepartment,
@@ -116,6 +117,221 @@ export class LabCatalogService {
 
     return { derived, flagged };
   }
+
+  async importOrderableCatalog(csv: string, request: RequestContext) {
+    const rows = parseCsv(csv);
+    if (!rows.length) {
+      throw new BadRequestException('CSV is empty or missing a header row.');
+    }
+
+    const summary = {
+      departmentsCreated: 0,
+      specimensCreated: 0,
+      testsCreated: 0,
+      testsUpdated: 0,
+      testsSkipped: 0,
+      parametersCreated: 0,
+      errors: [] as string[],
+    };
+
+    const departmentByCode = new Map(
+      (await this.departments.find()).map((row) => [row.code.toUpperCase(), row]),
+    );
+    const specimenByCode = new Map(
+      (await this.specimens.find()).map((row) => [row.code.toUpperCase(), row]),
+    );
+
+    for (const [index, row] of rows.entries()) {
+      const line = index + 2;
+      const code = (row.code ?? '').trim().toUpperCase();
+      const name = (row.name ?? '').trim();
+      const departmentCode = (row.department_code ?? row.department ?? '').trim().toUpperCase();
+      const specimenCode = (row.specimen_code ?? row.specimen ?? '').trim().toUpperCase();
+
+      if (!code || !name) {
+        summary.errors.push(`Line ${line}: code and name are required`);
+        continue;
+      }
+      if (!departmentCode || !specimenCode) {
+        summary.errors.push(`Line ${line}: department_code and specimen_code are required`);
+        continue;
+      }
+
+      try {
+        let department = departmentByCode.get(departmentCode);
+        if (!department) {
+          department = await this.departments.save(
+            this.departments.create({
+              code: departmentCode,
+              name: row.department_name?.trim() || departmentCode,
+              active: true,
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          );
+          departmentByCode.set(departmentCode, department);
+          summary.departmentsCreated += 1;
+        }
+
+        let specimen = specimenByCode.get(specimenCode);
+        if (!specimen) {
+          specimen = await this.specimens.save(
+            this.specimens.create({
+              code: specimenCode,
+              name: row.specimen_name?.trim() || specimenCode,
+              containerDescription: row.container?.trim() || 'Standard container',
+              additive: row.additive?.trim() || null,
+              color: row.color?.trim() || null,
+              active: true,
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          );
+          specimenByCode.set(specimenCode, specimen);
+          summary.specimensCreated += 1;
+        }
+
+        const isPanel = ['true', '1', 'yes', 'panel'].includes(
+          (row.is_panel ?? row.record_type ?? 'false').trim().toLowerCase(),
+        );
+        const tatMinutes = row.standard_tat_minutes
+          ? Number(row.standard_tat_minutes)
+          : row.tat_minutes
+            ? Number(row.tat_minutes)
+            : 240;
+
+        let test = await this.orderableTests.findOne({ where: { code } });
+        if (test) {
+          await this.orderableTests.update(test.id, {
+            name,
+            department,
+            specimen,
+            isPanel,
+            standardTatMinutes: Number.isFinite(tatMinutes) ? tatMinutes : test.standardTatMinutes,
+            active: true,
+            updatedBy: request.user?.sub ?? null,
+          });
+          test = await this.orderableTests.findOneOrFail({ where: { id: test.id } });
+          summary.testsUpdated += 1;
+        } else {
+          test = await this.orderableTests.save(
+            this.orderableTests.create({
+              name,
+              code,
+              department,
+              specimen,
+              isPanel,
+              standardTatMinutes: Number.isFinite(tatMinutes) ? tatMinutes : 240,
+              active: true,
+              legacyPanelId: null,
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          );
+          summary.testsCreated += 1;
+        }
+
+        const parameterCode = (row.parameter_code ?? '').trim().toUpperCase();
+        const parameterName = (row.parameter_name ?? row.parameter ?? '').trim();
+        if (parameterCode && parameterName) {
+          const existingParam = await this.parameters.findOne({
+            where: { orderableTest: { id: test.id }, code: parameterCode },
+            relations: { orderableTest: true },
+          });
+          if (!existingParam) {
+            const resultType = (row.result_data_type ?? 'numeric').trim().toLowerCase();
+            const param = await this.parameters.save(
+              this.parameters.create({
+                orderableTest: test,
+                code: parameterCode,
+                name: parameterName,
+                unit: row.unit?.trim() || row.parameter_unit?.trim() || null,
+                resultDataType: ['numeric', 'boolean', 'text', 'select_options'].includes(resultType)
+                  ? (resultType as 'numeric' | 'boolean' | 'text' | 'select_options')
+                  : 'numeric',
+                selectOptions: null,
+                orderIndex: Number(row.parameter_order ?? row.order_index ?? 1) || 1,
+                calculatedFormula: null,
+                active: true,
+                createdBy: request.user?.sub ?? null,
+                updatedBy: request.user?.sub ?? null,
+              }),
+            );
+            summary.parametersCreated += 1;
+
+            const refLow = row.ref_low ?? row.reference_low;
+            const refHigh = row.ref_high ?? row.reference_high;
+            if (refLow && refHigh) {
+              await this.referenceRanges.save(
+                this.referenceRanges.create({
+                  parameter: param,
+                  gender: 'ALL',
+                  ageMinDays: null,
+                  ageMaxDays: null,
+                  rangeLow: refLow,
+                  rangeHigh: refHigh,
+                  criticalLow: row.critical_low?.trim() || null,
+                  criticalHigh: row.critical_high?.trim() || null,
+                  normalTextValue: null,
+                  createdBy: request.user?.sub ?? null,
+                  updatedBy: request.user?.sub ?? null,
+                }),
+              );
+            }
+          }
+        }
+      } catch (error) {
+        summary.errors.push(`Line ${line}: ${(error as Error).message}`);
+        summary.testsSkipped += 1;
+      }
+    }
+
+    return summary;
+  }
+}
+
+function parseCsv(csv: string): Array<Record<string, string>> {
+  const lines = csv
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+  return lines.slice(1).map((line) => {
+    const values = splitCsvLine(line);
+    const row: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      row[header] = values[index]?.trim() ?? '';
+    });
+    return row;
+  });
+}
+
+function splitCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      values.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  values.push(current);
+  return values;
 }
 
 function mapEntityRange(range: LabReferenceRange): SeedReferenceRange {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calculator, CheckCircle2, FileUp, Search } from 'lucide-react'
+import clsx from 'clsx'
+import { CheckCircle2, Calculator, FileUp, Search } from 'lucide-react'
 import { Button, Field, SelectField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { apiRequest } from '../../lib/api'
@@ -400,6 +401,10 @@ export function LabResultsEntry() {
     onSuccess: async () => {
       notify('Panel results saved', 'Derived values and flags applied automatically.', 'success')
       await refresh()
+      const currentIndex = catalogItems.findIndex((item) => item.id === activeItem?.id)
+      if (currentIndex >= 0 && currentIndex < catalogItems.length - 1) {
+        setActiveItemId(catalogItems[currentIndex + 1].id)
+      }
     },
     onError: (e: Error) => notify('Panel entry failed', e.message, 'critical'),
   })
@@ -532,22 +537,39 @@ export function LabResultsEntry() {
               {catalogItems.length ? (
                 <LabSection
                   title="Structured panel entry"
-                  description="SI units · age/gender reference ranges · auto-derived analytes"
+                  description="Enter all ordered tests in sequence — flags and derived values apply automatically."
                 >
                   {catalogItems.length > 1 ? (
-                    <SelectField
-                      name="catalogItem"
-                      label="Ordered test / panel"
-                      value={activeItem?.id ?? ''}
-                      onChange={(e) => setActiveItemId(e.target.value)}
-                    >
-                      {catalogItems.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {itemLabel(item)}
-                          {(item.results?.length ?? 0) > 0 ? ' · saved' : ''}
-                        </option>
-                      ))}
-                    </SelectField>
+                    <div className="mb-4">
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Test entry sequence · {catalogItems.length} ordered
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {catalogItems.map((item, index) => {
+                          const isActive = item.id === activeItem?.id
+                          const isDone = (item.results?.length ?? 0) > 0
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setActiveItemId(item.id)}
+                              className={clsx(
+                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                                isActive
+                                  ? 'border-teal-600 bg-teal-600 text-white shadow-sm'
+                                  : isDone
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-teal-200',
+                              )}
+                            >
+                              <span>{index + 1}</span>
+                              {itemLabel(item)}
+                              {isDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   ) : (
                     <p className="mb-4 text-sm font-semibold text-teal-900">{itemLabel(activeItem!)}</p>
                   )}
@@ -611,7 +633,13 @@ export function LabResultsEntry() {
                   <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-100 pt-5">
                     <Button type="button" loading={enterPanelResults.isPending} onClick={() => enterPanelResults.mutate()}>
                       <CheckCircle2 className="h-4 w-4" />
-                      {savedResults.length ? 'Update panel results' : 'Save panel results'}
+                      {savedResults.length
+                        ? catalogItems.findIndex((i) => i.id === activeItem?.id) < catalogItems.length - 1
+                          ? 'Update & next test'
+                          : 'Update panel results'
+                        : catalogItems.findIndex((i) => i.id === activeItem?.id) < catalogItems.length - 1
+                          ? 'Save & next test'
+                          : 'Save panel results'}
                     </Button>
                     <Button
                       type="button"

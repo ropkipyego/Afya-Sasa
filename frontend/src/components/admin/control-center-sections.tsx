@@ -15,6 +15,7 @@ import {
   Shield,
   Stethoscope,
   Users,
+  Wallet,
 } from 'lucide-react'
 import type { ControlCenterSection } from './HospitalControlCenter'
 
@@ -163,6 +164,15 @@ export const controlCenterCards: ControlCenterCard[] = [
     icon: <Palette className="h-6 w-6" />,
     keywords: ['logo', 'color', 'brand', 'favicon', 'theme'],
     help: 'Logo changes update login, navigation, patient cards, and PDF letterhead.',
+  },
+  {
+    id: 'pricing',
+    title: 'Service pricing readiness',
+    description: 'Director-only scaffold for future billing — service codes without exposed amounts.',
+    category: 'Finance (directors)',
+    icon: <Wallet className="h-6 w-6" />,
+    keywords: ['pricing', 'billing', 'finance', 'director', 'money'],
+    help: 'Prepares service catalog structure. Amounts and money-flow reporting will be enabled in a later release.',
   },
   {
     id: 'notifications',

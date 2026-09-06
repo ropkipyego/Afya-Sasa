@@ -26,6 +26,7 @@ import { UserAccessCenterPanel } from './panels/UserAccessCenterPanel'
 import { RolesPermissionsPanel } from './panels/RolesPermissionsPanel'
 import { SecurityCompliancePanel } from './panels/SecurityCompliancePanel'
 import { BackupRestorePanel } from './panels/BackupRestorePanel'
+import { PricingReadinessPanel } from './panels/PricingReadinessPanel'
 import { AuditLogPanel } from './panels/AuditLogPanel'
 
 export type ControlCenterSection =
@@ -52,6 +53,7 @@ export type ControlCenterSection =
   | 'backup'
   | 'system'
   | 'superadmin'
+  | 'pricing'
 
 export function HospitalControlCenter() {
   const [section, setSection] = useState<ControlCenterSection>('home')
@@ -128,6 +130,7 @@ export function HospitalControlCenter() {
           {section === 'backup' && <BackupRestorePanel />}
           {section === 'system' && <SystemHealthPanel />}
           {section === 'superadmin' && <SuperAdminPanel />}
+          {section === 'pricing' && <PricingReadinessPanel />}
         </div>
       )}
     </div>

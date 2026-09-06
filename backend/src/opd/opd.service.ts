@@ -253,12 +253,70 @@ export class OpdService {
     return ids;
   }
 
+  private readonly queueAlertCooldownMs = 30 * 60 * 1000;
+  private readonly queueWaitThresholdMs = 45 * 60 * 1000;
+  private readonly recentQueueAlerts = new Map<string, number>();
+
+  private async listFrontOfficeUserIds() {
+    const assignments = await this.userRoles
+      .createQueryBuilder('assignment')
+      .innerJoinAndSelect('assignment.user', 'user')
+      .innerJoinAndSelect('assignment.role', 'role')
+      .where('user.active = :active', { active: true })
+      .andWhere('role.name IN (:...roles)', {
+        roles: ['records_officer', 'receptionist', 'administrator'],
+      })
+      .getMany();
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const assignment of assignments) {
+      const userId = assignment.user?.id;
+      if (!userId || seen.has(userId)) continue;
+      seen.add(userId);
+      ids.push(userId);
+    }
+    return ids;
+  }
+
+  private async notifyFrontOfficeOnLongQueueWait(
+    encounters: Array<Encounter & { patient: Patient }>,
+    queueType: 'triage' | 'doctor',
+  ) {
+    const now = Date.now();
+    const overdue = encounters.filter(
+      (encounter) => now - encounter.startedAt.getTime() >= this.queueWaitThresholdMs,
+    );
+    if (!overdue.length) return;
+
+    const recipientIds = await this.listFrontOfficeUserIds();
+    if (!recipientIds.length) return;
+
+    for (const encounter of overdue) {
+      const alertKey = `${queueType}:${encounter.id}`;
+      const lastAlert = this.recentQueueAlerts.get(alertKey);
+      if (lastAlert && now - lastAlert < this.queueAlertCooldownMs) continue;
+      this.recentQueueAlerts.set(alertKey, now);
+
+      const waitMins = Math.round((now - encounter.startedAt.getTime()) / 60_000);
+      const patientName = `${encounter.patient.firstName} ${encounter.patient.lastName}`;
+      await this.notifications.notifyUsers(recipientIds, {
+        title: 'Long queue wait',
+        body: `${patientName} (${encounter.patient.patientNo}) has waited ${waitMins} minutes in the ${queueType === 'triage' ? 'triage' : 'doctor'} queue.`,
+        severity: waitMins >= 90 ? 'critical' : 'warning',
+        link: queueType === 'triage' ? 'Triage Queue' : 'Doctor Queue',
+        tenantCode: defaultTenantCode(),
+      });
+    }
+  }
+
   async triageQueue() {
-    return this.encounters.find({
+    const queue = await this.encounters.find({
       where: { type: 'opd', status: 'registered' },
       relations: { patient: true },
       order: { startedAt: 'ASC' },
     });
+    await this.notifyFrontOfficeOnLongQueueWait(queue, 'triage');
+    return queue;
   }
 
   async triageBoard() {
@@ -307,6 +365,7 @@ export class OpdService {
       relations: { patient: true, attendingDoctor: true },
       order: { startedAt: 'ASC' },
     });
+    await this.notifyFrontOfficeOnLongQueueWait(encounters, 'doctor');
     const triageByEncounter = new Map(
       (
         await this.triages.find({

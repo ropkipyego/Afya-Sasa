@@ -150,7 +150,7 @@ export function AppointmentCenter() {
   return (
     <div className="workspace-shell animate-fade-in">
       <PageHeader
-        eyebrow="Reception"
+        eyebrow="Front Office"
         title="Appointments"
         description="Book, confirm, and track patient appointments."
       />

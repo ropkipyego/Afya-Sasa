@@ -110,6 +110,10 @@ export class LaboratoryService {
         encounterId: dto.encounterId,
         admissionId: dto.admissionId,
         allowWalkIn: true,
+        paymentMethod: dto.paymentMethod ?? null,
+        payerScheme: dto.payerScheme ?? null,
+        paymentReference: dto.paymentReference ?? null,
+        mpesaPhone: dto.mpesaPhone ?? null,
       },
       request,
     );
@@ -180,6 +184,15 @@ export class LaboratoryService {
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
 
+    const paymentStatus =
+      dto.paymentMethod === 'insurance'
+        ? 'insurance_pending'
+        : dto.paymentMethod === 'waived'
+          ? 'waived'
+          : dto.paymentMethod && dto.paymentReference
+            ? 'paid'
+            : 'pending';
+
     const labRequest = await this.requests.save(
       this.requests.create({
         patient,
@@ -190,6 +203,13 @@ export class LaboratoryService {
         notes: dto.notes ?? null,
         status: 'requested',
         cancelledReason: null,
+        paymentMethod: dto.paymentMethod ?? null,
+        payerScheme: dto.payerScheme ?? null,
+        paymentStatus,
+        paymentReference: dto.paymentReference ?? null,
+        mpesaPhone: dto.mpesaPhone ?? null,
+        billingAmount: dto.billingAmount != null ? String(dto.billingAmount) : null,
+        walkInSource: dto.walkInSource ?? null,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),

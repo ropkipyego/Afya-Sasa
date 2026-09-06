@@ -16,7 +16,7 @@ import {
 import { PatientSearchAutocomplete } from '../PatientSearchAutocomplete'
 import { PatientContextHeader } from '../PatientContextHeader'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
-import { type ClinicalCatalog, doctorSelectOptions } from '../../lib/clinical-catalog'
+import { type ClinicalCatalog, doctorSelectOptionsForClinic } from '../../lib/clinical-catalog'
 import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
@@ -46,7 +46,7 @@ export function OpdCheckInWorkspace() {
     preferredDoctorId: '',
     preferredDoctorName: '',
   })
-  const doctorOptions = doctorSelectOptions(catalogData)
+  const doctorOptions = doctorSelectOptionsForClinic(catalogData, visitDraft.departmentName)
 
   const createEncounter = useMutation({
     mutationFn: async (formElement: HTMLFormElement) => {
@@ -79,7 +79,7 @@ export function OpdCheckInWorkspace() {
     <div className="workspace-shell animate-fade-in">
       <Card className="card-hover p-5 md:p-8">
         <PageHeader
-          eyebrow="Reception"
+          eyebrow="Front Office"
           title="OPD check-in"
           description="A calm, step-by-step workflow — identify the patient, set visit context, then check in."
         />

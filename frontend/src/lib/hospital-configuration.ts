@@ -42,6 +42,8 @@ export type StructuredClinic = {
   departmentId?: string
   facilityId?: string
   active: boolean
+  /** User IDs of clinicians assigned to this clinic */
+  doctorIds?: string[]
 }
 
 export type ExtendedClinicalCatalog = ClinicalCatalog & {

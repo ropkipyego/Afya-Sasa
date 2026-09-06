@@ -5,6 +5,7 @@ import { notify } from '../../../lib/notify'
 import { useHospitalConfiguration } from '../../../hooks/useHospitalConfiguration'
 import type { HospitalProfile } from '../../../lib/clinical-catalog'
 import { CONFIG_DEPENDENCY_HINTS } from '../../../lib/hospital-configuration'
+import { JALARAM_BRAND_PRESET } from '../../../lib/jalaram-imaging-request'
 
 export function BrandingPanel() {
   const { catalog, saveSettings } = useHospitalConfiguration()
@@ -30,12 +31,48 @@ export function BrandingPanel() {
     },
   })
 
+  const applyJalaramPreset = useMutation({
+    mutationFn: () =>
+      saveSettings.mutateAsync({
+        clinicalCatalog: {
+          hospitalProfile: {
+            ...profile,
+            ...JALARAM_BRAND_PRESET,
+          },
+        },
+      }),
+    onSuccess: () => {
+      notify(
+        'Jalaram brand applied',
+        'Imaging request forms and printouts will use Jalaram blue/red styling. Upload your logo URL to complete the header.',
+        'success',
+      )
+    },
+  })
+
   return (
     <Card className="p-8">
       <PageHeader
         title="Branding & theme"
         description="One logo upload updates login, sidebar, patient cards, PDFs, and letterhead."
       />
+
+      <div className="mt-6 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-slate-700">
+        <p className="font-semibold text-sky-900">Imaging request form</p>
+        <p className="mt-1">
+          Logo, primary colour, accent colour, tagline, and contact details appear on the digital and
+          printable Jalaram imaging request form (Radiology → New request).
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          className="mt-3"
+          loading={applyJalaramPreset.isPending}
+          onClick={() => applyJalaramPreset.mutate()}
+        >
+          Apply Jalaram imaging brand preset
+        </Button>
+      </div>
 
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
         <p className="font-semibold">Configuration dependency</p>

@@ -80,6 +80,27 @@ export class LabRequest extends SoftDeleteClinicalEntity {
 
   @Column({ name: 'cancelled_reason', type: 'text', nullable: true })
   cancelledReason!: string | null;
+
+  @Column({ name: 'payment_method', type: 'varchar', nullable: true })
+  paymentMethod!: string | null;
+
+  @Column({ name: 'payer_scheme', type: 'varchar', nullable: true })
+  payerScheme!: string | null;
+
+  @Column({ name: 'payment_status', type: 'varchar', default: 'pending' })
+  paymentStatus!: 'pending' | 'paid' | 'insurance_pending' | 'failed' | 'waived';
+
+  @Column({ name: 'payment_reference', type: 'varchar', nullable: true })
+  paymentReference!: string | null;
+
+  @Column({ name: 'mpesa_phone', type: 'varchar', nullable: true })
+  mpesaPhone!: string | null;
+
+  @Column({ name: 'billing_amount', type: 'numeric', nullable: true })
+  billingAmount!: string | null;
+
+  @Column({ name: 'walk_in_source', type: 'varchar', nullable: true })
+  walkInSource!: 'self_request' | 'walk_in' | 'referral' | null;
 }
 
 @Entity({ name: 'lab_request_items', schema: 'demo' })

@@ -125,7 +125,7 @@ export function WardDashboard({
       <section className="space-y-4">
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Bed board</h3>
         <div className="bed-card-grid">
-          {filteredCensus.map((row) => {
+          {filteredCensus.map((row, index) => {
             const isOccupied = Boolean(row.admission && row.patient)
             const bedStyle = bedCardStyles[row.bed.status] ?? bedCardStyles.available
             const clinicalStyle = isOccupied ? ipdStatusStyles[row.clinicalStatus] : ''
@@ -133,9 +133,11 @@ export function WardDashboard({
             return (
               <article
                 key={row.bed.id}
+                style={{ animationDelay: `${index * 60}ms` }}
                 className={clsx(
-                  'card-hover flex min-h-[11rem] flex-col rounded-2xl border-2 p-5 shadow-sm transition',
+                  'bed-card-enter card-hover flex min-h-[11rem] flex-col rounded-2xl border-2 p-5 shadow-sm transition hover:-translate-y-0.5',
                   bedStyle,
+                  isOccupied ? 'bed-card-occupied' : row.bed.status === 'available' ? 'bed-card-available' : '',
                 )}
               >
                 <div className="flex items-start justify-between gap-2">

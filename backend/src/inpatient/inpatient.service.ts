@@ -116,6 +116,45 @@ export class InpatientService {
     return this.getBed(id);
   }
 
+  async deleteBed(id: string, request: RequestContext) {
+    const bed = await this.getBed(id);
+    if (bed.status === 'occupied') {
+      throw new BadRequestException('Cannot remove an occupied bed. Discharge or transfer the patient first.');
+    }
+    const activeAdmission = await this.admissions.findOne({
+      where: { bed: { id }, status: 'active' },
+    });
+    if (activeAdmission) {
+      throw new BadRequestException('Cannot remove a bed with an active admission.');
+    }
+    await this.beds.softRemove(bed);
+    const ward = await this.wards.findOne({ where: { id: bed.ward.id } });
+    if (ward && ward.bedCount > 0) {
+      await this.wards.update(ward.id, {
+        bedCount: ward.bedCount - 1,
+        updatedBy: request.user?.sub ?? null,
+      });
+    }
+    this.realtime.publish(tenantChannel(request), 'bed.updated', { bedId: id, action: 'deleted' });
+    return { ok: true };
+  }
+
+  async deleteWard(id: string, request: RequestContext) {
+    const ward = await this.wards.findOne({ where: { id } });
+    if (!ward) throw new NotFoundException('Ward not found');
+    const beds = await this.beds.find({ where: { ward: { id } } });
+    const occupied = beds.filter((bed) => bed.status === 'occupied');
+    if (occupied.length) {
+      throw new BadRequestException('Cannot remove a ward while beds are occupied.');
+    }
+    if (beds.length) {
+      await this.beds.softRemove(beds);
+    }
+    await this.wards.softRemove(ward);
+    this.realtime.publish(tenantChannel(request), 'bed.updated', { wardId: id, action: 'ward_deleted' });
+    return { ok: true };
+  }
+
   async createAdmission(dto: CreateAdmissionDto, request: RequestContext) {
     const [patient, bed, encounter] = await Promise.all([
       this.patients.findOne({ where: { id: dto.patientId } }),

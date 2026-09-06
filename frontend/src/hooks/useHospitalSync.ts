@@ -49,7 +49,7 @@ function invalidateClinicalQueries(queryClient: ReturnType<typeof useQueryClient
 }
 
 /**
- * Keeps clinical workspaces fresh: 15s polling, refetch on window focus,
+ * Keeps clinical workspaces fresh: 45s polling, refetch on window focus,
  * and Socket.IO when socket.io-client is installed.
  */
 export function useHospitalSync() {
@@ -62,7 +62,7 @@ export function useHospitalSync() {
 
     const interval = window.setInterval(() => {
       invalidateClinicalQueries(queryClient)
-    }, 15_000)
+    }, 45_000)
 
     return () => {
       window.removeEventListener('focus', onFocus)

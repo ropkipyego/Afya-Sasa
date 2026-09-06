@@ -51,6 +51,7 @@ const sampleTypes = [
 export function LabCatalogPanel() {
   const queryClient = useQueryClient()
   const [importSummary, setImportSummary] = useState<string | null>(null)
+  const [lisImportSummary, setLisImportSummary] = useState<string | null>(null)
   const { data: panels = [], isLoading: panelsLoading } = useQuery({
     queryKey: ['lab-panels'],
     queryFn: () => apiRequest<LabPanel[]>('/laboratory/panels'),
@@ -116,6 +117,35 @@ export function LabCatalogPanel() {
       ])
     },
     onError: (error: Error) => notify('Import failed', error.message, 'critical'),
+  })
+
+  const importLisCatalog = useMutation({
+    mutationFn: (csv: string) =>
+      apiRequest<{
+        departmentsCreated: number
+        specimensCreated: number
+        testsCreated: number
+        testsUpdated: number
+        testsSkipped: number
+        parametersCreated: number
+        errors: string[]
+      }>('/laboratory/catalog/import', {
+        method: 'POST',
+        body: JSON.stringify({ csv }),
+      }),
+    onSuccess: async (summary) => {
+      const message = `LIS tests +${summary.testsCreated} updated ${summary.testsUpdated} · parameters +${summary.parametersCreated}${
+        summary.errors.length ? ` · ${summary.errors.length} row warning(s)` : ''
+      }`
+      setLisImportSummary(message)
+      notify('LIS catalog imported', message, summary.errors.length ? 'warning' : 'success')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['lab-catalog-tests'] }),
+        queryClient.invalidateQueries({ queryKey: ['lab-catalog-departments'] }),
+        queryClient.invalidateQueries({ queryKey: ['clinical-order-catalog-tests'] }),
+      ])
+    },
+    onError: (error: Error) => notify('LIS import failed', error.message, 'critical'),
   })
 
   const createTest = useMutation({
@@ -185,6 +215,49 @@ export function LabCatalogPanel() {
           unit, turnaround_hours, critical_low, critical_high, description
         </p>
         {importSummary ? <Alert tone="info" className="mt-4">{importSummary}</Alert> : null}
+      </Card>
+
+      <Card className="p-6">
+        <PageHeader
+          title="LIS orderable catalog import"
+          description="Bulk import into the production Kenya LIS catalog (orderable tests, departments, specimens, parameters)."
+        />
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              const link = document.createElement('a')
+              link.href = '/templates/lis-orderable-catalog-import-template.csv'
+              link.download = 'lis-orderable-catalog-import-template.csv'
+              link.click()
+            }}
+          >
+            <Download className="h-4 w-4" />
+            Download LIS CSV template
+          </Button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Upload className="h-4 w-4" />
+            {importLisCatalog.isPending ? 'Importing…' : 'Upload LIS CSV'}
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                const csv = await file.text()
+                importLisCatalog.mutate(csv)
+                e.target.value = ''
+              }}
+            />
+          </label>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Columns: code, name, department_code, specimen_code, is_panel, tat_minutes, parameter_code,
+          parameter_name, unit, ref_low, ref_high
+        </p>
+        {lisImportSummary ? <Alert tone="info" className="mt-4">{lisImportSummary}</Alert> : null}
       </Card>
 
       <Card className="p-8">

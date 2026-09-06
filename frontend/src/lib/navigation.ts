@@ -6,6 +6,7 @@ import {
   BedDouble,
   CalendarDays,
   ClipboardList,
+  CreditCard,
   FileText,
   FlaskConical,
   HeartPulse,
@@ -18,6 +19,7 @@ import {
   Settings,
   Stethoscope,
   UserPlus,
+  Users,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -29,17 +31,19 @@ export type NavItem = {
 }
 
 export const navigation: NavItem[] = [
-  // Reception
-  { group: 'Reception', label: 'Register Patient', icon: UserPlus, permission: 'patients:create', shortLabel: 'Register' },
-  { group: 'Reception', label: 'OPD Check-In', icon: Hospital, permission: 'encounters:create', shortLabel: 'Check-in' },
-  { group: 'Reception', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  // Front Office
+  { group: 'Front Office', label: 'Register Patient', icon: UserPlus, permission: 'patients:create', shortLabel: 'Register' },
+  { group: 'Front Office', label: 'Patient Registry', icon: Users, permission: 'patients:read', shortLabel: 'Registry' },
+  { group: 'Front Office', label: 'OPD Check-In', icon: Hospital, permission: 'encounters:create', shortLabel: 'Check-in' },
+  { group: 'Front Office', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
+  { group: 'Front Office', label: 'Payments', icon: CreditCard, permission: 'payments:initiate', shortLabel: 'Pay' },
 
   // Outpatient
   { group: 'Outpatient', label: 'Triage Queue', icon: HeartPulse, permission: 'triage:read', shortLabel: 'Triage' },
   { group: 'Outpatient', label: 'Doctor Queue', icon: Stethoscope, permission: 'consultations:read', shortLabel: 'Doctor' },
   { group: 'Outpatient', label: 'Referrals', icon: FileText, permission: 'referrals:read' },
   { group: 'Outpatient', label: 'Sick Sheets', icon: Printer, permission: 'sick_sheets:read', shortLabel: 'Sick sheet' },
-  { group: 'Outpatient', label: 'Worklists', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Lists' },
+  { group: 'Outpatient', label: 'Care Queues', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Queues' },
 
   // Documents
   { group: 'Documents', label: 'Medical Documents', icon: FileText, permission: 'patients:history', shortLabel: 'Med docs' },
@@ -75,7 +79,7 @@ export const navigation: NavItem[] = [
 ]
 
 export const groupIcons: Record<string, LucideIcon> = {
-  Reception: UserPlus,
+  'Front Office': UserPlus,
   Outpatient: Stethoscope,
   Documents: FileText,
   Laboratory: FlaskConical,
@@ -97,6 +101,9 @@ export const workflowDescriptions: Record<string, string> = {
   'Medical Documents': 'Unified document repository linked to patient profile timeline.',
   'Sick Sheets': 'Issue, print, and store sick leave certificates.',
   Worklists: 'Cross-department patient queues — filter by OPD, lab, imaging, IPD, or ED.',
+  'Care Queues': 'Cross-department patient queues — filter by OPD, lab, imaging, IPD, or ED.',
+  'Patient Registry': 'Browse all registered patients with age-band filters and basic demographics.',
+  Payments: 'Hospital-wide cashier — M-Pesa STK, cash, card, insurance, and QuickBooks for any service.',
   Laboratory: 'Lab overview, sample worklist, and clinician results inbox.',
   Radiology: 'Imaging overview and reporting worklist.',
   Emergency: 'ED command center — triage, bays, observation, disposition.',

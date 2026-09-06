@@ -94,7 +94,8 @@ export class AuthService {
       device,
     });
 
-    const accessToken = await this.signAccessToken(user);
+    const auth = await this.usersService.collectRolesAndPermissions(user.id);
+    const accessToken = await this.signAccessTokenWithAuth(user, auth);
     const refreshToken = await this.createRefreshToken(user.id, device, ip);
 
     return {
@@ -102,7 +103,7 @@ export class AuthService {
       refreshToken,
       tokenType: 'Bearer',
       expiresIn: 15 * 60,
-      user: await this.toProfile(user),
+      user: this.profileFromUser(user, auth),
     };
   }
 
@@ -136,12 +137,14 @@ export class AuthService {
       token.ip ?? undefined,
     );
 
+    const auth = await this.usersService.collectRolesAndPermissions(user.id);
+
     return {
-      accessToken: await this.signAccessToken(user),
+      accessToken: await this.signAccessTokenWithAuth(user, auth),
       refreshToken,
       tokenType: 'Bearer',
       expiresIn: 15 * 60,
-      user: await this.toProfile(user),
+      user: this.profileFromUser(user, auth),
     };
   }
 
@@ -276,26 +279,43 @@ export class AuthService {
     await this.logoutAll(userId);
 
     const updated = await this.users.findOneOrFail({ where: { id: userId } });
-    const accessToken = await this.signAccessToken(updated);
+    const auth = await this.usersService.collectRolesAndPermissions(updated.id);
+    const accessToken = await this.signAccessTokenWithAuth(updated, auth);
     const refreshToken = await this.createRefreshToken(userId, device, ip);
 
     return {
       changed: true,
       accessToken,
       refreshToken,
-      user: await this.toProfile(updated),
+      user: this.profileFromUser(updated, auth),
     };
   }
 
-  private async signAccessToken(user: User): Promise<string> {
-    const { roles, permissions } =
-      await this.usersService.collectRolesAndPermissions(user.id);
+  private profileFromUser(
+    user: User,
+    auth: { roles: string[]; permissions: string[] },
+  ) {
+    return {
+      id: user.id,
+      employeeNo: user.employeeNo,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      roles: auth.roles,
+      permissions: auth.permissions,
+      forcePasswordChange: user.forcePasswordChange,
+    };
+  }
 
+  private async signAccessTokenWithAuth(
+    user: User,
+    auth: { roles: string[]; permissions: string[] },
+  ): Promise<string> {
     return this.jwtService.signAsync({
       sub: user.id,
       email: user.email,
-      roles,
-      permissions,
+      roles: auth.roles,
+      permissions: auth.permissions,
       forcePasswordChange: user.forcePasswordChange,
     });
   }
@@ -324,18 +344,7 @@ export class AuthService {
   }
 
   private async toProfile(user: User) {
-    const { roles, permissions } =
-      await this.usersService.collectRolesAndPermissions(user.id);
-
-    return {
-      id: user.id,
-      employeeNo: user.employeeNo,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      roles,
-      permissions,
-      forcePasswordChange: user.forcePasswordChange,
-    };
+    const auth = await this.usersService.collectRolesAndPermissions(user.id);
+    return this.profileFromUser(user, auth);
   }
 }

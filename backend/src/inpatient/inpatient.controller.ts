@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
@@ -67,6 +67,18 @@ export class InpatientController {
   @RequirePermissions('beds:manage')
   updateBedStatus(@Param('id') id: string, @Body() dto: UpdateBedStatusDto, @Req() request: RequestContext) {
     return this.inpatientService.updateBedStatus(id, dto, request);
+  }
+
+  @Delete('beds/:id')
+  @RequirePermissions('beds:manage')
+  deleteBed(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.inpatientService.deleteBed(id, request);
+  }
+
+  @Delete('wards/:id')
+  @RequirePermissions('wards:manage')
+  deleteWard(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.inpatientService.deleteWard(id, request);
   }
 
   @Get('dashboard')

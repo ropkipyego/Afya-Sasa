@@ -150,8 +150,14 @@ export class AdminController {
     return this.adminService.getClinicalCatalog(request);
   }
 
-  @Patch('settings')
+  @Get('pricing-scaffold')
   @RequirePermissions('settings:manage')
+  getPricingScaffold(@Req() request: RequestContext) {
+    return this.adminService.getPricingScaffold(request);
+  }
+
+  @Patch('settings')
+  @RequirePermissions('settings:manage', 'departments:manage')
   updateSettings(
     @Body() dto: UpdateSettingsDto,
     @Req() request: RequestContext,

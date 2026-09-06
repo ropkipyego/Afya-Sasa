@@ -56,6 +56,8 @@ export type ClinicalCatalog = {
   assignableDoctors: string[]
   staffClinicians?: StaffClinician[]
   paymentMethods: CatalogOption[]
+  /** Insurance / SHA / corporate payer schemes for billing */
+  insuranceSchemes?: CatalogOption[]
   wardTypes: CatalogOption[]
   bedTypes: CatalogOption[]
   identifierLabels: CatalogOption[]
@@ -68,6 +70,11 @@ export type ClinicalCatalog = {
   facilities?: import('./hospital-configuration').FacilitySite[]
   structuredDepartments?: import('./hospital-configuration').StructuredDepartment[]
   structuredClinics?: import('./hospital-configuration').StructuredClinic[]
+  /** Director-only pricing scaffold — amounts not exposed in UI yet */
+  servicePricingScaffold?: {
+    enabled: boolean
+    items: Array<{ code: string; name: string; category: string; active: boolean }>
+  }
   /** @deprecated use doctorSpecialties */
   doctorCategories: string[]
 }
@@ -115,6 +122,16 @@ export const defaultClinicalCatalog: ClinicalCatalog = {
     { value: 'insurance', label: 'Insurance' },
     { value: 'quickbooks', label: 'QuickBooks receipt' },
     { value: 'waived', label: 'Waived' },
+  ],
+  insuranceSchemes: [
+    { value: 'sha', label: 'SHA (Social Health Authority)' },
+    { value: 'nhif', label: 'NHIF (legacy)' },
+    { value: 'jubilee', label: 'Jubilee Insurance' },
+    { value: 'aar', label: 'AAR Insurance' },
+    { value: 'britam', label: 'Britam' },
+    { value: 'cic', label: 'CIC Insurance' },
+    { value: 'corporate', label: 'Corporate / employer scheme' },
+    { value: 'other', label: 'Other insurer' },
   ],
   wardTypes: [
     { value: 'general', label: 'General Ward' },
@@ -165,6 +182,9 @@ export function normalizeClinicalCatalog(raw?: Partial<ClinicalCatalog> | null):
     paymentMethods: raw?.paymentMethods?.length
       ? raw.paymentMethods
       : defaultClinicalCatalog.paymentMethods,
+    insuranceSchemes: raw?.insuranceSchemes?.length
+      ? raw.insuranceSchemes
+      : defaultClinicalCatalog.insuranceSchemes,
     wardTypes: raw?.wardTypes?.length ? raw.wardTypes : defaultClinicalCatalog.wardTypes,
     bedTypes: raw?.bedTypes?.length ? raw.bedTypes : defaultClinicalCatalog.bedTypes,
     identifierLabels: raw?.identifierLabels?.length
@@ -180,6 +200,7 @@ export function normalizeClinicalCatalog(raw?: Partial<ClinicalCatalog> | null):
     facilities: raw?.facilities ?? [],
     structuredDepartments: raw?.structuredDepartments ?? [],
     structuredClinics: raw?.structuredClinics ?? [],
+    servicePricingScaffold: raw?.servicePricingScaffold ?? { enabled: false, items: [] },
   }
 }
 
@@ -207,4 +228,27 @@ export function doctorSelectOptions(catalog?: ClinicalCatalog | null): CatalogOp
   }))
   if (fromStaff.length) return fromStaff
   return (catalog?.assignableDoctors ?? []).map((name) => ({ value: name, label: name }))
+}
+
+/** Doctors scoped to a clinic when clinic mapping exists; falls back to all clinicians. */
+export function doctorSelectOptionsForClinic(
+  catalog?: ClinicalCatalog | null,
+  clinicName?: string | null,
+): CatalogOption[] {
+  const all = doctorSelectOptions(catalog)
+  if (!clinicName?.trim()) return all
+  const clinic = (catalog?.structuredClinics ?? []).find(
+    (row) => row.active && row.name.toLowerCase() === clinicName.trim().toLowerCase(),
+  )
+  const doctorIds = clinic?.doctorIds ?? []
+  if (!doctorIds.length) return all
+  const allowed = new Set(doctorIds)
+  const scoped = all.filter((option) => allowed.has(option.value))
+  return scoped.length ? scoped : all
+}
+
+export function clinicIdForName(catalog: ClinicalCatalog | null | undefined, clinicName: string) {
+  return (catalog?.structuredClinics ?? []).find(
+    (row) => row.name.toLowerCase() === clinicName.trim().toLowerCase(),
+  )?.id
 }

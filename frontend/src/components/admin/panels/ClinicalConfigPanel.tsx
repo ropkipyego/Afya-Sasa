@@ -74,6 +74,7 @@ export function ClinicalConfigPanel() {
   const [specialtiesText, setSpecialtiesText] = useState('')
   const [visitTypesText, setVisitTypesText] = useState('')
   const [paymentMethodsText, setPaymentMethodsText] = useState('')
+  const [insuranceSchemesText, setInsuranceSchemesText] = useState('')
   const [referralSourcesText, setReferralSourcesText] = useState('')
   const [wardTypesText, setWardTypesText] = useState('')
   const [bedTypesText, setBedTypesText] = useState('')
@@ -86,6 +87,9 @@ export function ClinicalConfigPanel() {
     setSpecialtiesText(catalog.doctorSpecialties.join('\n'))
     setVisitTypesText(catalog.visitTypes.map((v) => `${v.value}|${v.label}`).join('\n'))
     setPaymentMethodsText(catalog.paymentMethods.map((v) => `${v.value}|${v.label}`).join('\n'))
+    setInsuranceSchemesText(
+      (catalog.insuranceSchemes ?? []).map((v) => `${v.value}|${v.label}`).join('\n'),
+    )
     setReferralSourcesText(catalog.referralSources.map((v) => `${v.value}|${v.label}`).join('\n'))
     setWardTypesText(catalog.wardTypes.map((v) => `${v.value}|${v.label}`).join('\n'))
     setBedTypesText(catalog.bedTypes.map((v) => `${v.value}|${v.label}`).join('\n'))
@@ -108,6 +112,7 @@ export function ClinicalConfigPanel() {
             doctorCategories: splitLines(specialtiesText),
             visitTypes: linesToOptions(visitTypesText),
             paymentMethods: linesToOptions(paymentMethodsText),
+            insuranceSchemes: linesToOptions(insuranceSchemesText),
             referralSources: linesToOptions(referralSourcesText),
             wardTypes: linesToOptions(wardTypesText),
             bedTypes: linesToOptions(bedTypesText),
@@ -139,6 +144,13 @@ export function ClinicalConfigPanel() {
           <CatalogTextarea label="Visit types" value={visitTypesText} onChange={setVisitTypesText} placeholder="new|New visit" />
           <CatalogTextarea label="Referral sources" value={referralSourcesText} onChange={setReferralSourcesText} />
           <CatalogTextarea label="Payment methods" value={paymentMethodsText} onChange={setPaymentMethodsText} />
+          <CatalogTextarea
+            label="Insurance schemes"
+            hint="SHA, Jubilee, corporate — value|label per line"
+            value={insuranceSchemesText}
+            onChange={setInsuranceSchemesText}
+            placeholder="sha|SHA (Social Health Authority)"
+          />
           <CatalogTextarea label="Doctor specialties" value={specialtiesText} onChange={setSpecialtiesText} />
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-800">Assignable doctors</p>

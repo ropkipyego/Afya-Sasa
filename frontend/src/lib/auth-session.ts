@@ -4,6 +4,7 @@ import { useAuthStore, type UserProfile } from './auth-store'
 const REFRESH_INTERVAL_MS = 12 * 60 * 1000
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+let backgroundRevalidatePromise: Promise<void> | null = null
 
 export async function fetchCurrentUser(): Promise<UserProfile> {
   return apiRequest<UserProfile>('/auth/me')
@@ -38,10 +39,36 @@ export async function refreshSession(): Promise<boolean> {
   }
 }
 
+async function revalidateSessionInBackground() {
+  if (backgroundRevalidatePromise) return backgroundRevalidatePromise
+
+  backgroundRevalidatePromise = (async () => {
+    try {
+      const user = await fetchCurrentUser()
+      useAuthStore.getState().setUser(user)
+    } catch {
+      const refreshed = await refreshSession()
+      if (!refreshed) {
+        useAuthStore.getState().clearSession()
+      }
+    } finally {
+      backgroundRevalidatePromise = null
+    }
+  })()
+
+  return backgroundRevalidatePromise
+}
+
 export async function bootstrapAuthSession(): Promise<void> {
   const store = useAuthStore.getState()
   if (!store.accessToken && !store.refreshToken) {
     store.setHydrated(true)
+    return
+  }
+
+  if (store.accessToken && store.user) {
+    store.setHydrated(true)
+    void revalidateSessionInBackground()
     return
   }
 
@@ -93,7 +120,6 @@ export function stopSessionRefreshLoop() {
 export function syncAuthAcrossTabs() {
   window.addEventListener('storage', (event) => {
     if (!event.key?.startsWith('afyasasa.')) return
-    const store = useAuthStore.getState()
-    store.syncFromStorage()
+    useAuthStore.getState().syncFromStorage()
   })
 }

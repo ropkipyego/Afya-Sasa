@@ -1,14 +1,19 @@
 import { useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileUp, ScanLine, Download } from 'lucide-react'
+import { FileUp, ScanLine, Download, Printer } from 'lucide-react'
 import clsx from 'clsx'
 import { Button, Card, PageHeader, TextareaField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
-import { ClinicalInvestigationOrders } from './ClinicalInvestigationOrders'
+import { RadiologyRequestTemplateForm } from './RadiologyRequestTemplateForm'
 import { apiRequest } from '../../lib/api'
 import { uploadClinicalFile, downloadClinicalFile } from '../../lib/clinical-upload'
 import { notify } from '../../lib/notify'
+import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
+import { normalizeClinicalCatalog } from '../../lib/clinical-catalog'
+import { resolveHospitalBranding } from '../../lib/hospital-configuration'
+import { parseStoredRequestFormData } from '../../lib/jalaram-imaging-request'
+import { printJalaramImagingRequest } from '../../lib/print-radiology-request'
 
 type RadiologyRequestRow = {
   id: string
@@ -17,7 +22,10 @@ type RadiologyRequestRow = {
   bodyPart: string
   clinicalIndication: string
   createdAt: string
-  patient?: { firstName: string; lastName: string; patientNo: string }
+  requestNo?: string
+  requestFormData?: Record<string, unknown> | null
+  referringClinician?: string | null
+  patient?: { firstName: string; lastName: string; patientNo: string; dateOfBirth?: string; gender?: string }
   modality?: { name: string }
   reports?: { id: string; verifiedAt: string | null; findings: string; impression: string }[]
   attachments?: { id: string; filename: string; mimeType: string; storagePath: string }[]
@@ -40,6 +48,10 @@ function waitLabel(createdAt: string) {
 export function RadiologyWorklist() {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
+  const { data: rawCatalog } = useClinicalCatalog()
+  const catalog = normalizeClinicalCatalog(rawCatalog)
+  const brand = resolveHospitalBranding(catalog)
+  const profile = catalog.hospitalProfile ?? {}
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [showNewRequest, setShowNewRequest] = useState(false)
@@ -62,6 +74,52 @@ export function RadiologyWorklist() {
 
   const activeRequest = activeDetail ?? active
   const latestReport = activeRequest?.reports?.[0] ?? null
+
+  const printActiveRequest = () => {
+    if (!activeRequest) return
+    const parsed = parseStoredRequestFormData(activeRequest.requestFormData)
+    if (!parsed) {
+      notify('Print unavailable', 'This request has no structured Jalaram form data.', 'warning')
+      return
+    }
+    printJalaramImagingRequest({
+      requestNo: activeRequest.requestNo ?? null,
+      requestDate: parsed.requestDate ?? new Date().toISOString().slice(0, 10),
+      patientName:
+        activeRequest.patient
+          ? `${activeRequest.patient.firstName} ${activeRequest.patient.lastName}`
+          : (parsed.patientName ?? 'Patient'),
+      patientNo: activeRequest.patient?.patientNo ?? parsed.patientNo ?? null,
+      age: parsed.age ?? '—',
+      gender: parsed.gender ?? '—',
+      lmp: parsed.lmp ?? null,
+      examTypes: parsed.examTypes ?? [],
+      requestedInvestigation: parsed.requestedInvestigation ?? null,
+      urgencyUrgent: parsed.urgencyUrgent ?? false,
+      generalInformation: parsed.generalInformation ?? {
+        contrastAllergy: false,
+        kidneyLiverDisease: false,
+        vitallyUnstable: false,
+        requiresOxygen: false,
+      },
+      diagnosis: parsed.diagnosis ?? '',
+      briefHistory: parsed.briefHistory ?? '',
+      doctorName: parsed.doctorName ?? activeRequest.referringClinician ?? '',
+      facilityName: parsed.facilityName ?? null,
+      doctorPhone: parsed.doctorPhone ?? null,
+      branding: {
+        facilityName: profile.facilityName ?? 'Hospital',
+        tagline: profile.tagline ?? 'Caring Hearts Healing Hands',
+        primaryColor: brand.primaryColor ?? '#1e4d8c',
+        accentColor: brand.accentColor ?? '#c41e3a',
+        logoUrl: profile.logoUrl,
+        contactPhone: profile.contactPhone ?? undefined,
+        contactEmail: profile.contactEmail ?? undefined,
+        address: profile.physicalAddress ?? profile.address ?? undefined,
+        website: profile.website ?? undefined,
+      },
+    })
+  }
 
   const refreshClinical = async () => {
     await Promise.all([
@@ -143,20 +201,26 @@ export function RadiologyWorklist() {
 
       {showNewRequest ? (
         <Card className="p-5 md:p-8">
-          <PageHeader title="New imaging request" description="Active visit or admission is linked automatically." />
+          <PageHeader
+            title="New imaging request"
+            description="Digital Jalaram imaging request form — same fields as your paper form. Attach a signed copy after submit if needed."
+          />
           <div className="mt-6 space-y-4">
             <PatientSearchAutocomplete selected={selectedPatient} onSelect={setSelectedPatient} />
             {selectedPatient ? (
-              <ClinicalInvestigationOrders
-                compact
-                defaultMode="radiology"
+              <RadiologyRequestTemplateForm
                 context={{
                   patientId: selectedPatient.id,
                   patientName: `${selectedPatient.firstName} ${selectedPatient.lastName}`,
+                  patientNo: selectedPatient.patientNo,
+                  dateOfBirth: selectedPatient.dateOfBirth,
+                  gender: selectedPatient.gender,
+                  patientPhone: selectedPatient.primaryPhone,
                 }}
                 onSuccess={async () => {
                   await queryClient.invalidateQueries({ queryKey: ['radiology-requests'] })
                   setShowNewRequest(false)
+                  setSelectedPatient(null)
                 }}
               />
             ) : null}
@@ -217,6 +281,14 @@ export function RadiologyWorklist() {
           <PageHeader
             title="Report & attach"
             description={`${activeRequest.patient?.firstName ?? ''} ${activeRequest.patient?.lastName ?? ''} — ${activeRequest.modality?.name}`}
+            actions={
+              activeRequest.requestFormData ? (
+                <Button type="button" variant="secondary" onClick={printActiveRequest}>
+                  <Printer className="h-4 w-4" />
+                  Print request form
+                </Button>
+              ) : null
+            }
           />
           {activeRequest.status === 'reported' && latestReport && !latestReport.verifiedAt ? (
             <div className="mt-6">
