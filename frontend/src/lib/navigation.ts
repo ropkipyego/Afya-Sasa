@@ -60,13 +60,13 @@ export const navigation: NavItem[] = [
   { group: 'Inpatient', label: 'ICU', icon: Activity, permission: 'icu_admissions:read' },
   { group: 'Inpatient', label: 'HDU', icon: HeartPulse, permission: 'hdu_admissions:read' },
   { group: 'Inpatient', label: 'Nursing', icon: HeartPulse, permission: 'admissions:read', shortLabel: 'Nursing' },
+  { group: 'Inpatient', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
 
   // Emergency
   { group: 'Emergency', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read', shortLabel: 'ED' },
 
   // Specialty & supply
   { group: 'Specialty', label: 'Pharmacy', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Pharmacy' },
-  { group: 'Specialty', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
   { group: 'Specialty', label: 'Maternity', icon: Baby, permission: 'pregnancies:read' },
   { group: 'Specialty', label: 'Orders', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Orders' },
   { group: 'Specialty', label: 'Inventory & Store', icon: Package, permission: 'inventory:read', shortLabel: 'Store' },
@@ -108,12 +108,12 @@ export const workflowDescriptions: Record<string, string> = {
   Radiology: 'Imaging overview and reporting worklist.',
   Emergency: 'ED command center — triage, bays, observation, disposition.',
   Pharmacy: 'Dispense prescriptions, check pharmacy stock, and record OTC sales.',
-  Maternity: 'Maternity service line — ANC, labour, delivery, postnatal.',
+  Maternity: 'Maternity mini-IPD — mother registration, ANC, labour, delivery, postnatal, newborn and nursery.',
   Orders: 'Clinical orders from all departments — lab, imaging, procedures.',
   'Inventory & Store': 'Stock levels, requisitions, and goods receipt.',
   Nursing: 'Nursing command — vitals, MAR, observations, and shift notes.',
   Reports: 'OPD, clinical, analytics, and operations reporting.',
-  'Inpatient (IPD)': 'Visual ward board → patient workspace.',
+  'Inpatient (IPD)': 'IPD command center — wards, beds, admissions, theatre, ICU/HDU and nursing.',
   ICU: 'Intensive care — monitoring, ventilator, and consultant rounds.',
   HDU: 'High dependency unit — enhanced monitoring and step-down care.',
   'Hospital Control Center': 'Configure hospital, users, SMS, documents, and security.',

@@ -81,13 +81,16 @@ export type ClinicalCatalog = {
 
 export const defaultClinicalCatalog: ClinicalCatalog = {
   hospitalProfile: {
-    facilityName: 'AfyaSasa Hospital',
+    facilityName: 'Jalaram Hospital',
+    shortName: 'Jalaram',
     mohFacilityCode: '',
     licenceNumber: '',
-    address: '',
+    address: 'Nairobi',
     contactPhone: '',
     contactEmail: '',
     primaryColor: '#0d9488',
+    accentColor: '#dc2626',
+    tagline: 'Compassionate care, clinically coordinated',
   },
   departments: ['Outpatient', 'Emergency', 'Maternity', 'Paediatrics'],
   clinics: [
