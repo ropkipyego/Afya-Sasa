@@ -133,6 +133,16 @@ export class DispositionDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bedId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  admissionReason?: string;
 }
 
 export class CreateEmergencyNoteDto {

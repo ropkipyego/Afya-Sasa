@@ -16,20 +16,26 @@ type IpdView =
   | { screen: 'nursing' }
   | { screen: 'consultant' }
   | { screen: 'setup' }
-  | { screen: 'admit' }
+  | { screen: 'admit'; bedId?: string }
 
 type WardSummary = { id: string; type: string }
 
 export function IpdModule({
   initialWardType,
   initialScreen,
+  initialAdmissionId,
+  onInitialAdmissionConsumed,
 }: {
   initialWardType?: 'icu' | 'hdu'
   initialScreen?: 'dashboard' | 'nursing'
+  initialAdmissionId?: string
+  onInitialAdmissionConsumed?: () => void
 } = {}) {
-  const [view, setView] = useState<IpdView>({
-    screen: initialScreen === 'nursing' ? 'nursing' : 'dashboard',
-  })
+  const [view, setView] = useState<IpdView>(
+    initialAdmissionId
+      ? { screen: 'workspace', admissionId: initialAdmissionId }
+      : { screen: initialScreen === 'nursing' ? 'nursing' : 'dashboard' },
+  )
   const [wardJumpDone, setWardJumpDone] = useState(false)
 
   const { data: dashboard } = useQuery({
@@ -38,6 +44,12 @@ export function IpdModule({
       apiRequest<{ wardSummaries: WardSummary[] }>('/inpatient/dashboard'),
     enabled: Boolean(initialWardType) && !wardJumpDone,
   })
+
+  useEffect(() => {
+    if (!initialAdmissionId) return
+    setView({ screen: 'workspace', admissionId: initialAdmissionId })
+    onInitialAdmissionConsumed?.()
+  }, [initialAdmissionId, onInitialAdmissionConsumed])
 
   useEffect(() => {
     if (!initialWardType || wardJumpDone || !dashboard?.wardSummaries?.length) return
@@ -54,6 +66,7 @@ export function IpdModule({
         onOpenPatient={(admissionId) =>
           setView({ screen: 'workspace', admissionId, wardId: view.wardId })
         }
+        onAdmit={(bedId) => setView({ screen: 'admit', bedId })}
       />
     )
   }
@@ -97,6 +110,7 @@ export function IpdModule({
     return (
       <div className="workspace-shell animate-fade-in">
         <IpdAdmitPanel
+          initialBedId={view.bedId}
           onAdmitted={(admissionId) => setView({ screen: 'workspace', admissionId })}
         />
         <button

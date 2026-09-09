@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { User, Role, UserRole } from '../core/core.entities';
@@ -38,6 +38,28 @@ const TRIAGE_PRIORITY: Record<string, number> = {
   blue: 5,
 };
 
+const OPEN_OPD_STATUSES: OpdEncounterStatus[] = [
+  'registered',
+  'triaged',
+  'in_consultation',
+  'awaiting_results',
+  'admitted',
+];
+
+/** Start of the current calendar day in Africa/Nairobi (UTC+3, no DST). */
+function startOfNairobiDay(now = new Date()): Date {
+  const parts = new Intl.DateTimeFormat('en-KE', {
+    timeZone: 'Africa/Nairobi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  return new Date(`${year}-${month}-${day}T00:00:00+03:00`);
+}
+
 @Injectable()
 export class OpdService {
   constructor(
@@ -72,6 +94,21 @@ export class OpdService {
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) {
       throw new NotFoundException('Patient not found');
+    }
+
+    const openToday = await this.encounters.findOne({
+      where: {
+        patient: { id: dto.patientId },
+        type: 'opd',
+        status: In(OPEN_OPD_STATUSES),
+        startedAt: MoreThanOrEqual(startOfNairobiDay()),
+      },
+      order: { startedAt: 'DESC' },
+    });
+    if (openToday) {
+      throw new BadRequestException(
+        `Patient already has an open OPD visit today (${openToday.encounterNo}, ${openToday.status}). Continue that visit instead of checking in again.`,
+      );
     }
 
     let attendingDoctor: User | null = null;
@@ -361,7 +398,10 @@ export class OpdService {
 
   async doctorQueue(doctorId?: string) {
     const encounters = await this.encounters.find({
-      where: { type: 'opd', status: In(['triaged', 'awaiting_results']) },
+      where: {
+        type: 'opd',
+        status: In(['triaged', 'in_consultation', 'awaiting_results']),
+      },
       relations: { patient: true, attendingDoctor: true },
       order: { startedAt: 'ASC' },
     });

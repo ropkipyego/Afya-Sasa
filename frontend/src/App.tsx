@@ -28,7 +28,7 @@ import { HospitalBrandMark, HospitalFacilityBadge } from './components/branding/
 import { useClinicalCatalog } from './hooks/useClinicalCatalog'
 import { resolveHospitalBranding } from './lib/hospital-configuration'
 import { PaymentDesk } from './components/payments/PaymentDesk'
-import { OpdCheckInWorkspace } from './components/opd/OpdCheckInWorkspace'
+import { OpdCheckInWorkspace, type CheckInPatient } from './components/opd/OpdCheckInWorkspace'
 import { TriageWorkspace } from './components/opd/TriageWorkspace'
 import { AppointmentCenter } from './components/appointments/AppointmentCenter'
 import { ReferralWorkspace } from './components/referrals/ReferralWorkspace'
@@ -51,6 +51,8 @@ import { PatientRegistry } from './components/patients/PatientRegistry'
 import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
 import { PatientFileModal } from './components/patients/PatientFileModal'
 import { PatientQrLanding } from './components/patients/PatientQrLanding'
+import { WorkflowBadge } from './components/WorkflowBadge'
+import { mapEncounterStatusToWorkflow } from './lib/workflow-status'
 import { useHospitalSync } from './hooks/useHospitalSync'
 import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
@@ -129,6 +131,8 @@ function App() {
     return resolveScreen(saved || 'OPD Check-In')
   })
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [checkInPatient, setCheckInPatient] = useState<CheckInPatient | null>(null)
+  const [ipdFocusAdmissionId, setIpdFocusAdmissionId] = useState<string | null>(null)
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem('afyasasa.sidebarOpen') !== 'false',
@@ -333,8 +337,23 @@ function App() {
         </header>
 
         <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24 md:p-6 md:pb-24">
-          {activeScreen === 'Register Patient' ? <PatientRegistrationForm /> : null}
-          {activeScreen === 'OPD Check-In' ? <OpdCheckInWorkspace /> : null}
+          {activeScreen === 'Register Patient' ? (
+            <PatientRegistrationForm
+              onViewPatient={setSelectedPatientId}
+              onQuickCheckIn={(patient) => {
+                setCheckInPatient(patient)
+                goToScreen('OPD Check-In')
+              }}
+            />
+          ) : null}
+          {activeScreen === 'OPD Check-In' ? (
+            <OpdCheckInWorkspace
+              initialPatient={checkInPatient}
+              onInitialPatientConsumed={() => setCheckInPatient(null)}
+              onViewPatient={setSelectedPatientId}
+              onOpenTriage={() => goToScreen('Triage Queue')}
+            />
+          ) : null}
           {activeScreen === 'Payments' ? <PaymentDesk /> : null}
           {activeScreen === 'Triage Queue' ? <TriageWorkspace /> : null}
           {activeScreen === 'Patient Registry' ? (
@@ -343,7 +362,15 @@ function App() {
           {activeScreen === 'Care Queues' || activeScreen === 'Worklists' ? (
             <OperationalWorklists onOpenPatient={setSelectedPatientId} initialModule="opd" />
           ) : null}
-          {activeScreen === 'Doctor Queue' ? <DoctorQueue /> : null}
+          {activeScreen === 'Doctor Queue' ? (
+            <DoctorQueue
+              onOpenIpd={(admissionId) => {
+                setIpdFocusAdmissionId(admissionId)
+                goToScreen('Inpatient (IPD)')
+              }}
+              onOpenSickSheets={() => goToScreen('Sick Sheets')}
+            />
+          ) : null}
           {activeScreen === 'Laboratory' ? <LabModule /> : null}
           {activeScreen === 'Radiology' ? <ImagingModule /> : null}
           {activeScreen === 'Appointments' ? <AppointmentCenter /> : null}
@@ -352,7 +379,12 @@ function App() {
           {activeScreen === 'Hospital Library' ? <HospitalLibrary /> : null}
           {activeScreen === 'Sick Sheets' ? <SickSheetWorkspace /> : null}
           {activeScreen === 'Reports' ? <ReportsHub /> : null}
-          {activeScreen === 'Inpatient (IPD)' ? <IpdModule /> : null}
+          {activeScreen === 'Inpatient (IPD)' ? (
+            <IpdModule
+              initialAdmissionId={ipdFocusAdmissionId ?? undefined}
+              onInitialAdmissionConsumed={() => setIpdFocusAdmissionId(null)}
+            />
+          ) : null}
           {activeScreen === 'Nursing' ? <IpdModule initialScreen="nursing" /> : null}
           {activeScreen === 'Emergency' ? <EmergencyCommandCenter /> : null}
           {activeScreen === 'Orders' ? <OrdersHub /> : null}
@@ -368,6 +400,11 @@ function App() {
             <PatientFileModal
               patientId={selectedPatientId}
               onClose={() => setSelectedPatientId(null)}
+              onQuickCheckIn={(patient) => {
+                setCheckInPatient(patient)
+                setSelectedPatientId(null)
+                goToScreen('OPD Check-In')
+              }}
             />
           ) : null}
           {notificationOpen ? (
@@ -592,7 +629,13 @@ interface EncounterItem {
   attendingDoctor?: { id: string; firstName: string; lastName: string } | null
 }
 
-function DoctorQueue() {
+function DoctorQueue({
+  onOpenIpd,
+  onOpenSickSheets,
+}: {
+  onOpenIpd: (admissionId: string) => void
+  onOpenSickSheets: () => void
+}) {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<EncounterItem | null>(null)
   const [recentSoap, setRecentSoap] = useState<Array<{ id: string; patient: string; savedAt: string }>>([])
@@ -601,6 +644,14 @@ function DoctorQueue() {
     queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
     refetchInterval: 20_000,
   })
+
+  useEffect(() => {
+    if (!selected) return
+    const fresh = queue.find((encounter) => encounter.id === selected.id)
+    if (fresh && fresh.status !== selected.status) {
+      setSelected(fresh)
+    }
+  }, [queue, selected])
   const createConsultation = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
@@ -691,7 +742,7 @@ function DoctorQueue() {
       <div className="space-y-2">
         <PageHeader
           title="Doctor queue"
-          description={`${queue.length} waiting · triage colour = urgency`}
+          description={`${queue.length} active · triaged, in consultation, awaiting results`}
         />
         <div className="max-h-[min(70vh,36rem)] space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100dvh-10rem)]">
           {queue.map((encounter) => (
@@ -705,7 +756,10 @@ function DoctorQueue() {
             >
               <div className="flex items-center justify-between gap-2">
                 <TriageIndicator colour={encounter.triage?.colour} label="Triage" size="sm" />
-                <TriageBadge colour={encounter.triage?.colour} />
+                <div className="flex flex-wrap items-center justify-end gap-1">
+                  <WorkflowBadge step={mapEncounterStatusToWorkflow(encounter.status)} />
+                  <TriageBadge colour={encounter.triage?.colour} />
+                </div>
               </div>
               <h3 className="mt-1.5 truncate text-sm font-bold leading-tight">
                 {encounter.patient.firstName} {encounter.patient.lastName}
@@ -743,6 +797,8 @@ function DoctorQueue() {
             completeEncounter={completeEncounter}
             createReferral={createReferral}
             recentSoap={recentSoap}
+            onOpenIpd={onOpenIpd}
+            onOpenSickSheets={onOpenSickSheets}
           />
         ) : (
           <Card>

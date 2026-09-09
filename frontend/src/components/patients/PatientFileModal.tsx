@@ -1,56 +1,79 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Printer, X } from 'lucide-react'
-import { Alert, Button, Card, PageHeader, QuickAddForm } from '../ui'
-import { PatientContextHeader } from '../PatientContextHeader'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Printer, Stethoscope, UserRoundPen, X } from 'lucide-react'
+import { Alert, Button, Card, PageHeader } from '../ui'
 import { PatientTimeline } from '../PatientTimeline'
-import { PatientCardPrint } from './PatientCardPrint'
+import { PatientRegistrationForm } from '../PatientRegistrationForm'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { apiRequest } from '../../lib/api'
+import { listPatientDocuments } from '../../lib/clinical-documents'
 import { listPatientPayments } from '../../lib/payments'
 import { printPatientCard } from '../../lib/print-patient-card'
 import { formatKes } from '../../lib/clinical-catalog'
-import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 import { notify } from '../../lib/notify'
-import { formDataFromElement } from '../../lib/form-utils'
+import { calcAge, formatPatientName } from '../../lib/patient-utils'
 
 type PatientFile = {
   id: string
   patientNo: string
   firstName: string
   lastName: string
+  middleName?: string | null
   dateOfBirth: string
   gender: string
   primaryPhone: string
+  secondaryPhone?: string | null
+  email?: string | null
   bloodGroup?: string | null
+  county?: string | null
+  subCounty?: string | null
+  nationality?: string | null
+  maritalStatus?: string | null
+  occupation?: string | null
+  religion?: string | null
   identifiers?: { type: string; value: string }[]
   nextOfKin?: { name: string; relationship: string; primaryPhone: string; isEmergencyContact?: boolean }[]
   allergies?: { allergen: string; severity: string }[]
   chronicConditions?: { name: string; status: string }[]
 }
 
-type FileTab = 'file' | 'timeline' | 'payments'
+type JourneyStatus = {
+  step?: string
+  encounterStatus?: string | null
+}
+
+type FileTab = 'summary' | 'timeline' | 'payments' | 'documents'
 
 export function PatientFileModal({
   patientId,
   onClose,
+  onQuickCheckIn,
 }: {
   patientId: string
   onClose: () => void
+  onQuickCheckIn?: (patient: {
+    id: string
+    patientNo: string
+    firstName: string
+    lastName: string
+    dateOfBirth: string
+    gender: string
+    primaryPhone: string
+  }) => void
 }) {
   const queryClient = useQueryClient()
   const { data: catalog } = useClinicalCatalog()
-  const [tab, setTab] = useState<FileTab>('file')
+  const [tab, setTab] = useState<FileTab>('summary')
   const [printing, setPrinting] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const { data: patient, isLoading } = useQuery({
     queryKey: ['patient', patientId],
     queryFn: () => apiRequest<PatientFile>(`/patients/${patientId}`),
   })
-  const { data: qrCard } = useQuery({
-    queryKey: ['patient-qr-card', patientId],
-    queryFn: () =>
-      apiRequest<{ qrDataUrl: string; qrCode: string }>(`/patients/${patientId}/qr-card`),
+  const { data: journey } = useQuery({
+    queryKey: ['patient-journey', patientId],
+    queryFn: () => apiRequest<JourneyStatus>(`/patients/${patientId}/journey`),
   })
   const { data: timeline } = useQuery({
     queryKey: ['patient-timeline', patientId],
@@ -62,161 +85,198 @@ export function PatientFileModal({
   const { data: payments = [] } = useQuery({
     queryKey: ['patient-payments', patientId],
     queryFn: () => listPatientPayments(patientId),
+    enabled: tab === 'payments',
   })
-
-  const invalidatePatient = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
-    await queryClient.invalidateQueries({ queryKey: ['patient-timeline', patientId] })
-  }
-
-  const addIdentifier = useMutation({
-    mutationFn: (form: HTMLFormElement) => {
-      const data = formDataFromElement(form)
-      return apiRequest(`/patients/${patientId}/identifiers`, {
-        method: 'POST',
-        body: JSON.stringify({ type: data.get('type'), value: data.get('value'), isPrimary: false }),
-      })
-    },
-    onSuccess: invalidatePatient,
-  })
-  const addNok = useMutation({
-    mutationFn: (form: HTMLFormElement) => {
-      const data = formDataFromElement(form)
-      return apiRequest(`/patients/${patientId}/next-of-kin`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: data.get('name'),
-          relationship: data.get('relationship'),
-          primaryPhone: data.get('primaryPhone'),
-          isEmergencyContact: true,
-        }),
-      })
-    },
-    onSuccess: invalidatePatient,
-  })
-  const addAllergy = useMutation({
-    mutationFn: (form: HTMLFormElement) => {
-      const data = formDataFromElement(form)
-      return apiRequest(`/patients/${patientId}/allergies`, {
-        method: 'POST',
-        body: JSON.stringify({
-          allergen: data.get('allergen'),
-          type: data.get('type'),
-          reaction: data.get('reaction'),
-          severity: data.get('severity'),
-        }),
-      })
-    },
-    onSuccess: invalidatePatient,
-  })
-  const addCondition = useMutation({
-    mutationFn: (form: HTMLFormElement) => {
-      const data = formDataFromElement(form)
-      return apiRequest(`/patients/${patientId}/chronic-conditions`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: data.get('name'),
-          icd10Code: data.get('icd10Code'),
-          status: data.get('status'),
-        }),
-      })
-    },
-    onSuccess: invalidatePatient,
+  const { data: documents = [], isError: documentsError } = useQuery({
+    queryKey: ['patient-documents', patientId],
+    queryFn: () => listPatientDocuments(patientId),
+    enabled: tab === 'documents',
+    retry: false,
   })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        if (editing) setEditing(false)
+        else onClose()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, editing])
 
   const events = timeline?.events ?? []
-  const counts = {
-    visits: events.filter((e) => e.type === 'visit').length,
-    labs: events.filter((e) => e.type === 'lab_request' || e.type === 'lab_result').length,
-    imaging: events.filter((e) => e.type === 'radiology' || e.type === 'radiology_request').length,
-    pharmacy: events.filter((e) => e.type.startsWith('pharmacy')).length,
-    payments: events.filter((e) => e.type === 'payment').length,
-  }
+  const age = patient ? calcAge(patient.dateOfBirth) : 0
+  const statusLabel = journey?.encounterStatus
+    ? journey.encounterStatus.replace(/_/g, ' ')
+    : journey?.step
+      ? journey.step.replace(/_/g, ' ')
+      : 'Registered'
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-3 backdrop-blur-sm sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="flex max-h-[94dvh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="patient-file-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Patient file</p>
-            <h2 id="patient-file-title" className="text-xl font-bold text-slate-900">
-              {patient ? `${patient.firstName} ${patient.lastName}` : 'Loading…'}
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 bg-slate-900 px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-teal-400">Patient file</p>
+            <h2 id="patient-file-title" className="truncate text-xl font-bold text-white">
+              {patient ? formatPatientName(patient) : 'Loading…'}
             </h2>
             {patient ? (
-              <p className="text-sm text-slate-500">
-                {patient.patientNo} · {patient.gender} · DOB {patient.dateOfBirth}
+              <p className="mt-1 text-sm text-slate-300">
+                {patient.patientNo} · {age} yrs · {patient.gender} · {patient.primaryPhone || 'No phone'}
               </p>
             ) : null}
+            <p className="mt-2 inline-flex rounded-full bg-teal-500/15 px-2.5 py-1 text-xs font-semibold capitalize text-teal-200">
+              {statusLabel}
+            </p>
           </div>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            <X className="h-4 w-4" />
-            Close
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {patient && !editing ? (
+              <>
+                <Button type="button" variant="secondary" onClick={() => setEditing(true)}>
+                  <UserRoundPen className="h-4 w-4" />
+                  Edit Patient
+                </Button>
+                {onQuickCheckIn ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      onQuickCheckIn({
+                        id: patient.id,
+                        patientNo: patient.patientNo,
+                        firstName: patient.firstName,
+                        lastName: patient.lastName,
+                        dateOfBirth: patient.dateOfBirth,
+                        gender: patient.gender,
+                        primaryPhone: patient.primaryPhone,
+                      })
+                    }
+                  >
+                    <Stethoscope className="h-4 w-4" />
+                    Quick Check-In
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={printing}
+                  onClick={async () => {
+                    setPrinting(true)
+                    try {
+                      await printPatientCard(patientId, catalog)
+                    } catch (error) {
+                      notify(
+                        'Print failed',
+                        error instanceof Error ? error.message : 'Could not prepare card.',
+                        'critical',
+                      )
+                    } finally {
+                      setPrinting(false)
+                    }
+                  }}
+                >
+                  <Printer className="h-4 w-4" />
+                  {printing ? 'Preparing…' : 'Print Patient Card'}
+                </Button>
+              </>
+            ) : null}
+            <Button type="button" variant="ghost" className="text-slate-200 hover:bg-slate-800" onClick={onClose}>
+              <X className="h-4 w-4" />
+              Close
+            </Button>
+          </div>
         </div>
 
-        <div className="flex gap-2 border-b border-slate-100 px-5 py-2 sm:px-6">
-          {(
-            [
-              ['file', 'File'],
-              ['timeline', `Everything done (${events.length})`],
-              ['payments', `Payments (${payments.length})`],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={
-                tab === id
-                  ? 'rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white'
-                  : 'rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100'
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {!editing ? (
+          <div className="flex gap-2 overflow-x-auto border-b border-slate-800 bg-slate-900/80 px-5 py-2 sm:px-6">
+            {(
+              [
+                ['summary', 'Summary'],
+                ['timeline', `Timeline (${events.length})`],
+                ['payments', 'Payments'],
+                ['documents', 'Documents'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                className={
+                  tab === id
+                    ? 'rounded-lg bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white'
+                    : 'rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-300 hover:bg-slate-800'
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-5 py-5 sm:px-6">
           {isLoading || !patient ? (
             <p className="text-slate-500">Loading patient file…</p>
+          ) : editing ? (
+            <PatientRegistrationForm
+              editPatient={patient}
+              onEditComplete={async () => {
+                setEditing(false)
+                await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
+                await queryClient.invalidateQueries({ queryKey: ['patient-timeline', patientId] })
+              }}
+              onCancelEdit={() => setEditing(false)}
+            />
           ) : (
             <>
-              {tab === 'file' ? (
+              {tab === 'summary' ? (
                 <div className="space-y-6">
-                  <PatientContextHeader patient={patient} sticky={false} showWorkflow={false} />
-                  <ShaEligibilityCard patientId={patient.id} />
-                  <div className="grid gap-3 sm:grid-cols-5">
-                    <Stat label="Visits" value={counts.visits} />
-                    <Stat label="Lab" value={counts.labs} />
-                    <Stat label="Imaging" value={counts.imaging} />
-                    <Stat label="Pharmacy" value={counts.pharmacy} />
-                    <Stat label="Payments" value={counts.payments} />
-                  </div>
+                  {age < 18 ? (
+                    <Alert tone="info" title="Minor patient">
+                      This file is the child. Guardian or next of kin stays on this record — do not
+                      register the guardian as a second patient.
+                    </Alert>
+                  ) : null}
+
+                  <section>
+                    <PageHeader title="Demographics" description="Read-only. Use Edit Patient to change these details." />
+                    <Card className="mt-3 p-5">
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <ReadOnlyField label="Patient name" value={formatPatientName(patient)} />
+                        <ReadOnlyField label="MRN / Patient number" value={patient.patientNo} />
+                        <ReadOnlyField label="Age / DOB" value={`${age} yrs · ${patient.dateOfBirth?.slice(0, 10) || '—'}`} />
+                        <ReadOnlyField label="Sex" value={patient.gender} />
+                        <ReadOnlyField label="Phone" value={patient.primaryPhone} />
+                        <ReadOnlyField label="Alternative phone" value={patient.secondaryPhone} />
+                        <ReadOnlyField label="Email" value={patient.email} />
+                        <ReadOnlyField label="Blood group" value={patient.bloodGroup} />
+                        <ReadOnlyField label="Nationality" value={patient.nationality} />
+                        <ReadOnlyField label="Marital status" value={patient.maritalStatus} />
+                        <ReadOnlyField label="Occupation" value={patient.occupation} />
+                        <ReadOnlyField label="Religion" value={patient.religion} />
+                        <ReadOnlyField label="County" value={patient.county} />
+                        <ReadOnlyField label="Sub county" value={patient.subCounty} />
+                      </div>
+                    </Card>
+                  </section>
+
                   <div className="grid gap-4 md:grid-cols-2">
                     <Card className="p-4">
                       <p className="text-xs font-bold uppercase text-slate-500">Identifiers</p>
                       {patient.identifiers?.length ? (
                         patient.identifiers.map((row) => (
                           <p key={`${row.type}-${row.value}`} className="mt-2 text-sm">
-                            {row.type}: {row.value}
+                            {row.type.replace(/_/g, ' ')}: {row.value}
                           </p>
                         ))
                       ) : (
@@ -224,22 +284,29 @@ export function PatientFileModal({
                       )}
                     </Card>
                     <Card className="p-4">
-                      <p className="text-xs font-bold uppercase text-slate-500">Next of kin</p>
+                      <p className="text-xs font-bold uppercase text-slate-500">
+                        {age < 18 ? 'Guardian / next of kin' : 'Next of kin'}
+                      </p>
                       {patient.nextOfKin?.length ? (
                         patient.nextOfKin.map((row) => (
                           <p key={`${row.name}-${row.primaryPhone}`} className="mt-2 text-sm">
                             {row.name} ({row.relationship}) · {row.primaryPhone}
+                            {row.isEmergencyContact ? ' · emergency' : ''}
                           </p>
                         ))
                       ) : (
-                        <p className="mt-2 text-sm text-slate-500">None recorded</p>
+                        <p className="mt-2 text-sm text-slate-500">
+                          {age < 18
+                            ? 'No guardian recorded. Add next of kin from Records, not by creating another patient.'
+                            : 'None recorded'}
+                        </p>
                       )}
                     </Card>
-                    <Card className="p-4">
-                      <p className="text-xs font-bold uppercase text-slate-500">Allergies</p>
+                    <Card className="border-red-100 p-4">
+                      <p className="text-xs font-bold uppercase text-red-700">Allergies / alerts</p>
                       {patient.allergies?.length ? (
                         patient.allergies.map((row) => (
-                          <p key={row.allergen} className="mt-2 text-sm">
+                          <p key={row.allergen} className="mt-2 text-sm font-medium text-red-800">
                             {row.allergen} · {row.severity}
                           </p>
                         ))
@@ -260,131 +327,20 @@ export function PatientFileModal({
                       )}
                     </Card>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <PageHeader title="Patient card" description="Printable card with QR." />
-                    <Button
-                      type="button"
-                      disabled={!qrCard || printing}
-                      onClick={async () => {
-                        setPrinting(true)
-                        try {
-                          await printPatientCard(patientId, catalog)
-                        } catch (error) {
-                          notify('Print failed', error instanceof Error ? error.message : 'Could not prepare card.', 'critical')
-                        } finally {
-                          setPrinting(false)
-                        }
-                      }}
-                    >
-                      <Printer className="h-4 w-4" />
-                      {printing ? 'Preparing…' : 'Print card'}
-                    </Button>
-                  </div>
-                  {qrCard ? (
-                    <PatientCardPrint
-                      patient={{
-                        patientNo: patient.patientNo,
-                        firstName: patient.firstName,
-                        lastName: patient.lastName,
-                        dateOfBirth: patient.dateOfBirth,
-                        gender: patient.gender,
-                        bloodGroup: patient.bloodGroup,
-                        primaryPhone: patient.primaryPhone,
-                        qrDataUrl: qrCard.qrDataUrl,
-                        qrCode: qrCard.qrCode,
-                        nextOfKin: patient.nextOfKin?.find((k) => k.isEmergencyContact) ?? patient.nextOfKin?.[0] ?? null,
-                      }}
-                      qr={qrCard}
-                    />
-                  ) : null}
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <QuickAddForm
-                      title="Add identifier"
-                      pending={addIdentifier.isPending}
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        addIdentifier.mutate(event.currentTarget)
-                        event.currentTarget.reset()
-                      }}
-                    >
-                      <select name="type" className="input" required>
-                        <option value="national_id">National ID</option>
-                        <option value="birth_certificate">Birth certificate</option>
-                        <option value="alien_id">Alien ID</option>
-                        <option value="refugee_id">Refugee ID</option>
-                        <option value="client_registry">SHA Client Registry ID</option>
-                        <option value="sha">SHA member number</option>
-                        <option value="passport">Passport</option>
-                      </select>
-                      <input name="value" className="input" placeholder="Value" required />
-                    </QuickAddForm>
-                    <QuickAddForm
-                      title="Add next of kin"
-                      pending={addNok.isPending}
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        addNok.mutate(event.currentTarget)
-                        event.currentTarget.reset()
-                      }}
-                    >
-                      <input name="name" className="input" placeholder="Name" required />
-                      <input name="relationship" className="input" placeholder="Relationship" required />
-                      <input name="primaryPhone" className="input" placeholder="Phone" required />
-                    </QuickAddForm>
-                    <QuickAddForm
-                      title="Add allergy"
-                      pending={addAllergy.isPending}
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        addAllergy.mutate(event.currentTarget)
-                        event.currentTarget.reset()
-                      }}
-                    >
-                      <input name="allergen" className="input" placeholder="Allergen" required />
-                      <select name="type" className="input" required>
-                        <option value="drug">Drug</option>
-                        <option value="food">Food</option>
-                        <option value="environmental">Environmental</option>
-                      </select>
-                      <input name="reaction" className="input" placeholder="Reaction" required />
-                      <select name="severity" className="input" required>
-                        <option value="mild">Mild</option>
-                        <option value="moderate">Moderate</option>
-                        <option value="severe">Severe</option>
-                      </select>
-                    </QuickAddForm>
-                    <QuickAddForm
-                      title="Add chronic condition"
-                      pending={addCondition.isPending}
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        addCondition.mutate(event.currentTarget)
-                        event.currentTarget.reset()
-                      }}
-                    >
-                      <input name="name" className="input" placeholder="Name" required />
-                      <input name="icd10Code" className="input" placeholder="ICD-10" />
-                      <select name="status" className="input" required>
-                        <option value="active">Active</option>
-                        <option value="controlled">Controlled</option>
-                        <option value="resolved">Resolved</option>
-                      </select>
-                    </QuickAddForm>
-                  </div>
                 </div>
               ) : null}
 
               {tab === 'timeline' ? (
                 <PatientTimeline
                   events={events}
-                  title="Everything done for this patient"
-                  description="Visits, triage, consults, lab, imaging, pharmacy, admissions, and payments — newest first."
+                  title="Clinical timeline"
+                  description="Computed from live encounters, orders, admissions, and payments — not the history stub."
                 />
               ) : null}
 
               {tab === 'payments' ? (
                 <Card className="p-5">
-                  <PageHeader title="Payments" description="Cashier records for this patient." />
+                  <PageHeader title="Payments" description="Existing cashier records for this patient." />
                   {payments.length ? (
                     <div className="divide-y divide-slate-100">
                       {payments.map((row) => (
@@ -404,6 +360,34 @@ export function PatientFileModal({
                   )}
                 </Card>
               ) : null}
+
+              {tab === 'documents' ? (
+                <Card className="p-5">
+                  <PageHeader
+                    title="Documents"
+                    description="Existing clinical documents for this patient. Nothing is created by opening this file."
+                  />
+                  {documentsError ? (
+                    <Alert tone="info">Documents are unavailable for this account.</Alert>
+                  ) : documents.length ? (
+                    <div className="divide-y divide-slate-100">
+                      {documents.map((doc) => (
+                        <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                          <div>
+                            <p className="font-semibold">{doc.title}</p>
+                            <p className="text-xs text-slate-500">
+                              {doc.documentType.replace(/_/g, ' ')} · {doc.filename} ·{' '}
+                              {new Date(doc.createdAt).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Alert tone="info">No documents attached yet.</Alert>
+                  )}
+                </Card>
+              ) : null}
             </>
           )}
         </div>
@@ -412,11 +396,11 @@ export function PatientFileModal({
   )
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function ReadOnlyField({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-bold tabular-nums">{value}</p>
+    <div>
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-medium text-slate-900">{value?.toString().trim() || '—'}</p>
     </div>
   )
 }

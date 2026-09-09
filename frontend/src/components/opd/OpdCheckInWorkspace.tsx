@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CalendarCheck, Stethoscope, User } from 'lucide-react'
 import {
   Alert,
@@ -15,6 +15,7 @@ import {
 } from '../ui'
 import { PatientSearchAutocomplete } from '../PatientSearchAutocomplete'
 import { PatientContextHeader } from '../PatientContextHeader'
+import { RecentPatientsPanel, type RecentPatient } from '../patients/RecentPatientsPanel'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import {
   type ClinicalCatalog,
@@ -39,12 +40,27 @@ export type CheckInPatient = {
 
 const steps = ['Find patient', 'Visit details', 'Confirm check-in']
 
-export function OpdCheckInWorkspace() {
+export function OpdCheckInWorkspace({
+  initialPatient = null,
+  onInitialPatientConsumed,
+  onViewPatient,
+  onOpenTriage,
+}: {
+  initialPatient?: CheckInPatient | null
+  onInitialPatientConsumed?: () => void
+  onViewPatient?: (patientId: string) => void
+  onOpenTriage?: () => void
+} = {}) {
+  const queryClient = useQueryClient()
   const { data: catalog = null } = useClinicalCatalog()
   const catalogData = catalog as ClinicalCatalog
   const [step, setStep] = useState(0)
   const [selected, setSelected] = useState<CheckInPatient | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [completed, setCompleted] = useState<{
+    patient: CheckInPatient
+    encounterId: string
+  } | null>(null)
   const [visitDraft, setVisitDraft] = useState({
     clinicName: '',
     visitType: 'new',
@@ -54,6 +70,20 @@ export function OpdCheckInWorkspace() {
   })
   const doctorOptions = doctorSelectOptionsForClinic(catalogData, visitDraft.clinicName)
   const consultationFee = clinicConsultationFee(catalogData, visitDraft.clinicName)
+
+  useEffect(() => {
+    if (!initialPatient?.id) return
+    setSelected(initialPatient)
+    setStep(1)
+    setCompleted(null)
+    onInitialPatientConsumed?.()
+  }, [initialPatient?.id])
+
+  const selectForCheckIn = (patient: CheckInPatient) => {
+    setSelected(patient)
+    setStep(1)
+    setFormError(null)
+  }
 
   const createEncounter = useMutation({
     mutationFn: async (formElement: HTMLFormElement) => {
@@ -74,11 +104,16 @@ export function OpdCheckInWorkspace() {
         }),
       })
     },
-    onSuccess: () => {
+    onSuccess: (encounter) => {
+      if (selected) {
+        setCompleted({ patient: selected, encounterId: encounter.id })
+      }
       notify('Check-in complete', 'Patient checked in and sent to triage queue.', 'success')
       setSelected(null)
       setStep(0)
       setFormError(null)
+      void queryClient.invalidateQueries({ queryKey: ['recent-patients-encounters'] })
+      void queryClient.invalidateQueries({ queryKey: ['triage-queue'] })
     },
     onError: (error: Error) => setFormError(error.message),
   })
@@ -92,6 +127,24 @@ export function OpdCheckInWorkspace() {
           description="A calm, step-by-step workflow — identify the patient, set visit context, then check in."
         />
         <WorkflowSteps steps={steps} current={step} />
+
+        {completed ? (
+          <Alert tone="success" className="mt-6" title="Check-in complete">
+            {completed.patient.firstName} {completed.patient.lastName} ({completed.patient.patientNo}) is
+            on the triage queue.
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" onClick={() => onOpenTriage?.()}>
+                Open Triage
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => onViewPatient?.(completed.patient.id)}>
+                View patient
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setCompleted(null)}>
+                Dismiss
+              </Button>
+            </div>
+          </Alert>
+        ) : null}
 
         {step === 0 ? (
           <div className="mt-8 space-y-6">
@@ -116,6 +169,20 @@ export function OpdCheckInWorkspace() {
                 Continue →
               </Button>
             </div>
+            <RecentPatientsPanel
+              onView={(patient) => onViewPatient?.(patient.id)}
+              onQuickCheckIn={(patient: RecentPatient) =>
+                selectForCheckIn({
+                  id: patient.id,
+                  patientNo: patient.patientNo,
+                  firstName: patient.firstName,
+                  lastName: patient.lastName,
+                  dateOfBirth: patient.dateOfBirth,
+                  gender: patient.gender,
+                  primaryPhone: patient.primaryPhone,
+                })
+              }
+            />
           </div>
         ) : null}
 

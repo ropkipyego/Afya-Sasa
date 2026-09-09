@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { ArrowLeft, UserPlus } from 'lucide-react'
+import { ArrowLeft, Sparkles, UserPlus } from 'lucide-react'
 import { Button, Card, PageHeader } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { apiRequest } from '../../lib/api'
+import { notify } from '../../lib/notify'
 import {
   bedCardStyles,
   ipdStatusLabels,
@@ -49,6 +50,22 @@ export function WardDashboard({
   onAdmit?: (bedId: string) => void
 }) {
   const [searchPatient, setSearchPatient] = useState<PatientSearchItem | null>(null)
+  const queryClient = useQueryClient()
+
+  const markAvailable = useMutation({
+    mutationFn: (bedId: string) =>
+      apiRequest(`/inpatient/beds/${bedId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'available' }),
+      }),
+    onSuccess: async () => {
+      notify('Bed ready', 'Housekeeping complete. Bed is available for admission.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['ward-census', wardId] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+      await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
+    },
+    onError: (error: Error) => notify('Cannot free bed', error.message, 'critical'),
+  })
 
   const { data, isLoading } = useQuery({
     queryKey: ['ward-census', wardId],
@@ -93,7 +110,6 @@ export function WardDashboard({
 
   const reserved = data.census.filter((r) => r.bed.status === 'reserved').length
   const cleaning = data.census.filter((r) => r.bed.status === 'cleaning').length
-  const critical = data.census.filter((r) => r.clinicalStatus === 'critical').length
 
   return (
     <div className="workspace-shell animate-fade-in pb-10">
@@ -114,7 +130,6 @@ export function WardDashboard({
         <WardMetric label="Cleaning" value={cleaning} tone="border-violet-200 bg-violet-50/50" />
         <WardMetric label="Occupancy" value={`${occupancyPct}%`} />
         <WardMetric label="Avg stay" value={`${avgLos}d`} />
-        <WardMetric label="Critical" value={critical} tone="border-red-300 bg-red-50" />
       </div>
 
       <Card className="p-5 md:p-6">
@@ -170,12 +185,26 @@ export function WardDashboard({
                   </button>
                 ) : (
                   <div className="mt-4 flex flex-1 flex-col justify-between">
-                    <p className="text-sm font-semibold text-emerald-800">Available</p>
+                    {row.bed.status === 'available' ? (
+                      <p className="text-sm font-semibold text-emerald-800">Available</p>
+                    ) : null}
                     {row.bed.status === 'reserved' ? (
                       <p className="text-xs text-sky-700">Reserved — expected transfer</p>
                     ) : null}
                     {row.bed.status === 'cleaning' ? (
-                      <p className="text-xs text-violet-700">Cleaning in progress</p>
+                      <div>
+                        <p className="text-xs text-violet-700">Cleaning in progress — not available for admission</p>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="mt-4 w-full"
+                          loading={markAvailable.isPending && markAvailable.variables === row.bed.id}
+                          onClick={() => markAvailable.mutate(row.bed.id)}
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          Mark available
+                        </Button>
+                      </div>
                     ) : null}
                     {row.bed.status === 'available' && onAdmit ? (
                       <Button

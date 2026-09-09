@@ -16,6 +16,14 @@ export function formDataFromElement(target: FormSubmitTarget): FormData {
   return new FormData(formElementFromSubmit(target))
 }
 
+/** Parse a numeric form field. Empty / omitted values stay undefined (never coerced to 0). */
+export function optionalNumber(form: FormData, name: string): number | undefined {
+  const raw = String(form.get(name) ?? '').trim()
+  if (!raw) return undefined
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : undefined
+}
+
 export function submitClinicalForm<TData>(
   mutation: Pick<
     UseMutationResult<TData, Error, HTMLFormElement>,

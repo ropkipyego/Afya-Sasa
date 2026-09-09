@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { tenantChannel } from '../common/tenant-defaults';
@@ -47,6 +47,7 @@ export class InpatientService {
     private readonly radiologyRequests: Repository<RadiologyRequest>,
     private readonly realtime: RealtimeService,
     private readonly encounterWorkflow: EncounterWorkflowService,
+    private readonly dataSource: DataSource,
   ) {}
 
   createWard(dto: CreateWardDto, request: RequestContext) {
@@ -108,10 +109,34 @@ export class InpatientService {
 
   async updateBedStatus(id: string, dto: UpdateBedStatusDto, request: RequestContext) {
     const bed = await this.getBed(id);
-    await this.beds.update(id, {
+    if (dto.status === 'occupied') {
+      throw new BadRequestException(
+        'Occupy a bed by admitting or transferring a patient, not by changing bed status.',
+      );
+    }
+    const activeAdmission = await this.admissions.findOne({
+      where: { bed: { id }, status: 'active' },
+    });
+    if (bed.status === 'occupied' && activeAdmission) {
+      throw new BadRequestException(
+        'Cannot change an occupied bed while an active admission exists. Discharge or transfer the patient first.',
+      );
+    }
+    const userId = request.user?.sub ?? null;
+    const updated = await this.beds.update(
+      { id, status: bed.status },
+      {
+        status: dto.status,
+        version: bed.version + 1,
+        updatedBy: userId,
+      },
+    );
+    if (!updated.affected) {
+      throw new BadRequestException('Bed status changed. Refresh and try again.');
+    }
+    this.realtime.publish(tenantChannel(request), 'bed.updated', {
+      bedId: id,
       status: dto.status,
-      version: bed.version + 1,
-      updatedBy: request.user?.sub ?? null,
     });
     return this.getBed(id);
   }
@@ -159,41 +184,116 @@ export class InpatientService {
     const [patient, bed, encounter] = await Promise.all([
       this.patients.findOne({ where: { id: dto.patientId } }),
       this.getBed(dto.bedId),
-      dto.encounterId ? this.encounters.findOne({ where: { id: dto.encounterId } }) : null,
+      dto.encounterId
+        ? this.encounters.findOne({
+            where: { id: dto.encounterId },
+            relations: { patient: true },
+          })
+        : Promise.resolve(null),
     ]);
     if (!patient) throw new NotFoundException('Patient not found');
-    if (bed.status !== 'available') throw new BadRequestException('Bed is not available');
-    const admission = await this.admissions.save(
-      this.admissions.create({
-        admissionNo: await this.generateAdmissionNo(),
-        patient,
-        encounter,
-        bed,
-        ward: bed.ward,
-        admittingDoctor: request.user?.sub ? ({ id: request.user.sub } as never) : null,
-        reason: dto.reason,
-        type: dto.type,
-        status: 'active',
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
-    await this.beds.update(bed.id, {
-      status: 'occupied',
-      version: bed.version + 1,
-      updatedBy: request.user?.sub ?? null,
-    });
-    if (encounter) {
-      await this.encounterWorkflow.requireTransition(encounter.id, 'admitted', request);
+    if (dto.encounterId && !encounter) throw new NotFoundException('Encounter not found');
+    if (encounter && encounter.patient?.id !== patient.id) {
+      throw new BadRequestException('Encounter does not belong to this patient');
     }
+    if (bed.status !== 'available') {
+      throw new BadRequestException(
+        `Bed is not available (current status: ${bed.status}). Choose an available bed.`,
+      );
+    }
+    if (encounter && !this.encounterWorkflow.canTransition(encounter.status, 'admitted')) {
+      throw new BadRequestException(
+        this.encounterWorkflow.blockedTransitionMessage(encounter.status, 'admitted'),
+      );
+    }
+    const existingForPatient = await this.admissions.findOne({
+      where: { patient: { id: patient.id }, status: 'active' },
+      relations: { encounter: true },
+    });
+    if (existingForPatient) {
+      throw new BadRequestException('This patient already has an active IPD admission.');
+    }
+    if (encounter) {
+      const existingForEncounter = await this.admissions.findOne({
+        where: { encounter: { id: encounter.id }, status: 'active' },
+      });
+      if (existingForEncounter) {
+        throw new BadRequestException('This encounter already has an active IPD admission.');
+      }
+    }
+
+    const userId = request.user?.sub ?? null;
+    const admissionNo = await this.generateAdmissionNo();
+    const admissionId = await this.dataSource.transaction(async (manager) => {
+      const bedRepo = manager.getRepository(Bed);
+      const admissionRepo = manager.getRepository(Admission);
+      const encounterRepo = manager.getRepository(Encounter);
+      const occupied = await bedRepo.update(
+        { id: bed.id, status: 'available' },
+        {
+          status: 'occupied',
+          version: bed.version + 1,
+          updatedBy: userId,
+        },
+      );
+      if (!occupied.affected) {
+        throw new BadRequestException(
+          'Bed is no longer available. Refresh the bed list and try again.',
+        );
+      }
+      if (encounter) {
+        const fresh = await encounterRepo.findOne({ where: { id: encounter.id } });
+        if (!fresh) throw new NotFoundException('Encounter not found');
+        if (!this.encounterWorkflow.canTransition(fresh.status, 'admitted')) {
+          throw new BadRequestException(
+            this.encounterWorkflow.blockedTransitionMessage(fresh.status, 'admitted'),
+          );
+        }
+        await encounterRepo.update(encounter.id, {
+          status: 'admitted',
+          updatedBy: userId,
+        });
+      }
+      const admission = await admissionRepo.save(
+        admissionRepo.create({
+          admissionNo,
+          patient,
+          encounter,
+          bed,
+          ward: bed.ward,
+          admittingDoctor: userId ? ({ id: userId } as never) : null,
+          reason: dto.reason,
+          type: dto.type,
+          status: 'active',
+          createdBy: userId,
+          updatedBy: userId,
+        }),
+      );
+      return admission.id;
+    });
+
     this.realtime.publish(tenantChannel(request), 'admission.created', {
-      admissionId: admission.id,
+      admissionId,
       patientId: patient.id,
       bedId: bed.id,
     });
     return this.admissions.findOneOrFail({
-      where: { id: admission.id },
-      relations: { patient: true, bed: true, ward: true, admittingDoctor: true },
+      where: { id: admissionId },
+      relations: { patient: true, bed: true, ward: true, admittingDoctor: true, encounter: true },
+    });
+  }
+
+  findActiveAdmissionForPatient(patientId: string) {
+    return this.admissions.findOne({
+      where: { patient: { id: patientId }, status: 'active' },
+      relations: { encounter: true, patient: true, bed: true, ward: true },
+    });
+  }
+
+  findActiveAdmissionForEncounter(encounterId: string) {
+    return this.admissions.findOne({
+      where: { encounter: { id: encounterId }, status: 'active' },
+      relations: { encounter: true, patient: true, bed: true, ward: true },
     });
   }
 
@@ -212,24 +312,69 @@ export class InpatientService {
   async transferBed(id: string, dto: TransferBedDto, request: RequestContext) {
     const admission = await this.getAdmission(id);
     const toBed = await this.getBed(dto.toBedId);
-    if (toBed.status !== 'available') throw new BadRequestException('Destination bed is not available');
-    await this.transfers.save(
-      this.transfers.create({
-        admission,
-        fromBed: admission.bed,
-        toBed,
-        reason: dto.reason,
-        authorisedBy: request.user?.sub ?? null,
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
-    await this.beds.update(admission.bed.id, { status: 'available', version: admission.bed.version + 1 });
-    await this.beds.update(toBed.id, { status: 'occupied', version: toBed.version + 1 });
-    await this.admissions.update(admission.id, {
-      bed: toBed,
-      ward: toBed.ward,
-      updatedBy: request.user?.sub ?? null,
+    if (toBed.id === admission.bed.id) {
+      throw new BadRequestException('Destination bed is the current bed');
+    }
+    if (toBed.status !== 'available') {
+      throw new BadRequestException(
+        `Destination bed is not available (current status: ${toBed.status}). Cleaning, reserved, occupied, and maintenance beds cannot be selected.`,
+      );
+    }
+    const userId = request.user?.sub ?? null;
+    await this.dataSource.transaction(async (manager) => {
+      const bedRepo = manager.getRepository(Bed);
+      const admissionRepo = manager.getRepository(Admission);
+      const transferRepo = manager.getRepository(BedTransferLog);
+      const occupied = await bedRepo.update(
+        { id: toBed.id, status: 'available' },
+        {
+          status: 'occupied',
+          version: toBed.version + 1,
+          updatedBy: userId,
+        },
+      );
+      if (!occupied.affected) {
+        throw new BadRequestException(
+          'Destination bed is no longer available. Refresh the bed list and try again.',
+        );
+      }
+      const released = await bedRepo.update(
+        { id: admission.bed.id, status: 'occupied' },
+        {
+          status: 'available',
+          version: admission.bed.version + 1,
+          updatedBy: userId,
+        },
+      );
+      if (!released.affected) {
+        throw new BadRequestException(
+          'Could not release the current bed. Transfer cancelled so housekeeping state is preserved.',
+        );
+      }
+      await admissionRepo.update(admission.id, {
+        bed: { id: toBed.id },
+        ward: { id: toBed.ward.id },
+        updatedBy: userId,
+      });
+      await transferRepo.save(
+        transferRepo.create({
+          admission,
+          fromBed: admission.bed,
+          toBed,
+          reason: dto.reason,
+          authorisedBy: userId,
+          createdBy: userId,
+          updatedBy: userId,
+        }),
+      );
+    });
+    this.realtime.publish(tenantChannel(request), 'admission.updated', {
+      admissionId: id,
+      fromBedId: admission.bed.id,
+      toBedId: toBed.id,
+    });
+    this.realtime.publish(tenantChannel(request), 'bed.updated', {
+      bedId: toBed.id,
     });
     return this.getAdmission(id);
   }
@@ -248,6 +393,9 @@ export class InpatientService {
 
   async createDischargeSummary(id: string, dto: CreateDischargeSummaryDto, request: RequestContext) {
     const admission = await this.getAdmission(id);
+    if (admission.status === 'discharged') {
+      throw new BadRequestException('Cannot add a discharge summary to a discharged admission.');
+    }
     return this.summaries.save(
       this.summaries.create({
         admission,
@@ -261,6 +409,17 @@ export class InpatientService {
   }
 
   async completeDischargeSummary(summaryId: string, request: RequestContext) {
+    const summary = await this.summaries.findOne({
+      where: { id: summaryId },
+      relations: { admission: true },
+    });
+    if (!summary) throw new NotFoundException('Discharge summary not found');
+    if (summary.admission?.status === 'discharged') {
+      throw new BadRequestException('Cannot finalise a summary on a discharged admission.');
+    }
+    if (summary.status === 'complete') {
+      return summary;
+    }
     await this.summaries.update(summaryId, {
       status: 'complete',
       finalisedBy: request.user?.sub ?? null,
@@ -272,34 +431,61 @@ export class InpatientService {
 
   async dischargeAdmission(id: string, dto: DischargeAdmissionDto, request: RequestContext) {
     const admission = await this.getAdmission(id);
+    if (admission.status === 'discharged') {
+      throw new BadRequestException('Admission is already discharged');
+    }
     const summary = await this.summaries.findOne({
       where: { admission: { id }, status: 'complete' },
     });
     if (!summary) throw new BadRequestException('Completed discharge summary is required');
+    if (admission.encounter?.id) {
+      const encounter = await this.encounters.findOne({ where: { id: admission.encounter.id } });
+      if (encounter && !this.encounterWorkflow.canTransition(encounter.status, 'completed')) {
+        throw new BadRequestException(
+          this.encounterWorkflow.blockedTransitionMessage(encounter.status, 'completed'),
+        );
+      }
+    }
     const lengthOfStayDays = Math.max(
       1,
       Math.ceil((Date.now() - admission.admittedAt.getTime()) / (24 * 60 * 60 * 1000)),
     );
-    await this.admissions.update(id, {
-      status: 'discharged',
-      dischargedAt: new Date(),
-      dischargingDoctor: request.user?.sub ? ({ id: request.user.sub } as never) : null,
-      conditionOnDischarge: dto.conditionOnDischarge,
-      lengthOfStayDays,
-      updatedBy: request.user?.sub ?? null,
-    });
-    await this.beds.update(admission.bed.id, {
-      status: 'cleaning',
-      version: admission.bed.version + 1,
-      updatedBy: request.user?.sub ?? null,
-    });
-    if (admission.encounter?.id) {
-      await this.encounterWorkflow.requireTransition(
-        admission.encounter.id,
-        'completed',
-        request,
+    const userId = request.user?.sub ?? null;
+    await this.dataSource.transaction(async (manager) => {
+      const admissionRepo = manager.getRepository(Admission);
+      const bedRepo = manager.getRepository(Bed);
+      const encounterRepo = manager.getRepository(Encounter);
+      await admissionRepo.update(id, {
+        status: 'discharged',
+        dischargedAt: new Date(),
+        dischargingDoctor: userId ? ({ id: userId } as never) : null,
+        conditionOnDischarge: dto.conditionOnDischarge,
+        lengthOfStayDays,
+        updatedBy: userId,
+      });
+      await bedRepo.update(
+        { id: admission.bed.id, status: 'occupied' },
+        {
+          status: 'cleaning',
+          version: admission.bed.version + 1,
+          updatedBy: userId,
+        },
       );
-    }
+      if (admission.encounter?.id) {
+        const fresh = await encounterRepo.findOne({ where: { id: admission.encounter.id } });
+        if (fresh && this.encounterWorkflow.canTransition(fresh.status, 'completed')) {
+          await encounterRepo.update(fresh.id, {
+            status: 'completed',
+            endedAt: new Date(),
+            updatedBy: userId,
+          });
+        } else if (fresh) {
+          throw new BadRequestException(
+            this.encounterWorkflow.blockedTransitionMessage(fresh.status, 'completed'),
+          );
+        }
+      }
+    });
     this.realtime.publish(tenantChannel(request), 'admission.discharged', {
       admissionId: id,
     });
@@ -369,7 +555,8 @@ export class InpatientService {
         capacity,
         occupied,
         available: Math.max(capacity - occupied, 0),
-        criticalPatients: 0,
+        // No stored IPD acuity exists. Do not invent a clinical "critical" definition.
+        criticalPatients: null,
         dueForReview: wardAdmissions.filter((a) => {
           const days = Math.ceil(
             (Date.now() - a.admittedAt.getTime()) / (24 * 60 * 60 * 1000),

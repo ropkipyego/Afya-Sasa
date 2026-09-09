@@ -31,12 +31,20 @@ login_as() {
   TOKEN="$(echo "$login" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")"
 }
 
-step "1. Admin — find patient"
+step "1. Admin — create isolated test patient"
 login_as "$ADMIN_EMAIL"
-patients="$(api GET "/patients?q=brian&pageSize=1")"
-PATIENT_ID="$(echo "$patients" | python3 -c "import sys,json; d=json.load(sys.stdin); rows=d.get('items',[]); print(rows[0]['id'] if rows else '')")"
-[[ -n "$PATIENT_ID" ]] || fail "No patient found"
-ok "Patient ${PATIENT_ID}"
+UNIQ="$(date +%s)"
+PHONE="+2547${UNIQ: -8}"
+created="$(api POST "/patients" --data "{
+  \"firstName\": \"AFYASASA-ED-TEST\",
+  \"lastName\": \"Workflow${UNIQ}\",
+  \"dateOfBirth\": \"1985-06-11\",
+  \"gender\": \"male\",
+  \"primaryPhone\": \"${PHONE}\"
+}")"
+PATIENT_ID="$(echo "$created" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
+[[ -n "$PATIENT_ID" ]] || fail "Failed to create isolated ED test patient"
+ok "Isolated test patient ${PATIENT_ID}"
 
 step "2. Register ED encounter"
 ed="$(api POST "/emergency/register" --data "{

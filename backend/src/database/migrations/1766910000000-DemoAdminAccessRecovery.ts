@@ -8,6 +8,11 @@ export class DemoAdminAccessRecovery1766910000000 implements MigrationInterface 
   name = 'DemoAdminAccessRecovery1766910000000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
+    // Historical recovery for local demo admin. Already-applied installs never re-run this.
+    if (process.env.AFYASASA_ALLOW_DEMO_SEED !== 'true') {
+      return;
+    }
+
     await queryRunner.query(`
       UPDATE demo.users
       SET

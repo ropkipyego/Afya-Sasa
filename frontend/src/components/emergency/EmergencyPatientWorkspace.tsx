@@ -104,6 +104,7 @@ export function EmergencyPatientWorkspace({
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<TabId>(focusTriage ? 'overview' : 'overview')
   const [vitalsDue, setVitalsDue] = useState(false)
+  const [outcome, setOutcome] = useState('')
   const alertedDueRef = useRef(false)
 
   const { data: workspace, isLoading } = useQuery({
@@ -114,6 +115,15 @@ export function EmergencyPatientWorkspace({
   const { data: bays = [] } = useQuery({
     queryKey: ['emergency-bays-list'],
     queryFn: () => apiRequest<Bay[]>('/emergency/bays'),
+  })
+
+  const { data: availableBeds = [] } = useQuery({
+    queryKey: ['available-beds'],
+    queryFn: () =>
+      apiRequest<{ id: string; bedNo: string; status?: string; ward: { name: string } }[]>(
+        '/inpatient/beds/available',
+      ),
+    enabled: outcome === 'admitted_ipd',
   })
 
   const patientId = workspace?.encounter.patient.id
@@ -268,14 +278,18 @@ export function EmergencyPatientWorkspace({
           outcome: form.get('outcome'),
           transferFacility: form.get('transferFacility') || undefined,
           notes: form.get('notes') || undefined,
+          bedId: form.get('bedId') || undefined,
+          admissionReason: form.get('admissionReason') || undefined,
         }),
       })
     },
     onSuccess: async () => {
-      notify('Disposition recorded', 'Emergency episode closed.', 'success')
+      notify('Disposition recorded', outcome === 'admitted_ipd' ? 'IPD admission created.' : 'Emergency episode closed.', 'success')
       await queryClient.invalidateQueries({ queryKey: ['emergency-queue'] })
       await queryClient.invalidateQueries({ queryKey: ['emergency-metrics'] })
       await queryClient.invalidateQueries({ queryKey: ['emergency-bays'] })
+      await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
       onBack()
     },
   })
@@ -480,12 +494,33 @@ export function EmergencyPatientWorkspace({
             </div>
           ) : (
           <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); disposition.mutate(e.currentTarget) }}>
-            <SelectField name="outcome" label="Outcome" required>
+            <SelectField
+              name="outcome"
+              label="Outcome"
+              required
+              value={outcome}
+              onChange={(event) => setOutcome(event.target.value)}
+            >
               <option value="">Select outcome</option>
               {outcomes.map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
             </SelectField>
+            {outcome === 'admitted_ipd' ? (
+              <>
+                <SelectField name="bedId" label="Available IPD bed" required>
+                  <option value="">Select a bed</option>
+                  {availableBeds
+                    .filter((bed) => !bed.status || bed.status === 'available')
+                    .map((bed) => (
+                      <option key={bed.id} value={bed.id}>
+                        {bed.ward?.name} · {bed.bedNo}
+                      </option>
+                    ))}
+                </SelectField>
+                <Field name="admissionReason" label="Admission reason" required />
+              </>
+            ) : null}
             <Field name="transferFacility" label="Transfer facility (if applicable)" />
             <TextareaField name="notes" label="Disposition notes" />
             <Button type="submit" loading={disposition.isPending}>Close emergency episode</Button>

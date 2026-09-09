@@ -245,8 +245,19 @@ export class PatientsService {
 
   async update(id: string, dto: UpdatePatientDto, request: RequestContext) {
     await this.findOne(id);
+    const {
+      identifiers: _identifiers,
+      nextOfKin: _nextOfKin,
+      allergies: _allergies,
+      chronicConditions: _chronicConditions,
+      ...demographics
+    } = dto;
+    const safeDemographics = { ...demographics } as Record<string, unknown>;
+    delete safeDemographics.patientNo;
+    delete safeDemographics.qrCode;
+    delete safeDemographics.id;
     await this.patients.update(id, {
-      ...dto,
+      ...safeDemographics,
       updatedBy: request.user?.sub ?? null,
     });
     return this.findOne(id);
@@ -491,6 +502,15 @@ export class PatientsService {
         title: `Admission ${item.admissionNo}`,
         summary: `${item.ward?.name ?? 'Ward'} / ${item.bed?.bedNo ?? 'Bed'} — ${item.status}`,
       })),
+      ...admissions
+        .filter((item) => Boolean(item.dischargedAt))
+        .map((item) => ({
+          id: `${item.id}-discharge`,
+          type: 'discharge',
+          occurredAt: item.dischargedAt as Date,
+          title: `Discharged ${item.admissionNo}`,
+          summary: `${item.ward?.name ?? 'Ward'} / ${item.bed?.bedNo ?? 'Bed'} — ${item.conditionOnDischarge ?? item.status}`,
+        })),
       ...labResults.map((item) => ({
         id: item.id,
         type: 'lab_result',
@@ -734,6 +754,16 @@ export class PatientsService {
     const allPatients = new Map<string, Patient>();
     for (const match of [...phoneMatches, ...nameDobMatches]) {
       allPatients.set(match.id, match);
+    }
+    for (const match of identifierMatches) {
+      if (match?.patient) {
+        allPatients.set(match.patient.id, match.patient);
+      }
+    }
+    for (const match of nationalIdMatches) {
+      if (match.patient) {
+        allPatients.set(match.patient.id, match.patient);
+      }
     }
 
     return {

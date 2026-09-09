@@ -32,27 +32,20 @@ login="$(curl -fsS -X POST "${API}/auth/login" \
 TOKEN="$(echo "$login" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")"
 ok "Authenticated as ${EMAIL}"
 
-step "2. Find or create test patient"
-patients="$(api GET "/patients?q=demo&pageSize=5")"
-PATIENT_ID="$(echo "$patients" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-rows = data.get('items', data if isinstance(data, list) else [])
-print(rows[0]['id'] if rows else '')
-")"
-if [[ -z "$PATIENT_ID" ]]; then
-  created="$(api POST "/patients" --data '{
-    "firstName":"Workflow",
-    "lastName":"TestPatient",
-    "dateOfBirth":"1990-01-15",
-    "gender":"male",
-    "primaryPhone":"+254700000099"
-  }')"
-  PATIENT_ID="$(echo "$created" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
-  ok "Registered new patient ${PATIENT_ID}"
-else
-  ok "Using existing patient ${PATIENT_ID}"
-fi
+step "2. Create isolated test patient"
+UNIQ="$(date +%s)"
+PHONE="+2547${UNIQ: -8}"
+created="$(api POST "/patients" --data "{
+  \"firstName\":\"AFYASASA-IPD-TEST\",
+  \"lastName\":\"Workflow${UNIQ}\",
+  \"dateOfBirth\":\"1990-01-15\",
+  \"gender\":\"male\",
+  \"primaryPhone\":\"${PHONE}\"
+}")"
+PATIENT_ID="$(echo "$created" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")"
+PATIENT_NO="$(echo "$created" | python3 -c "import sys,json; print(json.load(sys.stdin).get('patientNo',''))")"
+[[ -n "$PATIENT_ID" ]] || die "Failed to create isolated IPD test patient"
+ok "Registered isolated test patient ${PATIENT_NO} ${PATIENT_ID}"
 
 step "3. IPD dashboard & available bed"
 dashboard="$(api GET "/inpatient/dashboard")"

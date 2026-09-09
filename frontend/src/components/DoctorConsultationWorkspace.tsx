@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, FileText, FlaskConical, Paperclip, Pill, Stethoscope } from 'lucide-react'
+import { BedDouble, ClipboardList, FileText, FlaskConical, Paperclip, Pill, Printer, Stethoscope } from 'lucide-react'
 import {
   Alert,
   Button,
@@ -13,6 +13,7 @@ import {
   SelectField,
   TextareaField,
 } from './ui'
+import { IpdAdmitPanel } from './ipd/IpdAdmitPanel'
 import { PatientContextHeader } from './PatientContextHeader'
 import { PatientTimeline, type TimelineEvent } from './PatientTimeline'
 import { TriageSummaryPanel } from './VitalsFields'
@@ -39,6 +40,7 @@ export type ConsultationPatient = {
 export type ConsultationEncounter = {
   id: string
   encounterNo: string
+  status?: string
   presentingComplaint?: string
   patient: ConsultationPatient
   triage?: {
@@ -57,7 +59,7 @@ export type ConsultationEncounter = {
   } | null
 }
 
-type DoctorTab = 'context' | 'soap' | 'orders' | 'meds' | 'referrals' | 'files'
+type DoctorTab = 'context' | 'soap' | 'orders' | 'meds' | 'referrals' | 'files' | 'disposition'
 
 type PharmacyOrder = {
   id: string
@@ -74,6 +76,8 @@ export function DoctorConsultationWorkspace({
   completeEncounter,
   createReferral,
   recentSoap,
+  onOpenIpd,
+  onOpenSickSheets,
 }: {
   selected: ConsultationEncounter
   createConsultation: {
@@ -84,6 +88,8 @@ export function DoctorConsultationWorkspace({
   completeEncounter: { mutate: () => void; isPending: boolean }
   createReferral: { mutate: (form: HTMLFormElement) => void; isPending: boolean }
   recentSoap: Array<{ id: string; patient: string; savedAt: string }>
+  onOpenIpd?: (admissionId: string) => void
+  onOpenSickSheets?: () => void
 }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<DoctorTab>('context')
@@ -151,6 +157,19 @@ export function DoctorConsultationWorkspace({
     onError: (error: Error) => notify('Medication order failed', error.message, 'critical'),
   })
 
+  const markAwaitingResults = useMutation({
+    mutationFn: () =>
+      apiRequest(`/opd/encounters/${selected.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'awaiting_results' }),
+      }),
+    onSuccess: async () => {
+      notify('Awaiting results', 'Encounter moved to awaiting results.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
+    },
+    onError: (error: Error) => notify('Cannot change status', error.message, 'critical'),
+  })
+
   const workflowStep = journey?.step ?? mapEncounterStatusToWorkflow('in_consultation')
 
   function changeTab(next: DoctorTab) {
@@ -176,6 +195,7 @@ export function DoctorConsultationWorkspace({
           { id: 'orders', label: 'Lab & imaging', icon: <FlaskConical className="h-4 w-4" /> },
           { id: 'meds', label: 'Medications', icon: <Pill className="h-4 w-4" /> },
           { id: 'referrals', label: 'Referrals', icon: <FileText className="h-4 w-4" /> },
+          { id: 'disposition', label: 'Disposition', icon: <BedDouble className="h-4 w-4" /> },
           { id: 'files', label: 'Files', icon: <Paperclip className="h-4 w-4" /> },
         ]}
       />
@@ -439,6 +459,74 @@ export function DoctorConsultationWorkspace({
             </Button>
           </form>
         </Card>
+      ) : null}
+
+      {tab === 'disposition' ? (
+        <div className="space-y-5">
+          <Card className="p-5 md:p-8">
+            <PageHeader
+              title="Disposition"
+              description="Keep this visit on the same patient and the same encounter. Admission reuses the existing IPD admit workflow."
+            />
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <Button
+                type="button"
+                loading={completeEncounter.isPending}
+                className="min-h-12"
+                onClick={() => completeEncounter.mutate()}
+              >
+                Complete visit
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={markAwaitingResults.isPending}
+                className="min-h-12"
+                onClick={() => markAwaitingResults.mutate()}
+              >
+                Awaiting results
+              </Button>
+              <Button type="button" variant="secondary" className="min-h-12" onClick={() => setTab('soap')}>
+                Follow-up
+              </Button>
+              <Button type="button" variant="secondary" className="min-h-12" onClick={() => setTab('referrals')}>
+                Referral
+              </Button>
+              <Button type="button" variant="secondary" className="min-h-12" onClick={() => setTab('disposition')}>
+                Admit to IPD
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-12"
+                onClick={() => onOpenSickSheets?.()}
+              >
+                <Printer className="h-4 w-4" />
+                Sick sheet
+              </Button>
+            </div>
+            <p className="mt-4 text-xs text-slate-500">
+              Follow-up uses the SOAP follow-up fields. Sick sheet opens the existing document workspace.
+              Encounter status: {selected.status ?? 'unknown'}.
+            </p>
+          </Card>
+          <IpdAdmitPanel
+            lockPatient
+            lockEncounter
+            initialPatient={{
+              id: selected.patient.id,
+              patientNo: selected.patient.patientNo,
+              firstName: selected.patient.firstName,
+              lastName: selected.patient.lastName,
+              dateOfBirth: selected.patient.dateOfBirth,
+              gender: selected.patient.gender,
+              primaryPhone: selected.patient.primaryPhone,
+            }}
+            initialEncounterId={selected.id}
+            initialEncounterNo={selected.encounterNo}
+            onAdmitted={(admissionId) => onOpenIpd?.(admissionId)}
+          />
+        </div>
       ) : null}
 
       {tab === 'files' ? (

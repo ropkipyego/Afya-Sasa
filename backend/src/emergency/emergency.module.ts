@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Patient, PatientAllergy, PatientChronicCondition } from '../patients/patient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { WorkflowModule } from '../workflow/workflow.module';
+import { InpatientModule } from '../inpatient/inpatient.module';
 import {
   CriticalAlert,
   EmergencyEncounter,
@@ -16,6 +17,7 @@ import { EmergencyService } from './emergency.service';
 @Module({
   imports: [
     WorkflowModule,
+    InpatientModule,
     TypeOrmModule.forFeature([
       Patient,
       PatientAllergy,

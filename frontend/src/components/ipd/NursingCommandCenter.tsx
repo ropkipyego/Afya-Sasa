@@ -1,9 +1,10 @@
-import { useMemo, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState, type ReactNode } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { Activity, ArrowLeft, ClipboardList, Pill, Stethoscope } from 'lucide-react'
-import { Button, Card, PageHeader } from '../ui'
+import { Button, Card, PageHeader, SelectField, TextareaField } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { notify } from '../../lib/notify'
 import { calcLosDays, ipdStatusLabels, ipdStatusStyles } from './ipd-utils'
 
 type ActiveAdmission = {
@@ -90,20 +91,7 @@ export function NursingCommandCenter({
           onOpen={onOpenPatient}
         />
         <Card className="p-8">
-          <h3 className="text-xl font-bold text-slate-900">Shift handover</h3>
-          <p className="mt-2 text-sm text-slate-500">
-            Capture patient status, pending tasks, escalations, and special instructions per shift.
-          </p>
-          <div className="mt-6 space-y-4">
-            {(['morning', 'afternoon', 'night'] as const).map((shift) => (
-              <div key={shift} className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{shift} shift</p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                  Use patient workspace → Nursing Notes to document handover per patient.
-                </p>
-              </div>
-            ))}
-          </div>
+          <ShiftHandoverPanel admissions={admissions} />
         </Card>
       </section>
     </div>
@@ -183,5 +171,114 @@ function PatientQueue({
         )}
       </ul>
     </Card>
+  )
+}
+
+type ShiftNote = {
+  id: string
+  shift: 'morning' | 'afternoon' | 'night'
+  type: string
+  body: string
+  date: string
+  createdAt: string
+  ward: { id: string; name: string }
+}
+
+function ShiftHandoverPanel({ admissions }: { admissions: ActiveAdmission[] }) {
+  const queryClient = useQueryClient()
+  const wards = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const admission of admissions) {
+      map.set(admission.ward.id, admission.ward.name)
+    }
+    return [...map.entries()].map(([id, name]) => ({ id, name }))
+  }, [admissions])
+  const [wardId, setWardId] = useState(wards[0]?.id ?? '')
+  const today = new Date().toISOString().slice(0, 10)
+
+  const selectedWardId = wardId || wards[0]?.id || ''
+
+  const { data: notes = [] } = useQuery({
+    queryKey: ['shift-notes', selectedWardId, today],
+    queryFn: () =>
+      apiRequest<ShiftNote[]>(
+        `/nursing/shift-notes?wardId=${encodeURIComponent(selectedWardId)}&date=${today}`,
+      ),
+    enabled: Boolean(selectedWardId),
+  })
+
+  const createNote = useMutation({
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = new FormData(formElement)
+      return apiRequest('/nursing/shift-notes', {
+        method: 'POST',
+        body: JSON.stringify({
+          wardId: selectedWardId,
+          shift: form.get('shift'),
+          date: today,
+          type: 'handover',
+          body: form.get('body'),
+        }),
+      })
+    },
+    onSuccess: async (_, formElement) => {
+      notify('Shift note saved', 'Ward handover recorded.', 'success')
+      formElement.reset()
+      await queryClient.invalidateQueries({ queryKey: ['shift-notes'] })
+    },
+    onError: (error: Error) => notify('Shift note failed', error.message, 'critical'),
+  })
+
+  return (
+    <div>
+      <h3 className="text-xl font-bold text-slate-900">Shift handover</h3>
+      <p className="mt-2 text-sm text-slate-500">
+        Ward-level handover notes. Patient-level nursing observations stay on the IPD workspace Nursing tab.
+      </p>
+      {!wards.length ? (
+        <p className="mt-6 text-sm text-slate-500">No active ward admissions to attach a handover note.</p>
+      ) : (
+        <form
+          className="mt-6 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            createNote.mutate(event.currentTarget)
+          }}
+        >
+          <SelectField
+            name="wardId"
+            label="Ward"
+            required
+            value={selectedWardId}
+            onChange={(event) => setWardId(event.target.value)}
+          >
+            {wards.map((ward) => (
+              <option key={ward.id} value={ward.id}>
+                {ward.name}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField name="shift" label="Shift" required defaultValue="morning">
+            <option value="morning">Morning</option>
+            <option value="afternoon">Afternoon</option>
+            <option value="night">Night</option>
+          </SelectField>
+          <TextareaField name="body" label="Handover note" required rows={4} />
+          <Button type="submit" loading={createNote.isPending}>
+            Save shift note
+          </Button>
+        </form>
+      )}
+      <ul className="mt-6 space-y-3">
+        {notes.map((note) => (
+          <li key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              {note.shift} · {note.ward?.name} · {new Date(note.createdAt).toLocaleString()}
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-700">{note.body}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

@@ -75,6 +75,7 @@ export function IpdAdminSetup({ onBack }: { onBack?: () => void }) {
       await queryClient.invalidateQueries({ queryKey: ['bed-dashboard'] })
       await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
       await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['ward-census'] })
     },
   })
 

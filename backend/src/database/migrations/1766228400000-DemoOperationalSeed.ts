@@ -4,6 +4,12 @@ export class DemoOperationalSeed1766228400000 implements MigrationInterface {
   name = 'DemoOperationalSeed1766228400000';
 
   async up(queryRunner: QueryRunner): Promise<void> {
+    // Historical local-dev seed. Already-applied installs never re-run this.
+    // Fresh installs must opt in — production startup must not insert demo patients.
+    if (process.env.AFYASASA_ALLOW_DEMO_SEED !== 'true') {
+      return;
+    }
+
     await queryRunner.query(`
       INSERT INTO demo.users (
         id, employee_no, first_name, last_name, email, phone, password_hash, active, force_password_change

@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, ArrowRight, BedDouble, ClipboardList, Settings, Stethoscope } from 'lucide-react'
+import { Activity, ArrowRight, BedDouble, Settings, Stethoscope } from 'lucide-react'
 import { Button, Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { wardTypeLabel } from './ipd-utils'
@@ -25,7 +25,7 @@ type DashboardData = {
     capacity: number
     occupied: number
     available: number
-    criticalPatients: number
+    criticalPatients: number | null
     dueForReview: number
   }[]
 }
@@ -206,9 +206,6 @@ export function IpdDashboard({
               <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-slate-500">
                 <span className="flex items-center gap-2">
                   <Activity className="h-4 w-4" /> {ward.dueForReview} review due
-                </span>
-                <span className="flex items-center gap-2">
-                  <ClipboardList className="h-4 w-4" /> {ward.criticalPatients} critical
                 </span>
               </div>
             </button>

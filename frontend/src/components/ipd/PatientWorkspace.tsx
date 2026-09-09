@@ -31,7 +31,7 @@ import { VitalsTrendPanel } from './VitalsTrendPanel'
 import { ClinicalInvestigationOrders } from '../investigations/ClinicalInvestigationOrders'
 import { calcLosDays } from './ipd-utils'
 import { apiRequest } from '../../lib/api'
-import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
+import { formDataFromElement, optionalNumber, submitClinicalForm } from '../../lib/form-utils'
 import { notify } from '../../lib/notify'
 import { viewClinicalFile } from '../../lib/clinical-upload'
 
@@ -199,7 +199,7 @@ export function PatientWorkspace({
   const { data: observations = [] } = useQuery({
     queryKey: ['nursing-observations', admissionId],
     queryFn: () =>
-      apiRequest<{ id: string; type: string; value: string; unit?: string; createdAt: string }[]>(
+      apiRequest<{ id: string; type: string; value: string; unit?: string; recordedAt?: string; createdAt?: string }[]>(
         `/nursing/observations/${admissionId}`,
       ),
     enabled: Boolean(admissionId),
@@ -268,13 +268,14 @@ export function PatientWorkspace({
         method: 'POST',
         body: JSON.stringify({
           admissionId,
-          temperature: Number(form.get('temperature') || 0),
-          pulse: Number(form.get('pulse') || 0),
-          respiratoryRate: Number(form.get('respiratoryRate') || 0),
-          bpSystolic: Number(form.get('bpSystolic') || 0),
-          bpDiastolic: Number(form.get('bpDiastolic') || 0),
-          spo2: Number(form.get('spo2') || 0),
-          bloodGlucose: Number(form.get('bloodGlucose') || 0) || undefined,
+          encounterId: workspace?.admission.encounter?.id,
+          temperature: optionalNumber(form, 'temperature'),
+          pulse: optionalNumber(form, 'pulse'),
+          respiratoryRate: optionalNumber(form, 'respiratoryRate'),
+          bpSystolic: optionalNumber(form, 'bpSystolic'),
+          bpDiastolic: optionalNumber(form, 'bpDiastolic'),
+          spo2: optionalNumber(form, 'spo2'),
+          bloodGlucose: optionalNumber(form, 'bloodGlucose'),
         }),
       })
     },
@@ -327,6 +328,19 @@ export function PatientWorkspace({
     },
   })
 
+  const updateMarStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'given' | 'withheld' | 'refused' | 'not_available' }) =>
+      apiRequest(`/nursing/mar/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: async () => {
+      notify('MAR updated', 'Administration status recorded.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['mar', admissionId] })
+    },
+    onError: (error: Error) => notify('MAR update failed', error.message, 'critical'),
+  })
+
   const transferBed = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
@@ -341,6 +355,9 @@ export function PatientWorkspace({
     onSuccess: async () => {
       notify('Transfer complete', 'Patient moved to new bed.', 'success')
       await queryClient.invalidateQueries({ queryKey: ['ipd-workspace', admissionId] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+      await queryClient.invalidateQueries({ queryKey: ['ward-census'] })
+      await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
       setActiveAction(null)
     },
   })
@@ -386,7 +403,11 @@ export function PatientWorkspace({
       })
     },
     onSuccess: async () => {
-      notify('Patient discharged', 'Bed marked for cleaning.', 'success')
+      notify('Patient discharged', 'Bed marked for cleaning. Housekeeping can mark it available.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['ward-census'] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+      await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['patient-timeline'] })
       onBack()
     },
   })
@@ -611,7 +632,13 @@ export function PatientWorkspace({
           {activeTab === 'vitals' && (
             <VitalsTrendPanel vitals={vitals} onRecord={() => handleAction('vitals')} />
           )}
-          {activeTab === 'medication' && <MarGrid entries={mar} />}
+          {activeTab === 'medication' && (
+            <MarGrid
+              entries={mar}
+              updatingId={updateMarStatus.isPending ? updateMarStatus.variables?.id ?? null : null}
+              onUpdateStatus={(id, status) => updateMarStatus.mutate({ id, status })}
+            />
+          )}
           {activeTab === 'investigations' && (
             <InvestigationsTab
               patientLabs={patientLabs}
@@ -861,7 +888,7 @@ function NursingNotesTab({
   observations,
   onAdd,
 }: {
-  observations: { id: string; type: string; value: string; createdAt: string }[]
+  observations: { id: string; type: string; value: string; recordedAt?: string; createdAt?: string }[]
   onAdd: () => void
 }) {
   return (
@@ -869,7 +896,7 @@ function NursingNotesTab({
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h3 className="text-xl font-bold text-slate-900">Nursing notes</h3>
-          <p className="mt-1 text-sm text-slate-500">Shift observations and nursing assessments.</p>
+          <p className="mt-1 text-sm text-slate-500">Structured nursing observations for this admission.</p>
         </div>
         <Button onClick={onAdd}>Add note</Button>
       </div>
@@ -882,7 +909,7 @@ function NursingNotesTab({
           {observations.map((obs) => (
             <li key={obs.id} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                {obs.type.replace('_', ' ')} · {new Date(obs.createdAt).toLocaleString()}
+                {obs.type.replace('_', ' ')} · {new Date(obs.recordedAt ?? obs.createdAt ?? '').toLocaleString()}
               </p>
               <p className="mt-4 text-base leading-relaxed text-slate-700">{obs.value}</p>
             </li>
@@ -1145,13 +1172,10 @@ function DischargeTab({
   dischargePending: boolean
 }) {
   const checklist = [
-    { label: 'Doctor review complete', done: summaries.length > 0 },
-    { label: 'Lab results reviewed', done: true },
-    { label: 'Radiology reviewed', done: true },
-    { label: 'Medication reconciliation complete', done: true },
-    { label: 'Discharge summary complete', done: hasCompleteSummary },
+    { label: 'Discharge summary drafted', done: summaries.length > 0 },
+    { label: 'Discharge summary finalised', done: hasCompleteSummary },
   ]
-  const allDone = checklist.every((c) => c.done)
+  const allDone = hasCompleteSummary
 
   return (
     <div className="space-y-6">
@@ -1207,8 +1231,10 @@ function DischargeTab({
           </SelectField>
         </FormSection>
         {!allDone ? (
-          <Alert tone="warning">Complete all checklist items before discharge.</Alert>
-        ) : null}
+          <Alert tone="warning">Finalise the discharge summary before discharging the patient. The bed will then go to cleaning.</Alert>
+        ) : (
+          <Alert tone="info">Discharge will close this admission and mark the bed for housekeeping.</Alert>
+        )}
         <FormActions>
           <Button type="submit" loading={dischargePending} disabled={!allDone}>
             Discharge patient

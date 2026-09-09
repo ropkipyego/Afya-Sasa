@@ -54,7 +54,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
         database: config.get<string>('POSTGRES_DB', 'afyasasa'),
         autoLoadEntities: true,
         synchronize: false,
-        migrationsRun: config.get<string>('TYPEORM_MIGRATIONS_RUN', 'true') === 'true',
+        migrationsRun: config.get<string>('TYPEORM_MIGRATIONS_RUN', 'false') === 'true',
         migrations: [`${__dirname}/database/migrations/*{.ts,.js}`],
       }),
     }),

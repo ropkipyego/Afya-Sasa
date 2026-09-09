@@ -18,6 +18,8 @@ services:
     ports: []
     environment:
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1:8080/minio}
+      TYPEORM_MIGRATIONS_RUN: "false"
+      AFYASASA_ALLOW_DEMO_SEED: "false"
 
   frontend:
     ports: []

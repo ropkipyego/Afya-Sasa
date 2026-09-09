@@ -44,6 +44,7 @@ export class LabCatalogController {
   @Post('seed')
   @RequirePermissions('lab_catalogue:manage')
   seed() {
+    // Explicit operator action only. Never called on application startup.
     return this.catalogService.ensureSeeded();
   }
 

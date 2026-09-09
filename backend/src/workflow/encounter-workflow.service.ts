@@ -21,9 +21,19 @@ export class EncounterWorkflowService {
     private readonly encounters: Repository<Encounter>,
   ) {}
 
+  allowedTargets(from: EncounterStatus): EncounterStatus[] {
+    return [...(ALLOWED_TRANSITIONS[from] ?? [])];
+  }
+
   canTransition(from: EncounterStatus, to: EncounterStatus): boolean {
-    const allowed = ALLOWED_TRANSITIONS[from] ?? [];
+    const allowed = this.allowedTargets(from);
     return allowed.includes(to) || from === to;
+  }
+
+  blockedTransitionMessage(from: EncounterStatus, to: EncounterStatus): string {
+    const allowed = this.allowedTargets(from);
+    const allowedText = allowed.length ? allowed.join(', ') : 'none';
+    return `Cannot move encounter from "${from}" to "${to}". Current status "${from}" blocks this transition. Allowed next statuses: ${allowedText}.`;
   }
 
   async transition(
@@ -59,9 +69,7 @@ export class EncounterWorkflowService {
       throw new BadRequestException('Encounter not found');
     }
     if (!this.canTransition(encounter.status, to)) {
-      throw new BadRequestException(
-        `Cannot move encounter from "${encounter.status}" to "${to}"`,
-      );
+      throw new BadRequestException(this.blockedTransitionMessage(encounter.status, to));
     }
     await this.encounters.update(encounterId, {
       status: to,

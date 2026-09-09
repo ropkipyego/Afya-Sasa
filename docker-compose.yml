@@ -65,6 +65,9 @@ services:
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:8080/minio}
       S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-afyasasa}
       S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-afyasasa123}
+      # Hardcoded so a live .env cannot re-enable auto-migrations / demo seed on compose up.
+      TYPEORM_MIGRATIONS_RUN: "false"
+      AFYASASA_ALLOW_DEMO_SEED: "false"
     ports:
       - "${BACKEND_HOST_PORT:-3000}:3000"
     depends_on:
