@@ -29,6 +29,7 @@ const eventTypeLabels: Record<string, string> = {
   pharmacy_prescription: 'Prescription',
   pharmacy_dispense: 'Dispense',
   discharge: 'Discharge',
+  payment: 'Payment',
 }
 
 const eventTypeColors: Record<string, string> = {
@@ -47,6 +48,7 @@ const eventTypeColors: Record<string, string> = {
   pharmacy_prescription: 'bg-emerald-500',
   pharmacy_dispense: 'bg-lime-600',
   discharge: 'bg-emerald-500',
+  payment: 'bg-sky-600',
 }
 
 export function PatientTimeline({

@@ -8,9 +8,10 @@ import { Admission } from '../inpatient/inpatient.entities';
 import { LabRequest, LabResult } from '../laboratory/laboratory.entities';
 import { Pregnancy } from '../maternity/maternity.entities';
 import { Consultation, Encounter, TriageAssessment } from '../opd/opd.entities';
-import { RadiologyReport } from '../radiology/radiology.entities';
+import { RadiologyReport, RadiologyRequest } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
+import { PaymentTransaction } from '../payments/payment.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import {
   Patient,
@@ -19,6 +20,7 @@ import {
   PatientIdentifier,
   PatientNextOfKin,
 } from './patient.entities';
+import { TenancyModule } from '../core/tenancy/tenancy.module';
 import { PatientsController } from './patients.controller';
 import { PatientsService } from './patients.service';
 
@@ -37,6 +39,7 @@ import { PatientsService } from './patients.service';
       Consultation,
       TriageAssessment,
       RadiologyReport,
+      RadiologyRequest,
       SurgeryBooking,
       Pregnancy,
       IcuAdmission,
@@ -44,8 +47,10 @@ import { PatientsService } from './patients.service';
       Appointment,
       Referral,
       ClinicalOrder,
+      PaymentTransaction,
     ]),
     NotificationsModule,
+    TenancyModule,
   ],
   controllers: [PatientsController],
   providers: [PatientsService],

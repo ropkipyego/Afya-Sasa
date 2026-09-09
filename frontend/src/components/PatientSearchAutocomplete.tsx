@@ -244,7 +244,7 @@ export function PatientQrLookup({
         <Input
           className="min-w-[200px] flex-1 font-mono text-sm"
           value={code}
-          placeholder="afyasasa:patient:MRN or scan result"
+          placeholder="Scan result, /p/MRN, or patient number"
           onChange={(e) => setCode(e.target.value)}
         />
         <Button type="submit" loading={lookup.isPending} disabled={!code.trim()}>

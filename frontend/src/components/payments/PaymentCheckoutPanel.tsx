@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Smartphone, Wallet } from 'lucide-react'
 import { Alert, Button, Field, SelectField } from '../ui'
@@ -35,6 +35,10 @@ export function PaymentCheckoutPanel({
 
   const [amount, setAmount] = useState(defaultAmount)
   const [paymentMethod, setPaymentMethod] = useState('cash')
+
+  useEffect(() => {
+    setAmount(defaultAmount)
+  }, [defaultAmount])
   const [payerScheme, setPayerScheme] = useState('')
   const [mpesaPhone, setMpesaPhone] = useState(patientPhone ?? '')
   const [paymentReference, setPaymentReference] = useState('')

@@ -38,11 +38,6 @@ export function filterNavigationByModules(
   return items.filter((item) => {
     const module = navModuleMap[item.label]
     if (!module) return true
-    if (module === 'pharmacy') {
-      const facilities = catalog?.facilities
-      if (!facilities?.length) return false
-      return isModuleEnabled(catalog, 'pharmacy')
-    }
     return isModuleEnabled(catalog, module)
   })
 }

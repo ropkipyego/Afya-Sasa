@@ -220,7 +220,7 @@ export function LabCatalogPanel() {
       <Card className="p-6">
         <PageHeader
           title="LIS orderable catalog import"
-          description="Bulk import into the production Kenya LIS catalog (orderable tests, departments, specimens, parameters)."
+          description="Bulk import into the production Kenya LIS catalog (orderable tests, lab sections, specimens, parameters)."
         />
         <div className="mt-4 flex flex-wrap gap-3">
           <Button
@@ -263,12 +263,12 @@ export function LabCatalogPanel() {
       <Card className="p-8">
         <PageHeader
           title="LIS catalog (Kenya / Jalaram)"
-          description="Production orderable tests and panels with SI units, specimen types, departments, and stratified reference ranges."
+          description="Production orderable tests and panels with SI units, specimen types, lab sections, and stratified reference ranges."
         />
         <div className="mt-6 grid gap-6 lg:grid-cols-3">
           <div>
             <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-              Departments ({departments.length})
+              Lab sections ({departments.length})
             </h3>
             <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto">
               {departments.map((department) => (

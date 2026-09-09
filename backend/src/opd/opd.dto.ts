@@ -39,9 +39,14 @@ export class CreateEncounterDto {
   @ApiPropertyOptional({ enum: ['doctor', 'laboratory', 'radiology', 'theatre', 'maternity', 'emergency'] })
   @IsOptional()
   @IsIn(['doctor', 'laboratory', 'radiology', 'theatre', 'maternity', 'emergency'])
-  destination?: 'doctor' | 'laboratory' | 'radiology' | 'theatre' | 'maternity' | 'emergency';
+    destination?: 'doctor' | 'laboratory' | 'radiology' | 'theatre' | 'maternity' | 'emergency';
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Clinic selected at OPD check-in (preferred)' })
+  @IsOptional()
+  @IsString()
+  clinicName?: string;
+
+  @ApiPropertyOptional({ description: 'Legacy alias for clinicName' })
   @IsOptional()
   @IsString()
   departmentName?: string;

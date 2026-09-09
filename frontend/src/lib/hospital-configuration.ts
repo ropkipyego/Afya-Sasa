@@ -44,6 +44,7 @@ export type StructuredClinic = {
   active: boolean
   /** User IDs of clinicians assigned to this clinic */
   doctorIds?: string[]
+  consultationFee?: number
 }
 
 export type ExtendedClinicalCatalog = ClinicalCatalog & {
@@ -132,26 +133,6 @@ export function defaultFacilities(profile?: Partial<HospitalProfile>): FacilityS
       brandingOverride: {
         facilityName: profile?.facilityName ?? 'Jalaram Hospital',
         primaryColor: '#0d9488',
-      },
-    },
-    {
-      id: 'city-clinic',
-      name: 'City Clinic',
-      shortName: 'City',
-      type: 'clinic',
-      active: true,
-      address: 'City Clinic · Nairobi',
-      modules: {
-        ...sharedModules,
-        ipd: false,
-        icu: false,
-        theatre: false,
-        maternity: false,
-        pharmacy: false,
-      },
-      brandingOverride: {
-        facilityName: 'City Clinic',
-        primaryColor: '#0369a1',
       },
     },
   ]

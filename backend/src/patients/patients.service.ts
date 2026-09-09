@@ -15,9 +15,10 @@ import { Admission } from '../inpatient/inpatient.entities';
 import { LabRequest, LabResult } from '../laboratory/laboratory.entities';
 import { Pregnancy } from '../maternity/maternity.entities';
 import { Consultation, Encounter, TriageAssessment } from '../opd/opd.entities';
-import { RadiologyReport } from '../radiology/radiology.entities';
+import { RadiologyReport, RadiologyRequest } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
+import { PaymentTransaction } from '../payments/payment.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import {
   Patient,
@@ -39,6 +40,8 @@ import {
   UpdatePatientNextOfKinDto,
 } from './patient.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ConfigService } from '@nestjs/config';
+import { TenancyService } from '../core/tenancy/tenancy.service';
 
 @Injectable()
 export class PatientsService {
@@ -67,6 +70,8 @@ export class PatientsService {
     private readonly triages: Repository<TriageAssessment>,
     @InjectRepository(RadiologyReport)
     private readonly radiologyReports: Repository<RadiologyReport>,
+    @InjectRepository(RadiologyRequest)
+    private readonly radiologyRequests: Repository<RadiologyRequest>,
     @InjectRepository(SurgeryBooking)
     private readonly surgeries: Repository<SurgeryBooking>,
     @InjectRepository(Pregnancy)
@@ -81,7 +86,11 @@ export class PatientsService {
     private readonly referrals: Repository<Referral>,
     @InjectRepository(ClinicalOrder)
     private readonly clinicalOrders: Repository<ClinicalOrder>,
+    @InjectRepository(PaymentTransaction)
+    private readonly payments: Repository<PaymentTransaction>,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
+    private readonly tenancy: TenancyService,
   ) {}
 
   async search(params: {
@@ -250,15 +259,108 @@ export class PatientsService {
   }
 
   findByQr(qrCode: string) {
-    return this.patients.findOneOrFail({
-      where: { qrCode },
-      relations: {
-        identifiers: true,
-        nextOfKin: true,
-        allergies: true,
-        chronicConditions: true,
-      },
+    return this.findByScanCode(qrCode, {
+      identifiers: true,
+      nextOfKin: true,
+      allergies: true,
+      chronicConditions: true,
     });
+  }
+
+  async publicScanCard(code: string) {
+    const patient = await this.findByScanCode(code, {
+      nextOfKin: true,
+      allergies: true,
+    });
+    const hospital = await this.tenancy.getPublicHospital(
+      this.config.get<string>('DEFAULT_TENANT_CODE', 'jalaram'),
+    );
+    const emergency =
+      patient.nextOfKin?.find((row) => row.isEmergencyContact) ??
+      patient.nextOfKin?.[0] ??
+      null;
+    return {
+      id: patient.id,
+      patientNo: patient.patientNo,
+      firstName: patient.firstName,
+      lastName: patient.lastName,
+      dateOfBirth: patient.dateOfBirth,
+      gender: patient.gender,
+      bloodGroup: patient.bloodGroup,
+      primaryPhone: patient.primaryPhone,
+      isDeceased: patient.isDeceased,
+      allergies: (patient.allergies ?? []).map((row) => ({
+        allergen: row.allergen,
+        severity: row.severity,
+      })),
+      emergencyContact: emergency
+        ? {
+            name: emergency.name,
+            relationship: emergency.relationship,
+            primaryPhone: emergency.primaryPhone,
+          }
+        : null,
+      hospital,
+    };
+  }
+
+  private async findByScanCode(
+    raw: string,
+    relations: {
+      identifiers?: boolean;
+      nextOfKin?: boolean;
+      allergies?: boolean;
+      chronicConditions?: boolean;
+    },
+  ) {
+    const candidates = this.scanCodeCandidates(raw);
+    const patient = await this.patients.findOne({
+      where: candidates.flatMap((value) => [
+        { qrCode: value },
+        { patientNo: value },
+      ]),
+      relations,
+    });
+    if (!patient) {
+      throw new NotFoundException('Patient not found for this QR code');
+    }
+    return patient;
+  }
+
+  private scanCodeCandidates(raw: string) {
+    let value = raw.trim();
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      /* keep raw */
+    }
+    const candidates = new Set<string>([value]);
+    const fromUrl = value.match(/\/p\/([^/?#]+)/i);
+    if (fromUrl?.[1]) {
+      candidates.add(fromUrl[1]);
+    }
+    try {
+      const url = new URL(value);
+      const last = url.pathname.split('/').filter(Boolean).pop();
+      if (last) candidates.add(last);
+    } catch {
+      /* not a URL */
+    }
+    for (const prefix of ['jalaram:patient:', 'afyasasa:patient:']) {
+      if (value.toLowerCase().startsWith(prefix)) {
+        candidates.add(value.slice(prefix.length));
+      }
+    }
+    return [...candidates].filter(Boolean);
+  }
+
+  private patientScanUrl(patientNo: string) {
+    const base = (
+      this.config.get<string>('PUBLIC_APP_URL') ||
+      this.config.get<string>('FRONTEND_ORIGIN') ||
+      'http://localhost:8080'
+    ).replace(/\/$/, '');
+    return `${base}/p/${encodeURIComponent(patientNo)}`;
   }
 
   async history(id: string) {
@@ -283,6 +385,7 @@ export class PatientsService {
       labRequests,
       labResults,
       radiologyReports,
+      radiologyRequests,
       surgeries,
       pregnancies,
       icuAdmissions,
@@ -292,6 +395,7 @@ export class PatientsService {
       triages,
       consultations,
       pharmacyOrders,
+      payments,
     ] = await Promise.all([
       this.encounters.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
       this.admissions.find({ where: { patient: { id } }, relations: { ward: true, bed: true }, order: { createdAt: 'DESC' }, take: 50 }),
@@ -305,6 +409,12 @@ export class PatientsService {
       this.radiologyReports.find({
         where: { request: { patient: { id } } },
         relations: { request: { modality: true } },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
+      this.radiologyRequests.find({
+        where: { patient: { id } },
+        relations: { modality: true },
         order: { createdAt: 'DESC' },
         take: 50,
       }),
@@ -331,6 +441,11 @@ export class PatientsService {
         order: { orderedAt: 'DESC' },
         take: 50,
       }),
+      this.payments.find({
+        where: { patient: { id } },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
     ]);
 
     const events = [
@@ -346,7 +461,7 @@ export class PatientsService {
         type: 'visit',
         occurredAt: item.startedAt,
         title: `Encounter ${item.encounterNo}`,
-        summary: `${item.type} — ${item.status}`,
+        summary: `${item.departmentName ? `${item.departmentName} · ` : ''}${item.type} — ${item.status}`,
       })),
       ...triages.map((item) => ({
         id: item.id,
@@ -382,6 +497,13 @@ export class PatientsService {
         occurredAt: item.enteredAt,
         title: item.requestItem.test?.name ?? item.requestItem.panel?.name ?? 'Lab result',
         summary: `${item.value} ${item.unit ?? ''} (${item.flag})`,
+      })),
+      ...radiologyRequests.map((item) => ({
+        id: item.id,
+        type: 'radiology',
+        occurredAt: item.createdAt,
+        title: `${item.modality?.name ?? 'Imaging'} request ${item.requestNo}`,
+        summary: `${item.bodyPart}${item.views ? ` · ${item.views}` : ''} — ${item.status} (${item.priority})`,
       })),
       ...radiologyReports.map((item) => ({
         id: item.id,
@@ -455,6 +577,13 @@ export class PatientsService {
         }
         return events;
       }),
+      ...payments.map((item) => ({
+        id: item.id,
+        type: 'payment',
+        occurredAt: item.createdAt,
+        title: `${item.method.toUpperCase()} ${item.status}`,
+        summary: `${item.serviceDescription ?? item.serviceLine ?? 'Payment'} — KES ${item.amount ?? '0'}`,
+      })),
     ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
     return { patient, events };
@@ -541,10 +670,11 @@ export class PatientsService {
 
   async qrCard(id: string) {
     const patient = await this.findOne(id);
+    const scanUrl = this.patientScanUrl(patient.patientNo);
     return {
       patientNo: patient.patientNo,
-      qrCode: patient.qrCode,
-      qrDataUrl: await QRCode.toDataURL(patient.qrCode, {
+      qrCode: scanUrl,
+      qrDataUrl: await QRCode.toDataURL(scanUrl, {
         errorCorrectionLevel: 'M',
         margin: 1,
         width: 256,

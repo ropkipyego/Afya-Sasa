@@ -189,21 +189,6 @@ export function UserAccessCenterPanel() {
     },
   })
 
-  const createDepartment = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest('/admin/departments', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          code: form.get('code'),
-          type: form.get('type') || undefined,
-        }),
-      })
-    },
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['admin-departments'] }),
-  })
-
   const assignDepartment = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
@@ -376,43 +361,35 @@ export function UserAccessCenterPanel() {
           </Card>
 
           {canManageDepartments ? (
-            <>
-              <QuickAddForm
-                title="Create department"
-                pending={createDepartment.isPending}
-                onSubmit={(event) => submitFormMutation(createDepartment, event)}
-              >
-                <input name="name" className="input w-full" placeholder="Department name" required />
-                <input name="code" className="input w-full" placeholder="Code" required />
-                <input name="type" className="input w-full" placeholder="clinical / diagnostic / admin" />
-              </QuickAddForm>
-
-              <QuickAddForm
-                title="Assign department"
-                pending={assignDepartment.isPending}
-                onSubmit={(event) => submitFormMutation(assignDepartment, event)}
-              >
-                <select name="userId" className="input w-full" required>
-                  <option value="">Select user</option>
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </option>
-                  ))}
-                </select>
-                <select name="departmentId" className="input w-full" required>
-                  <option value="">Select department</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.name}
-                    </option>
-                  ))}
-                </select>
-                <label className="flex items-center gap-2 text-sm">
-                  <input name="isPrimary" type="checkbox" /> Primary department
-                </label>
-              </QuickAddForm>
-            </>
+            <QuickAddForm
+              title="Assign staff to department"
+              pending={assignDepartment.isPending}
+              onSubmit={(event) => submitFormMutation(assignDepartment, event)}
+            >
+              <p className="text-xs text-slate-500">
+                Create or rename departments in Control Center → Departments &amp; clinics. This screen only assigns
+                staff to those rows.
+              </p>
+              <select name="userId" className="input w-full" required>
+                <option value="">Select user</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.firstName} {user.lastName}
+                  </option>
+                ))}
+              </select>
+              <select name="departmentId" className="input w-full" required>
+                <option value="">Select department</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-2 text-sm">
+                <input name="isPrimary" type="checkbox" /> Primary department
+              </label>
+            </QuickAddForm>
           ) : null}
         </div>
 

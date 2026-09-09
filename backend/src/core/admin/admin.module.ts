@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   AuditLog,
+  Clinic,
   Department,
   Permission,
   RefreshToken,
@@ -27,6 +28,7 @@ import { RbacModule } from '../rbac/rbac.module';
       Permission,
       UserRole,
       Department,
+      Clinic,
       UserDepartment,
       RolePermission,
       AuditLog,

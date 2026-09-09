@@ -21,6 +21,7 @@ import { apiRequest } from '../lib/api'
 import { formDataFromElement, submitClinicalForm } from '../lib/form-utils'
 import { printPatientCard } from '../lib/print-patient-card'
 import { notify } from '../lib/notify'
+import { ShaEligibilityCard } from './sha/ShaEligibilityCard'
 
 type PatientSummary = {
   id: string
@@ -341,7 +342,8 @@ export function PatientRegistrationForm() {
           <div className="border-b border-slate-100 pb-3">
             <p className="text-xs font-bold uppercase tracking-widest text-teal-700">Identification</p>
             <p className="mt-1 text-sm text-slate-500">
-              Required for SHA / payer workflows. Use National ID, SHA number, passport, or birth certificate.
+              SHA eligibility (sha.go.ke / Client Registry) accepts National ID, birth certificate/notification,
+              Alien ID, Refugee ID, or Mandate Number — not a passport.
             </p>
           </div>
           <FormSection title="" columns={2}>
@@ -353,10 +355,13 @@ export function PatientRegistrationForm() {
               onChange={(event) => setIdentifierType(event.target.value)}
             >
               <option value="national_id">National ID</option>
-              <option value="sha">SHA member number</option>
-              <option value="passport">Passport</option>
               <option value="birth_certificate">Birth certificate</option>
-              <option value="refugee_id">Alien ID</option>
+              <option value="birth_notification">Birth notification</option>
+              <option value="alien_id">Alien ID</option>
+              <option value="refugee_id">Refugee ID</option>
+              <option value="client_registry">SHA Client Registry ID</option>
+              <option value="sha">SHA member number (local only)</option>
+              <option value="passport">Passport (not used by SHA eligibility)</option>
             </SelectField>
             <Field
               name="identifierValue"
@@ -365,6 +370,7 @@ export function PatientRegistrationForm() {
               placeholder="Enter ID / SHA number"
             />
           </FormSection>
+          <ShaEligibilityCard />
         </section>
 
         <CollapsibleSection title="Optional demographics" description="Additional patient details">

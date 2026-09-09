@@ -95,7 +95,7 @@ export class OpdService {
       referralSource: dto.referralSource ?? null,
       referralReason: dto.referralReason ?? null,
       destination: dto.destination ?? 'doctor',
-      departmentName: dto.departmentName ?? null,
+      departmentName: dto.clinicName?.trim() || dto.departmentName?.trim() || null,
       paymentMethod: dto.paymentMethod ?? null,
       receiptNumber: dto.receiptNumber ?? null,
       createdBy: request.user?.sub ?? null,

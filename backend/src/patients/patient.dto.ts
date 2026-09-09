@@ -15,8 +15,30 @@ import { Type } from 'class-transformer';
 import type { Gender, IdentifierType } from './patient.entities';
 
 export class PatientIdentifierDto {
-  @ApiProperty({ enum: ['national_id', 'sha', 'passport', 'birth_certificate', 'refugee_id'] })
-  @IsIn(['national_id', 'sha', 'passport', 'birth_certificate', 'refugee_id'])
+  @ApiProperty({
+    enum: [
+      'national_id',
+      'sha',
+      'passport',
+      'birth_certificate',
+      'birth_notification',
+      'alien_id',
+      'refugee_id',
+      'client_registry',
+      'mandate_number',
+    ],
+  })
+  @IsIn([
+    'national_id',
+    'sha',
+    'passport',
+    'birth_certificate',
+    'birth_notification',
+    'alien_id',
+    'refugee_id',
+    'client_registry',
+    'mandate_number',
+  ])
   type!: IdentifierType;
 
   @ApiProperty()

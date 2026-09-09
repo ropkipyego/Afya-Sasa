@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { CreditCard, History } from 'lucide-react'
 import {
@@ -10,23 +10,36 @@ import {
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { PatientContextHeader } from '../PatientContextHeader'
 import { PaymentCheckoutPanel } from './PaymentCheckoutPanel'
+import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
+import { clinicConsultationFee, formatKes } from '../../lib/clinical-catalog'
 import {
   listPatientPayments,
   PAYMENT_SERVICE_LINES,
   type PaymentServiceLine,
 } from '../../lib/payments'
+import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 
 export function PaymentDesk() {
+  const { data: catalog } = useClinicalCatalog()
   const [patient, setPatient] = useState<PatientSearchItem | null>(null)
   const [serviceLine, setServiceLine] = useState<PaymentServiceLine>('consultation')
+  const [clinicName, setClinicName] = useState('')
   const [serviceDescription, setServiceDescription] = useState('')
   const [amount, setAmount] = useState('')
+  const mappedFee = clinicConsultationFee(catalog, clinicName)
+  const clinics = catalog?.clinics ?? []
 
   const { data: recentPayments = [], refetch } = useQuery({
     queryKey: ['patient-payments', patient?.id],
     queryFn: () => listPatientPayments(patient!.id),
     enabled: Boolean(patient?.id),
   })
+
+  useEffect(() => {
+    if (serviceLine !== 'consultation' || !clinicName) return
+    if (mappedFee > 0) setAmount(String(mappedFee))
+    setServiceDescription(`${clinicName} consultation`)
+  }, [clinicName, mappedFee, serviceLine])
 
   const descriptionPlaceholder =
     serviceLine === 'consultation'
@@ -51,7 +64,10 @@ export function PaymentDesk() {
         <div className="mt-8 space-y-6">
           <PatientSearchAutocomplete selected={patient} onSelect={setPatient} />
           {patient ? (
-            <PatientContextHeader patient={patient} workflowStep="checked_in" />
+            <>
+              <PatientContextHeader patient={patient} workflowStep="checked_in" />
+              <ShaEligibilityCard patientId={patient.id} />
+            </>
           ) : null}
 
           {patient ? (
@@ -62,7 +78,10 @@ export function PaymentDesk() {
                   label="Service type"
                   required
                   value={serviceLine}
-                  onChange={(e) => setServiceLine(e.target.value as PaymentServiceLine)}
+                  onChange={(e) => {
+                    setServiceLine(e.target.value as PaymentServiceLine)
+                    if (e.target.value !== 'consultation') setClinicName('')
+                  }}
                 >
                   {PAYMENT_SERVICE_LINES.map((line) => (
                     <option key={line.value} value={line.value}>
@@ -70,6 +89,40 @@ export function PaymentDesk() {
                     </option>
                   ))}
                 </SelectField>
+                {serviceLine === 'consultation' ? (
+                  <SelectField
+                    name="clinicName"
+                    label="Clinic"
+                    required
+                    value={clinicName}
+                    onChange={(e) => setClinicName(e.target.value)}
+                  >
+                    <option value="">Select clinic…</option>
+                    {clinics.map((clinic) => (
+                      <option key={clinic} value={clinic}>
+                        {clinic} — {formatKes(clinicConsultationFee(catalog, clinic))}
+                      </option>
+                    ))}
+                  </SelectField>
+                ) : (
+                  <Field
+                    name="amountPreview"
+                    label="Amount (KES)"
+                    type="number"
+                    min={0}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="Fee total"
+                  />
+                )}
+              </div>
+              {serviceLine === 'consultation' && clinicName ? (
+                <p className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
+                  Mapped consultation fee for <strong>{clinicName}</strong> is{' '}
+                  <strong>{formatKes(mappedFee)}</strong>. This amount is filled automatically.
+                </p>
+              ) : null}
+              {serviceLine === 'consultation' ? (
                 <Field
                   name="amountPreview"
                   label="Amount (KES)"
@@ -77,9 +130,10 @@ export function PaymentDesk() {
                   min={0}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="Fee total"
+                  placeholder="Clinic fee"
+                  hint="Filled from the clinic mapping. Change only if a supervisor authorised a different amount."
                 />
-              </div>
+              ) : null}
 
               <Field
                 name="serviceDescription"
@@ -104,6 +158,7 @@ export function PaymentDesk() {
                   await refetch()
                   setAmount('')
                   setServiceDescription('')
+                  setClinicName('')
                 }}
               />
             </>

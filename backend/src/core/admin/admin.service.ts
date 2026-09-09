@@ -10,6 +10,7 @@ import type { RequestContext } from '../../common/request-context';
 import { defaultTenantCode, tenantChannel } from '../../common/tenant-defaults';
 import {
   AuditLog,
+  Clinic,
   Department,
   Permission,
   Role,
@@ -23,9 +24,12 @@ import {
 import {
   AssignRolesDto,
   AssignDepartmentDto,
+  CreateClinicDto,
   CreateDepartmentDto,
   CreateRoleDto,
   CreateUserDto,
+  UpdateClinicDto,
+  UpdateDepartmentDto,
   UpdateRolePermissionsDto,
   UpdateSettingsDto,
   UpdateUserDto,
@@ -54,6 +58,8 @@ export class AdminService {
     private readonly settings: Repository<TenantSettings>,
     @InjectRepository(Department)
     private readonly departments: Repository<Department>,
+    @InjectRepository(Clinic)
+    private readonly clinics: Repository<Clinic>,
     @InjectRepository(UserDepartment)
     private readonly userDepartments: Repository<UserDepartment>,
     @InjectRepository(RefreshToken)
@@ -245,7 +251,8 @@ export class AdminService {
       delete catalog.servicePricingScaffold;
     }
     const staffClinicians = await this.listClinicalStaff();
-    return { ...catalog, staffClinicians };
+    const org = await this.orgCatalogOverlay();
+    return { ...catalog, ...org, staffClinicians };
   }
 
   async getPricingScaffold(request: RequestContext) {
@@ -357,6 +364,13 @@ export class AdminService {
         )
       : undefined;
 
+    if (mergedCatalog) {
+      delete mergedCatalog.departments;
+      delete mergedCatalog.clinics;
+      delete mergedCatalog.structuredDepartments;
+      delete mergedCatalog.structuredClinics;
+    }
+
     await this.settings.update(current.id, {
       smsSenderName: dto.smsSenderName,
       patientIdPrefix: dto.patientIdPrefix,
@@ -364,7 +378,11 @@ export class AdminService {
       ...(mergedCatalog ? { clinicalCatalog: mergedCatalog as never } : {}),
       updatedBy: request.user?.sub ?? null,
     });
-    this.realtime.publish(tenantChannel(request), 'settings.updated', {});
+    if (mergedCatalog) {
+      await this.syncOrgCatalog(request);
+    } else {
+      this.realtime.publish(tenantChannel(request), 'settings.updated', {});
+    }
     return this.getSettings(request);
   }
 
@@ -595,17 +613,183 @@ export class AdminService {
     return this.departments.find({ order: { name: 'ASC' } });
   }
 
-  createDepartment(dto: CreateDepartmentDto, request: RequestContext) {
-    return this.departments.save(
+  async createDepartment(dto: CreateDepartmentDto, request: RequestContext) {
+    const name = dto.name.trim();
+    if (!name) {
+      throw new ConflictException('Department name is required');
+    }
+    const code = await this.uniqueOrgCode(
+      this.departments,
+      this.normalizeOrgCode(dto.code || name),
+    );
+    const department = await this.departments.save(
       this.departments.create({
-        name: dto.name,
-        code: dto.code.toUpperCase().replace(/\s+/g, '_'),
-        type: dto.type ?? null,
+        name,
+        code,
+        type: dto.type?.trim() || 'clinical',
         active: true,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),
     );
+    await this.syncOrgCatalog(request);
+    return department;
+  }
+
+  async updateDepartment(
+    id: string,
+    dto: UpdateDepartmentDto,
+    request: RequestContext,
+  ) {
+    const department = await this.departments.findOne({ where: { id } });
+    if (!department) {
+      throw new NotFoundException('Department not found');
+    }
+    if (dto.name?.trim()) department.name = dto.name.trim();
+    if (dto.type !== undefined) department.type = dto.type?.trim() || null;
+    if (dto.active !== undefined) department.active = dto.active;
+    department.updatedBy = request.user?.sub ?? null;
+    const saved = await this.departments.save(department);
+    await this.syncOrgCatalog(request);
+    return saved;
+  }
+
+  listClinics() {
+    return this.clinics.find({
+      relations: { department: true },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async createClinic(dto: CreateClinicDto, request: RequestContext) {
+    const name = dto.name.trim();
+    if (!name) {
+      throw new ConflictException('Clinic name is required');
+    }
+    if (dto.departmentId) {
+      const department = await this.departments.findOne({
+        where: { id: dto.departmentId },
+      });
+      if (!department) {
+        throw new NotFoundException('Department not found');
+      }
+    }
+    const code = await this.uniqueOrgCode(
+      this.clinics,
+      this.normalizeOrgCode(dto.code || name),
+    );
+    const clinic = await this.clinics.save(
+      this.clinics.create({
+        name,
+        code,
+        departmentId: dto.departmentId || null,
+        doctorIds: dto.doctorIds ?? [],
+        consultationFee: String(dto.consultationFee ?? 0),
+        active: true,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+    await this.syncOrgCatalog(request);
+    return this.clinics.findOneOrFail({
+      where: { id: clinic.id },
+      relations: { department: true },
+    });
+  }
+
+  async updateClinic(id: string, dto: UpdateClinicDto, request: RequestContext) {
+    const clinic = await this.clinics.findOne({ where: { id } });
+    if (!clinic) {
+      throw new NotFoundException('Clinic not found');
+    }
+    if (dto.name?.trim()) clinic.name = dto.name.trim();
+    if (dto.departmentId !== undefined) {
+      if (dto.departmentId) {
+        const department = await this.departments.findOne({
+          where: { id: dto.departmentId },
+        });
+        if (!department) {
+          throw new NotFoundException('Department not found');
+        }
+        clinic.departmentId = dto.departmentId;
+      } else {
+        clinic.departmentId = null;
+      }
+    }
+    if (dto.active !== undefined) clinic.active = dto.active;
+    if (dto.doctorIds !== undefined) clinic.doctorIds = dto.doctorIds;
+    if (dto.consultationFee !== undefined) clinic.consultationFee = String(dto.consultationFee);
+    clinic.updatedBy = request.user?.sub ?? null;
+    await this.clinics.save(clinic);
+    await this.syncOrgCatalog(request);
+    return this.clinics.findOneOrFail({
+      where: { id },
+      relations: { department: true },
+    });
+  }
+
+  private normalizeOrgCode(value: string) {
+    const code = value
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 32);
+    return code || 'UNIT';
+  }
+
+  private async uniqueOrgCode(
+    repo: Repository<Department> | Repository<Clinic>,
+    base: string,
+  ) {
+    let code = base;
+    let n = 2;
+    while (await repo.findOne({ where: { code } })) {
+      code = `${base}_${n}`.slice(0, 40);
+      n += 1;
+    }
+    return code;
+  }
+
+  private async orgCatalogOverlay() {
+    const [departments, clinics] = await Promise.all([
+      this.departments.find({ order: { name: 'ASC' } }),
+      this.clinics.find({ order: { name: 'ASC' } }),
+    ]);
+    return {
+      departments: departments.filter((row) => row.active).map((row) => row.name),
+      clinics: clinics.filter((row) => row.active).map((row) => row.name),
+      structuredDepartments: departments.map((row) => ({
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        active: row.active,
+        clinicIds: clinics
+          .filter((clinic) => clinic.departmentId === row.id && clinic.active)
+          .map((clinic) => clinic.id),
+      })),
+      structuredClinics: clinics.map((row) => ({
+        id: row.id,
+        name: row.name,
+        departmentId: row.departmentId,
+        active: row.active,
+        doctorIds: row.doctorIds ?? [],
+        consultationFee: Number(row.consultationFee ?? 0),
+      })),
+    };
+  }
+
+  private async syncOrgCatalog(request: RequestContext) {
+    const settings = await this.getSettings(request);
+    const overlay = await this.orgCatalogOverlay();
+    const catalog = {
+      ...((settings.clinicalCatalog ?? {}) as Record<string, unknown>),
+      ...overlay,
+    };
+    await this.settings.update(settings.id, {
+      clinicalCatalog: catalog as never,
+      updatedBy: request.user?.sub ?? null,
+    });
+    this.realtime.publish(tenantChannel(request), 'settings.updated', {});
   }
 
   async assignDepartment(

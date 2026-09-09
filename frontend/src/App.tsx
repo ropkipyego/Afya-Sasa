@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import {
@@ -9,7 +8,6 @@ import {
   KeyRound,
   LogOut,
   Menu,
-  Printer,
 } from 'lucide-react'
 import {
   Card,
@@ -20,10 +18,8 @@ import {
   TriageIndicator,
   triageCardAccent,
 } from './components/ui'
-import { PatientContextHeader } from './components/PatientContextHeader'
 import { PatientRegistrationForm } from './components/PatientRegistrationForm'
 import { DoctorConsultationWorkspace } from './components/DoctorConsultationWorkspace'
-import { PatientTimeline } from './components/PatientTimeline'
 import { IpdModule } from './components/ipd/IpdModule'
 import { IcuModule } from './components/icu/IcuModule'
 import { HduModule } from './components/hdu/HduModule'
@@ -53,7 +49,8 @@ import { NotificationInbox } from './components/notifications/NotificationInbox'
 import { OperationalWorklists } from './components/worklists/OperationalWorklists'
 import { PatientRegistry } from './components/patients/PatientRegistry'
 import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
-import { PatientCardPrint } from './components/patients/PatientCardPrint'
+import { PatientFileModal } from './components/patients/PatientFileModal'
+import { PatientQrLanding } from './components/patients/PatientQrLanding'
 import { useHospitalSync } from './hooks/useHospitalSync'
 import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
@@ -66,8 +63,6 @@ import { filterNavigationByModules } from './lib/nav-module-filter'
 import { navigation, workflowDescriptions } from './lib/navigation'
 import { AppMobileNav } from './components/layout/AppMobileNav'
 import { UserSettingsMenu } from './components/layout/UserSettingsMenu'
-import { printPatientCard } from './lib/print-patient-card'
-import { notify } from './lib/notify'
 import { playNotificationSound } from './lib/notification-sound'
 
 const KNOWN_SCREENS = new Set(navigation.map((item) => item.label))
@@ -182,8 +177,14 @@ function App() {
     }
   }, [accessToken, hospitalBrand.facilityName, hospitalBrand.faviconUrl])
 
+  const scanCode = window.location.pathname.match(/^\/p\/([^/]+)\/?$/)?.[1]
+
   if (!hydrated) {
     return <SessionLoadingScreen />
+  }
+
+  if (scanCode) {
+    return <PatientQrLanding code={decodeURIComponent(scanCode)} />
   }
 
   if (!accessToken || !user) {
@@ -364,7 +365,7 @@ function App() {
           {activeScreen === 'Hospital Control Center' ? <HospitalControlCenter /> : null}
           {!KNOWN_SCREENS.has(activeScreen) ? <Placeholder screen={activeScreen} /> : null}
           {selectedPatientId ? (
-            <PatientProfileDrawer
+            <PatientFileModal
               patientId={selectedPatientId}
               onClose={() => setSelectedPatientId(null)}
             />
@@ -562,365 +563,6 @@ function NotificationCenter() {
   )
 }
 
-function PatientProfileDrawer({
-  patientId,
-  onClose,
-}: {
-  patientId: string
-  onClose: () => void
-}) {
-  const queryClient = useQueryClient()
-  const { data: catalog } = useClinicalCatalog()
-  const [printing, setPrinting] = useState(false)
-  const { data: patient, isLoading } = useQuery({
-    queryKey: ['patient', patientId],
-    queryFn: () => apiRequest<PatientSummary>(`/patients/${patientId}`),
-  })
-  const { data: qrCard } = useQuery({
-    queryKey: ['patient-qr-card', patientId],
-    queryFn: () =>
-      apiRequest<{
-        patientNo: string
-        qrCode: string
-        qrDataUrl: string
-        printableText: string
-      }>(`/patients/${patientId}/qr-card`),
-  })
-  const { data: timeline } = useQuery({
-    queryKey: ['patient-timeline', patientId],
-    queryFn: () =>
-      apiRequest<{
-        events: {
-          type: string
-          occurredAt: string
-          title: string
-          summary: string
-        }[]
-      }>(`/patients/${patientId}/timeline`),
-  })
-  const addIdentifier = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/patients/${patientId}/identifiers`, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: form.get('type'),
-          value: form.get('value'),
-          isPrimary: false,
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
-    },
-  })
-  const addNok = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/patients/${patientId}/next-of-kin`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          relationship: form.get('relationship'),
-          primaryPhone: form.get('primaryPhone'),
-          isEmergencyContact: true,
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
-    },
-  })
-  const addAllergy = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/patients/${patientId}/allergies`, {
-        method: 'POST',
-        body: JSON.stringify({
-          allergen: form.get('allergen'),
-          type: form.get('type'),
-          reaction: form.get('reaction'),
-          severity: form.get('severity'),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
-    },
-  })
-  const addCondition = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      return apiRequest(`/patients/${patientId}/chronic-conditions`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.get('name'),
-          icd10Code: form.get('icd10Code'),
-          status: form.get('status'),
-        }),
-      })
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
-    },
-  })
-
-  return (
-    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-2xl overflow-y-auto overscroll-contain border-l border-slate-200 bg-white p-4 shadow-2xl sm:p-6">
-      {isLoading || !patient ? (
-        <p className="text-slate-500">Loading patient profile...</p>
-      ) : (
-        <>
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <p className="text-xs font-semibold uppercase text-blue-600">
-                Patient profile
-              </p>
-              <h3 className="text-2xl font-bold">
-                {patient.firstName} {patient.lastName}
-              </h3>
-              <p className="text-sm text-slate-500">
-                {patient.patientNo} · {patient.gender} · DOB{' '}
-                {patient.dateOfBirth}
-              </p>
-            </div>
-            <button
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
-
-          <div className="mt-6">
-            <PatientContextHeader patient={patient} sticky={false} showWorkflow={false} />
-          </div>
-
-          <section className="mt-6">
-            <PatientTimeline events={timeline?.events ?? []} title="Clinical timeline" />
-          </section>
-
-          <section className="mt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold uppercase text-slate-500">Patient card</p>
-              <button
-                type="button"
-                disabled={!qrCard || printing}
-                className="flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={async () => {
-                  if (!qrCard) return
-                  setPrinting(true)
-                  try {
-                    await printPatientCard(patientId, catalog)
-                  } catch (error) {
-                    notify(
-                      'Print failed',
-                      error instanceof Error ? error.message : 'Could not prepare patient card.',
-                      'critical',
-                    )
-                  } finally {
-                    setPrinting(false)
-                  }
-                }}
-              >
-                <Printer className="h-4 w-4" />
-                {printing ? 'Preparing…' : qrCard ? 'Print card' : 'Loading card…'}
-              </button>
-            </div>
-            {qrCard && patient ? (
-              <div className="mt-4 max-w-md">
-                <PatientCardPrint
-                  patient={{
-                    patientNo: patient.patientNo,
-                    firstName: patient.firstName,
-                    lastName: patient.lastName,
-                    dateOfBirth: patient.dateOfBirth,
-                    gender: patient.gender,
-                    bloodGroup: patient.bloodGroup,
-                    primaryPhone: patient.primaryPhone,
-                    qrDataUrl: qrCard.qrDataUrl,
-                    qrCode: qrCard.qrCode,
-                    nextOfKin: patient.nextOfKin?.find((k) => k.isEmergencyContact) ?? patient.nextOfKin?.[0] ?? null,
-                  }}
-                  qr={{ qrDataUrl: qrCard.qrDataUrl, qrCode: qrCard.qrCode }}
-                />
-              </div>
-            ) : (
-              <p className="mt-3 text-sm text-slate-500">Loading printable patient card…</p>
-            )}
-          </section>
-
-          <section className="mt-6 grid gap-4 md:grid-cols-2">
-            <ProfileSection title="Identifiers">
-              {patient.identifiers?.map((identifier) => (
-                <p key={`${identifier.type}-${identifier.value}`}>
-                  {identifier.type}: {identifier.value}
-                </p>
-              )) || <p>None recorded</p>}
-            </ProfileSection>
-            <ProfileSection title="Next of kin">
-              {patient.nextOfKin?.map((kin) => (
-                <p key={`${kin.name}-${kin.primaryPhone}`}>
-                  {kin.name} ({kin.relationship}) · {kin.primaryPhone}
-                </p>
-              )) || <p>None recorded</p>}
-            </ProfileSection>
-          </section>
-
-          <section className="mt-6 rounded-2xl border border-slate-200 p-4">
-            <p className="text-xs font-bold uppercase text-slate-500">
-              Contact
-            </p>
-            <p className="mt-2 text-sm">
-              Phone: {patient.primaryPhone}
-              {patient.bloodGroup ? ` · Blood group: ${patient.bloodGroup}` : ''}
-            </p>
-          </section>
-
-          <section className="mt-6 grid gap-4 md:grid-cols-2">
-            <QuickAddForm
-              title="Add identifier"
-              pending={addIdentifier.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addIdentifier.mutate(event.currentTarget)
-                event.currentTarget.reset()
-              }}
-            >
-              <select name="type" className="input" required>
-                <option value="national_id">National ID</option>
-                <option value="sha">SHA</option>
-                <option value="passport">Passport</option>
-                <option value="birth_certificate">Birth certificate</option>
-                <option value="refugee_id">Refugee ID</option>
-              </select>
-              <input name="value" className="input" placeholder="Value" required />
-            </QuickAddForm>
-            <QuickAddForm
-              title="Add next of kin"
-              pending={addNok.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addNok.mutate(event.currentTarget)
-                event.currentTarget.reset()
-              }}
-            >
-              <input name="name" className="input" placeholder="Name" required />
-              <input
-                name="relationship"
-                className="input"
-                placeholder="Relationship"
-                required
-              />
-              <input
-                name="primaryPhone"
-                className="input"
-                placeholder="Phone"
-                required
-              />
-            </QuickAddForm>
-            <QuickAddForm
-              title="Add allergy"
-              pending={addAllergy.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addAllergy.mutate(event.currentTarget)
-                event.currentTarget.reset()
-              }}
-            >
-              <input
-                name="allergen"
-                className="input"
-                placeholder="Allergen"
-                required
-              />
-              <select name="type" className="input" required>
-                <option value="drug">Drug</option>
-                <option value="food">Food</option>
-                <option value="environmental">Environmental</option>
-                <option value="latex">Latex</option>
-                <option value="contrast">Contrast</option>
-              </select>
-              <input
-                name="reaction"
-                className="input"
-                placeholder="Reaction"
-                required
-              />
-              <select name="severity" className="input" required>
-                <option value="mild">Mild</option>
-                <option value="moderate">Moderate</option>
-                <option value="severe">Severe</option>
-                <option value="life_threatening">Life threatening</option>
-              </select>
-            </QuickAddForm>
-            <QuickAddForm
-              title="Add chronic condition"
-              pending={addCondition.isPending}
-              onSubmit={(event) => {
-                event.preventDefault()
-                addCondition.mutate(event.currentTarget)
-                event.currentTarget.reset()
-              }}
-            >
-              <input name="name" className="input" placeholder="Name" required />
-              <input
-                name="icd10Code"
-                className="input"
-                placeholder="ICD-10 code"
-              />
-              <select name="status" className="input" required>
-                <option value="active">Active</option>
-                <option value="controlled">Controlled</option>
-                <option value="resolved">Resolved</option>
-              </select>
-            </QuickAddForm>
-          </section>
-        </>
-      )}
-    </div>
-  )
-}
-
-function QuickAddForm({
-  title,
-  pending,
-  onSubmit,
-  children,
-}: {
-  title: string
-  pending: boolean
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
-  children: ReactNode
-}) {
-  return (
-    <form
-      className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-      onSubmit={onSubmit}
-    >
-      <p className="text-xs font-bold uppercase tracking-wide text-blue-600">{title}</p>
-      {children}
-      <button className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-        {pending ? 'Saving...' : 'Save'}
-      </button>
-    </form>
-  )
-}
-
-function ProfileSection({
-  title,
-  children,
-}: {
-  title: string
-  children: ReactNode
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 p-4">
-      <p className="text-xs font-bold uppercase text-slate-500">{title}</p>
-      <div className="mt-2 space-y-1 text-sm text-slate-700">{children}</div>
-    </div>
-  )
-}
 
 interface TriageRecord {
   colour: string

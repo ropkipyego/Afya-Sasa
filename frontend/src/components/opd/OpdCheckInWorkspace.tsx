@@ -16,10 +16,16 @@ import {
 import { PatientSearchAutocomplete } from '../PatientSearchAutocomplete'
 import { PatientContextHeader } from '../PatientContextHeader'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
-import { type ClinicalCatalog, doctorSelectOptionsForClinic } from '../../lib/clinical-catalog'
+import {
+  type ClinicalCatalog,
+  clinicConsultationFee,
+  doctorSelectOptionsForClinic,
+  formatKes,
+} from '../../lib/clinical-catalog'
 import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 
 export type CheckInPatient = {
   id: string
@@ -40,13 +46,14 @@ export function OpdCheckInWorkspace() {
   const [selected, setSelected] = useState<CheckInPatient | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [visitDraft, setVisitDraft] = useState({
-    departmentName: '',
+    clinicName: '',
     visitType: 'new',
     referralSource: '',
     preferredDoctorId: '',
     preferredDoctorName: '',
   })
-  const doctorOptions = doctorSelectOptionsForClinic(catalogData, visitDraft.departmentName)
+  const doctorOptions = doctorSelectOptionsForClinic(catalogData, visitDraft.clinicName)
+  const consultationFee = clinicConsultationFee(catalogData, visitDraft.clinicName)
 
   const createEncounter = useMutation({
     mutationFn: async (formElement: HTMLFormElement) => {
@@ -58,7 +65,8 @@ export function OpdCheckInWorkspace() {
           patientId: selected.id,
           visitType: form.get('visitType'),
           destination: 'doctor',
-          departmentName: form.get('departmentName') || undefined,
+          clinicName: form.get('clinicName') || undefined,
+          departmentName: form.get('clinicName') || undefined,
           referralSource: form.get('referralSource') || undefined,
           paymentMethod: form.get('paymentMethod') || undefined,
           receiptNumber: form.get('receiptNumber') || undefined,
@@ -98,7 +106,10 @@ export function OpdCheckInWorkspace() {
               />
             </div>
             {selected ? (
-              <PatientContextHeader patient={selected} workflowStep="checked_in" showWorkflow />
+              <>
+                <PatientContextHeader patient={selected} workflowStep="checked_in" showWorkflow />
+                <ShaEligibilityCard patientId={selected.id} />
+              </>
             ) : null}
             <div className="flex justify-end">
               <Button type="button" disabled={!selected} onClick={() => setStep(1)}>
@@ -118,7 +129,7 @@ export function OpdCheckInWorkspace() {
               const doctorName =
                 doctorOptions.find((doctor) => doctor.value === doctorId)?.label ?? ''
               setVisitDraft({
-                departmentName: String(form.get('departmentName') ?? ''),
+                clinicName: String(form.get('clinicName') ?? ''),
                 visitType: String(form.get('visitType') ?? 'new'),
                 referralSource: String(form.get('referralSource') ?? ''),
                 preferredDoctorId: doctorId,
@@ -131,14 +142,29 @@ export function OpdCheckInWorkspace() {
               <h3 className="text-xs font-bold uppercase tracking-widest text-teal-700">
                 Clinic & visit
               </h3>
-              <SelectField name="departmentName" label="Clinic" required defaultValue={visitDraft.departmentName}>
+              <SelectField
+                name="clinicName"
+                label="Clinic"
+                required
+                value={visitDraft.clinicName}
+                onChange={(e) =>
+                  setVisitDraft((current) => ({ ...current, clinicName: e.target.value }))
+                }
+              >
                 <option value="">Select clinic</option>
                 {(catalogData?.clinics ?? []).map((clinic: string) => (
                   <option key={clinic} value={clinic}>
-                    {clinic}
+                    {clinic} — {formatKes(clinicConsultationFee(catalogData, clinic))}
                   </option>
                 ))}
               </SelectField>
+              {visitDraft.clinicName ? (
+                <p className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
+                  Consultation fee for <strong>{visitDraft.clinicName}</strong> is{' '}
+                  <strong>{formatKes(consultationFee)}</strong>. Cashier must collect this mapped
+                  amount — it is not typed from memory.
+                </p>
+              ) : null}
               <SelectField name="visitType" label="Visit type" required defaultValue={visitDraft.visitType}>
                 {(catalogData?.visitTypes ?? []).map((item: { value: string; label: string }) => (
                   <option key={item.value} value={item.value}>
@@ -197,8 +223,12 @@ export function OpdCheckInWorkspace() {
             <PatientContextHeader patient={selected} workflowStep="checked_in" showWorkflow />
             <div className="grid gap-4 sm:grid-cols-2">
               {[
-                { icon: Stethoscope, label: 'Clinic', value: visitDraft.departmentName || '—' },
-                { icon: CalendarCheck, label: 'Visit type', value: visitDraft.visitType },
+                { icon: Stethoscope, label: 'Clinic', value: visitDraft.clinicName || '—' },
+                {
+                  icon: CalendarCheck,
+                  label: 'Consultation fee',
+                  value: visitDraft.clinicName ? formatKes(consultationFee) : '—',
+                },
                 {
                   icon: User,
                   label: 'Doctor',
@@ -226,7 +256,7 @@ export function OpdCheckInWorkspace() {
                 })
               }
             >
-              <input type="hidden" name="departmentName" value={visitDraft.departmentName} />
+              <input type="hidden" name="clinicName" value={visitDraft.clinicName} />
               <input type="hidden" name="visitType" value={visitDraft.visitType} />
               <input type="hidden" name="referralSource" value={visitDraft.referralSource} />
               <input type="hidden" name="attendingDoctorId" value={visitDraft.preferredDoctorId} />

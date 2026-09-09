@@ -17,10 +17,13 @@ import {
   AssignRolesDto,
   AssignDepartmentDto,
   CreateDepartmentDto,
+  CreateClinicDto,
   CreateRoleDto,
   CreateUserDto,
   UpdateRolePermissionsDto,
   ResetUserPasswordDto,
+  UpdateClinicDto,
+  UpdateDepartmentDto,
   UpdateSettingsDto,
   UpdateUserDto,
 } from './admin.dto';
@@ -244,6 +247,41 @@ export class AdminController {
     @Req() request: RequestContext,
   ) {
     return this.adminService.createDepartment(dto, request);
+  }
+
+  @Patch('departments/:id')
+  @RequirePermissions('departments:manage')
+  updateDepartment(
+    @Param('id') id: string,
+    @Body() dto: UpdateDepartmentDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.adminService.updateDepartment(id, dto, request);
+  }
+
+  @Get('clinics')
+  @RequirePermissions('departments:manage')
+  listClinics() {
+    return this.adminService.listClinics();
+  }
+
+  @Post('clinics')
+  @RequirePermissions('departments:manage')
+  createClinic(
+    @Body() dto: CreateClinicDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.adminService.createClinic(dto, request);
+  }
+
+  @Patch('clinics/:id')
+  @RequirePermissions('departments:manage')
+  updateClinic(
+    @Param('id') id: string,
+    @Body() dto: UpdateClinicDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.adminService.updateClinic(id, dto, request);
   }
 
   @Post('users/:id/departments')

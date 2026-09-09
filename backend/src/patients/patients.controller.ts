@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
-import { RequirePermissions } from '../core/auth/auth.decorators';
+import { Public, RequirePermissions } from '../core/auth/auth.decorators';
 import {
   CreatePatientDto,
   PatientAllergyDto,
@@ -60,6 +60,12 @@ export class PatientsController {
   @RequirePermissions('patients:search')
   detectDuplicates(@Body() dto: CreatePatientDto) {
     return this.patientsService.detectDuplicates(dto);
+  }
+
+  @Get('scan/:code')
+  @Public()
+  publicScanCard(@Param('code') code: string) {
+    return this.patientsService.publicScanCard(code);
   }
 
   @Get('qr/:qrCode')

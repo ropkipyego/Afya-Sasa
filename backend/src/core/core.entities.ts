@@ -194,6 +194,32 @@ export class UserDepartment extends AuditableEntity {
   isPrimary!: boolean;
 }
 
+@Entity({ name: 'clinics', schema: 'demo' })
+@Unique(['code'])
+export class Clinic extends AuditableEntity {
+  @Column({ type: 'varchar' })
+  name!: string;
+
+  @Column({ type: 'varchar' })
+  code!: string;
+
+  @Column({ name: 'department_id', type: 'uuid', nullable: true })
+  departmentId!: string | null;
+
+  @ManyToOne(() => Department, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'department_id' })
+  department!: Department | null;
+
+  @Column({ type: 'boolean', default: true })
+  active!: boolean;
+
+  @Column({ name: 'consultation_fee', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  consultationFee!: string;
+
+  @Column({ name: 'doctor_ids', type: 'jsonb', default: () => `'[]'` })
+  doctorIds!: string[];
+}
+
 @Entity({ name: 'refresh_tokens', schema: 'demo' })
 @Index(['userId', 'revokedAt'])
 export class RefreshToken extends AuditableEntity {

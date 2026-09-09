@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Save } from 'lucide-react'
+import { Plus, Save, Trash2 } from 'lucide-react'
 import {
   Alert,
   Button,
@@ -9,7 +9,6 @@ import {
 } from '../../ui'
 import { useHospitalConfiguration } from '../../../hooks/useHospitalConfiguration'
 import {
-  CONFIG_DEPENDENCY_HINTS,
   DEFAULT_MAIN_FACILITY_ID,
   HOSPITAL_MODULES,
   defaultFacilities,
@@ -22,7 +21,10 @@ import { notify } from '../../../lib/notify'
 export function FacilitiesModulesPanel() {
   const { catalog, saveCatalog } = useHospitalConfiguration()
   const [facilities, setFacilities] = useState<FacilitySite[]>(
-    () => catalog.facilities?.length ? catalog.facilities : defaultFacilities(catalog.hospitalProfile),
+    () => {
+      const saved = (catalog.facilities ?? []).filter((site) => site.id !== 'city-clinic')
+      return saved.length ? saved : defaultFacilities(catalog.hospitalProfile)
+    },
   )
 
   const mainFacility = useMemo(
@@ -84,13 +86,14 @@ export function FacilitiesModulesPanel() {
     <Card className="p-8">
       <PageHeader
         title="Facilities & module activation"
-        description="One shared patient database — enable only the modules each site needs."
+        description="Jalaram is one hospital. Keep the main site only unless you truly run a satellite clinic."
       />
 
       <div className="mt-6 rounded-xl border border-teal-100 bg-teal-50/60 p-4 text-sm text-teal-900">
-        <p className="font-semibold">Configuration dependency</p>
+        <p className="font-semibold">What this is not</p>
         <p className="mt-1 text-teal-800">
-          {CONFIG_DEPENDENCY_HINTS.facilities.join(' · ')}. Patients remain shared across all facilities.
+          This does not create clinical departments (Dental, Paediatrics). Those live in Departments &amp; clinics.
+          Here you only turn hospital modules on or off for each physical site.
         </p>
       </div>
 
@@ -109,18 +112,31 @@ export function FacilitiesModulesPanel() {
                   Main hospital
                 </span>
               ) : (
-                <Field
-                  name={`name-${facility.id}`}
-                  label="Clinic name"
-                  value={facility.name}
-                  onChange={(e) =>
-                    setFacilities((current) =>
-                      current.map((f) =>
-                        f.id === facility.id ? { ...f, name: e.target.value } : f,
-                      ),
-                    )
-                  }
-                />
+                <div className="flex flex-wrap items-end gap-2">
+                  <Field
+                    name={`name-${facility.id}`}
+                    label="Site name"
+                    value={facility.name}
+                    onChange={(e) =>
+                      setFacilities((current) =>
+                        current.map((f) =>
+                          f.id === facility.id ? { ...f, name: e.target.value } : f,
+                        ),
+                      )
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-xs text-red-700"
+                    onClick={() =>
+                      setFacilities((current) => current.filter((f) => f.id !== facility.id))
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Remove
+                  </Button>
+                </div>
               )}
             </div>
 

@@ -153,6 +153,10 @@ export const defaultClinicalCatalog: ClinicalCatalog = {
     { value: 'passport', label: 'Passport Number' },
     { value: 'birth_certificate', label: 'Certificate Number' },
     { value: 'alien_id', label: 'Alien ID Number' },
+    { value: 'refugee_id', label: 'Refugee ID' },
+    { value: 'birth_notification', label: 'Birth notification' },
+    { value: 'client_registry', label: 'SHA Client Registry ID' },
+    { value: 'mandate_number', label: 'Mandate number' },
   ],
 }
 
@@ -210,6 +214,10 @@ const legacyIdentifierLabels: Record<string, string> = {
   passport: 'Passport Number',
   birth_certificate: 'Certificate Number',
   alien_id: 'Alien ID Number',
+  refugee_id: 'Refugee ID',
+  birth_notification: 'Birth notification',
+  client_registry: 'SHA Client Registry ID',
+  mandate_number: 'Mandate number',
 }
 
 export function identifierFieldLabel(
@@ -251,4 +259,25 @@ export function clinicIdForName(catalog: ClinicalCatalog | null | undefined, cli
   return (catalog?.structuredClinics ?? []).find(
     (row) => row.name.toLowerCase() === clinicName.trim().toLowerCase(),
   )?.id
+}
+
+export function clinicByName(catalog: ClinicalCatalog | null | undefined, clinicName?: string | null) {
+  if (!clinicName?.trim()) return undefined
+  return (catalog?.structuredClinics ?? []).find(
+    (row) => row.active !== false && row.name.toLowerCase() === clinicName.trim().toLowerCase(),
+  )
+}
+
+export function clinicConsultationFee(
+  catalog: ClinicalCatalog | null | undefined,
+  clinicName?: string | null,
+) {
+  const fee = Number(clinicByName(catalog, clinicName)?.consultationFee ?? 0)
+  return Number.isFinite(fee) ? fee : 0
+}
+
+export function formatKes(amount?: number | string | null) {
+  const value = Number(amount ?? 0)
+  if (!Number.isFinite(value)) return 'KES 0'
+  return `KES ${value.toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
 }

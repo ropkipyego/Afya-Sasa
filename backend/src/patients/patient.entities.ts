@@ -15,7 +15,11 @@ export type IdentifierType =
   | 'sha'
   | 'passport'
   | 'birth_certificate'
-  | 'refugee_id';
+  | 'birth_notification'
+  | 'alien_id'
+  | 'refugee_id'
+  | 'client_registry'
+  | 'mandate_number';
 
 @Entity({ name: 'patients', schema: 'demo' })
 @Index(['patientNo'], { unique: true })

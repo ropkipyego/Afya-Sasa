@@ -69,8 +69,6 @@ export function ClinicalConfigPanel() {
       apiRequest<{ clinicalCatalog?: Partial<ClinicalCatalog> }>('/admin/settings'),
   })
 
-  const [departmentsText, setDepartmentsText] = useState('')
-  const [clinicsText, setClinicsText] = useState('')
   const [specialtiesText, setSpecialtiesText] = useState('')
   const [visitTypesText, setVisitTypesText] = useState('')
   const [paymentMethodsText, setPaymentMethodsText] = useState('')
@@ -82,8 +80,6 @@ export function ClinicalConfigPanel() {
 
   useEffect(() => {
     const catalog = normalizeClinicalCatalog(data?.clinicalCatalog)
-    setDepartmentsText(catalog.departments.join('\n'))
-    setClinicsText(catalog.clinics.join('\n'))
     setSpecialtiesText(catalog.doctorSpecialties.join('\n'))
     setVisitTypesText(catalog.visitTypes.map((v) => `${v.value}|${v.label}`).join('\n'))
     setPaymentMethodsText(catalog.paymentMethods.map((v) => `${v.value}|${v.label}`).join('\n'))
@@ -106,8 +102,6 @@ export function ClinicalConfigPanel() {
         body: JSON.stringify({
           clinicalCatalog: {
             ...(data?.clinicalCatalog ?? {}),
-            departments: splitLines(departmentsText),
-            clinics: splitLines(clinicsText),
             doctorSpecialties: splitLines(specialtiesText),
             doctorCategories: splitLines(specialtiesText),
             visitTypes: linesToOptions(visitTypesText),
@@ -136,11 +130,16 @@ export function ClinicalConfigPanel() {
       <ClinicalForm onSubmit={(e) => { e.preventDefault(); update.mutate() }}>
         <FormSection
           title="Reception & OPD"
-          description="One item per line. For value|label pairs use: new|New visit"
+          description="One item per line. For value|label pairs use: new|New visit. Departments and clinics are managed in Departments & clinics — those lists come from the database."
           columns={1}
         >
-          <CatalogTextarea label="Departments" value={departmentsText} onChange={setDepartmentsText} />
-          <CatalogTextarea label="Clinics" value={clinicsText} onChange={setClinicsText} />
+          <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950">
+            <p className="font-semibold">Departments & clinics</p>
+            <p className="mt-1">
+              Add or deactivate them under Hospital Control Center → Departments & clinics. OPD check-in reads active
+              clinics from the database.
+            </p>
+          </div>
           <CatalogTextarea label="Visit types" value={visitTypesText} onChange={setVisitTypesText} placeholder="new|New visit" />
           <CatalogTextarea label="Referral sources" value={referralSourcesText} onChange={setReferralSourcesText} />
           <CatalogTextarea label="Payment methods" value={paymentMethodsText} onChange={setPaymentMethodsText} />
