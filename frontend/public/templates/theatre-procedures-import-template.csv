@@ -1,0 +1,5 @@
+code,name,category,expected_duration_minutes,description
+CSEC,Caesarean section,obstetrics,90,Emergency or elective C-section
+HERN,Inguinal hernia repair,general,60,
+APPX,Appendicectomy,general,75,
+DANDC,Dilatation and curettage,gynaecology,45,

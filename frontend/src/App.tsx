@@ -27,7 +27,8 @@ import { HospitalControlCenter } from './components/admin/HospitalControlCenter'
 import { HospitalBrandMark, HospitalFacilityBadge } from './components/branding/HospitalBrandMark'
 import { useClinicalCatalog } from './hooks/useClinicalCatalog'
 import { resolveHospitalBranding } from './lib/hospital-configuration'
-import { PaymentDesk } from './components/payments/PaymentDesk'
+import { FinanceModule } from './components/payments/FinanceModule'
+import { MarketingModule } from './components/marketing/MarketingModule'
 import { OpdCheckInWorkspace, type CheckInPatient } from './components/opd/OpdCheckInWorkspace'
 import { TriageWorkspace } from './components/opd/TriageWorkspace'
 import { AppointmentCenter } from './components/appointments/AppointmentCenter'
@@ -363,7 +364,8 @@ function App() {
               onOpenTriage={() => goToScreen('Triage Queue')}
             />
           ) : null}
-          {activeScreen === 'Payments' ? <PaymentDesk /> : null}
+          {activeScreen === 'Finance' || activeScreen === 'Payments' ? <FinanceModule /> : null}
+          {activeScreen === 'Marketing' ? <MarketingModule /> : null}
           {activeScreen === 'Triage Queue' ? <TriageWorkspace /> : null}
           {activeScreen === 'Patient Registry' ? (
             <PatientRegistry onOpenPatient={setSelectedPatientId} />

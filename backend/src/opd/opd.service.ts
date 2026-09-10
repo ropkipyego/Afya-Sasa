@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import { In, IsNull, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { User, Role, UserRole } from '../core/core.entities';
@@ -624,6 +624,34 @@ export class OpdService {
       throw new NotFoundException('Encounter not found');
     }
     return encounter;
+  }
+
+  async listClinicalFollowUps() {
+    const rows = await this.consultations.find({
+      where: { followUpDate: Not(IsNull()) },
+      relations: { encounter: { patient: true }, doctor: true },
+      order: { followUpDate: 'ASC' },
+      take: 200,
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      followUpDate: row.followUpDate,
+      followUpInstructions: row.followUpInstructions,
+      status: row.status,
+      encounterNo: row.encounter?.encounterNo ?? null,
+      patient: row.encounter?.patient
+        ? {
+            id: row.encounter.patient.id,
+            patientNo: row.encounter.patient.patientNo,
+            firstName: row.encounter.patient.firstName,
+            lastName: row.encounter.patient.lastName,
+            primaryPhone: row.encounter.patient.primaryPhone ?? null,
+          }
+        : null,
+      doctor: row.doctor
+        ? { id: row.doctor.id, firstName: row.doctor.firstName, lastName: row.doctor.lastName }
+        : null,
+    }));
   }
 
   private async generateEncounterNo() {

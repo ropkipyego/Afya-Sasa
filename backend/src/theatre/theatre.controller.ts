@@ -9,6 +9,7 @@ import {
   CreateSurgeryNoteDto,
   CreateSurgicalProcedureDto,
   CreateTheatreDto,
+  ImportTheatreProceduresDto,
   UpdateSurgeryBookingStatusDto,
   UpdateTheatreDto,
 } from './theatre.dto';
@@ -39,9 +40,15 @@ export class TheatreController {
   }
 
   @Get('procedures')
-  @RequirePermissions('surgical_procedures:read')
+  @RequirePermissions('surgical_procedures:read', 'payments:initiate')
   listProcedures() {
     return this.theatreService.listProcedures();
+  }
+
+  @Post('procedures/import')
+  @RequirePermissions('surgical_procedures:manage', 'settings:manage')
+  importProcedures(@Body() dto: ImportTheatreProceduresDto, @Req() request: RequestContext) {
+    return this.theatreService.importProcedures(dto.csv, request);
   }
 
   @Post('procedures')

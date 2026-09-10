@@ -19,6 +19,7 @@ export const SCREEN_ALIASES: Record<string, string> = {
   'Operations Center': 'Reports',
   Notifications: 'Register Patient',
   Pharmacy: 'Pharmacy',
+  Payments: 'Finance',
 }
 
 export function resolveScreen(label: string): string {

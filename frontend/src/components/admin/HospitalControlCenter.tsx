@@ -29,6 +29,7 @@ import { BackupRestorePanel } from './panels/BackupRestorePanel'
 import { PricingReadinessPanel } from './panels/PricingReadinessPanel'
 import { ShaIntegrationPanel } from './panels/ShaIntegrationPanel'
 import { AuditLogPanel } from './panels/AuditLogPanel'
+import { ServiceCatalogsHub } from '../catalog/ServiceCatalogsHub'
 
 export type ControlCenterSection =
   | 'home'
@@ -56,6 +57,7 @@ export type ControlCenterSection =
   | 'superadmin'
   | 'pricing'
   | 'sha'
+  | 'catalogs'
 
 export function HospitalControlCenter() {
   const [section, setSection] = useState<ControlCenterSection>('home')
@@ -134,6 +136,7 @@ export function HospitalControlCenter() {
           {section === 'superadmin' && <SuperAdminPanel />}
           {section === 'pricing' && <PricingReadinessPanel />}
           {section === 'sha' && <ShaIntegrationPanel />}
+          {section === 'catalogs' && <ServiceCatalogsHub />}
         </div>
       )}
     </div>

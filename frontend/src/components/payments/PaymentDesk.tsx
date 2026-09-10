@@ -22,6 +22,7 @@ import {
 import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { printPaymentReceipt } from '../../lib/print-payment-receipt'
+import { apiRequest } from '../../lib/api'
 
 export function PaymentDesk() {
   const { data: catalog } = useClinicalCatalog()
@@ -31,6 +32,41 @@ export function PaymentDesk() {
   const [clinicName, setClinicName] = useState('')
   const [serviceDescription, setServiceDescription] = useState('')
   const [amount, setAmount] = useState('')
+  const [stockItemId, setStockItemId] = useState('')
+  const [stockQty, setStockQty] = useState('1')
+  const [catalogService, setCatalogService] = useState('')
+
+  const { data: stockItems = [] } = useQuery({
+    queryKey: ['inventory-items', 'cashier'],
+    queryFn: () =>
+      apiRequest<Array<{ id: string; sku: string; name: string; unit: string; sell?: number }>>(
+        '/inventory/items',
+      ),
+    enabled: serviceLine === 'pharmacy',
+  })
+
+  const { data: labTests = [] } = useQuery({
+    queryKey: ['lab-tests', 'cashier'],
+    queryFn: () => apiRequest<Array<{ id: string; name: string; code: string }>>('/laboratory/tests'),
+    enabled: serviceLine === 'laboratory',
+    retry: false,
+  })
+
+  const { data: radStudies = [] } = useQuery({
+    queryKey: ['radiology-studies', 'cashier'],
+    queryFn: () =>
+      apiRequest<Array<{ code: string; name: string }>>('/radiology/studies'),
+    enabled: serviceLine === 'radiology',
+    retry: false,
+  })
+
+  const { data: theatreProcedures = [] } = useQuery({
+    queryKey: ['theatre-procedures', 'cashier'],
+    queryFn: () =>
+      apiRequest<Array<{ id: string; name: string; code: string }>>('/theatre/procedures'),
+    enabled: serviceLine === 'other',
+    retry: false,
+  })
   const mappedFee = clinicConsultationFee(catalog, clinicName)
   const clinics = catalog?.clinics ?? []
 
@@ -45,6 +81,34 @@ export function PaymentDesk() {
     if (mappedFee > 0) setAmount(String(mappedFee))
     setServiceDescription(`${clinicName} consultation`)
   }, [clinicName, mappedFee, serviceLine])
+
+  useEffect(() => {
+    if (serviceLine !== 'pharmacy') return
+    const item = stockItems.find((row) => row.id === stockItemId)
+    if (!item) return
+    const qty = Number(stockQty)
+    const unitPrice = Number(item.sell ?? 0)
+    if (Number.isFinite(qty) && qty > 0 && unitPrice > 0) {
+      setAmount(String(Math.round(unitPrice * qty * 100) / 100))
+    }
+    setServiceDescription(`${item.name} × ${stockQty || 1} ${item.unit}`)
+  }, [serviceLine, stockItemId, stockQty, stockItems])
+
+  useEffect(() => {
+    if (!catalogService) return
+    if (serviceLine === 'laboratory') {
+      const test = labTests.find((row) => row.id === catalogService)
+      if (test) setServiceDescription(test.name)
+    }
+    if (serviceLine === 'radiology') {
+      const study = radStudies.find((row) => row.code === catalogService)
+      if (study) setServiceDescription(study.name)
+    }
+    if (serviceLine === 'other') {
+      const procedure = theatreProcedures.find((row) => row.id === catalogService)
+      if (procedure) setServiceDescription(procedure.name)
+    }
+  }, [catalogService, serviceLine, labTests, radStudies, theatreProcedures])
 
   const printReceipt = (txn: PaymentTransactionRow) => {
     if (!patient) return
@@ -78,9 +142,8 @@ export function PaymentDesk() {
     <div className="workspace-shell animate-fade-in space-y-6">
       <Card className="card-hover p-5 md:p-8">
         <PageHeader
-          eyebrow="Finance"
-          title="Payments & cashier"
-          description="Collect payment for any hospital service — consultation, pharmacy, laboratory, radiology, or other — via M-Pesa STK push, cash, card, insurance, or QuickBooks."
+          title="Cashier"
+          description="Collect payment for a hospital service. The receipt prints a simple slip. Revenue by department is on the Revenue tab."
         />
 
         <div className="mt-8 space-y-6">
@@ -103,6 +166,11 @@ export function PaymentDesk() {
                   onChange={(e) => {
                     setServiceLine(e.target.value as PaymentServiceLine)
                     if (e.target.value !== 'consultation') setClinicName('')
+                    if (e.target.value !== 'pharmacy') {
+                      setStockItemId('')
+                      setStockQty('1')
+                    }
+                    setCatalogService('')
                   }}
                 >
                   {PAYMENT_SERVICE_LINES.map((line) => (
@@ -138,6 +206,81 @@ export function PaymentDesk() {
                   />
                 )}
               </div>
+              {serviceLine === 'laboratory' ? (
+                <SelectField
+                  name="labTest"
+                  label="Laboratory test"
+                  value={catalogService}
+                  onChange={(e) => setCatalogService(e.target.value)}
+                  hint="From the laboratory catalog import."
+                >
+                  <option value="">Select test…</option>
+                  {labTests.map((test) => (
+                    <option key={test.id} value={test.id}>
+                      {test.name}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : null}
+              {serviceLine === 'radiology' ? (
+                <SelectField
+                  name="radStudy"
+                  label="Imaging study"
+                  value={catalogService}
+                  onChange={(e) => setCatalogService(e.target.value)}
+                  hint="From the radiology catalog import."
+                >
+                  <option value="">Select study…</option>
+                  {radStudies.map((study) => (
+                    <option key={study.code} value={study.code}>
+                      {study.name}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : null}
+              {serviceLine === 'other' ? (
+                <SelectField
+                  name="theatreProcedure"
+                  label="Listed service / procedure"
+                  value={catalogService}
+                  onChange={(e) => setCatalogService(e.target.value)}
+                  hint="Theatre procedures from the catalog import."
+                >
+                  <option value="">Select procedure…</option>
+                  {theatreProcedures.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.name}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : null}
+              {serviceLine === 'pharmacy' ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SelectField
+                    name="stockItemId"
+                    label="Stock item"
+                    value={stockItemId}
+                    onChange={(e) => setStockItemId(e.target.value)}
+                    hint="Selling price comes from Inventory → Prices."
+                  >
+                    <option value="">Select priced item…</option>
+                    {stockItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} — {formatKes(item.sell)} / {item.unit}
+                      </option>
+                    ))}
+                  </SelectField>
+                  <Field
+                    name="stockQty"
+                    label="Quantity"
+                    type="number"
+                    min={0.01}
+                    step="any"
+                    value={stockQty}
+                    onChange={(e) => setStockQty(e.target.value)}
+                  />
+                </div>
+              ) : null}
               {serviceLine === 'consultation' && clinicName ? (
                 <p className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
                   Mapped consultation fee for <strong>{clinicName}</strong> is{' '}

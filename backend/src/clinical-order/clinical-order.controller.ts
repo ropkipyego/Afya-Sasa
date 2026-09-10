@@ -3,7 +3,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import { ClinicalOrderMirrorService } from './clinical-order-mirror.service';
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 class CreatePharmacyOrderDto {
@@ -45,6 +46,22 @@ class CreatePharmacyOrderDto {
   @IsOptional()
   @IsString()
   priority?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  itemId?: string;
+
+  @ApiProperty({ example: 10 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  instructions?: string;
 }
 
 @ApiBearerAuth()
@@ -54,7 +71,7 @@ export class ClinicalOrderController {
   constructor(private readonly orders: ClinicalOrderMirrorService) {}
 
   @Get()
-  @RequirePermissions('pharmacy:read', 'lab_requests:read')
+  @RequirePermissions('pharmacy:read', 'pharmacy:prescribe', 'consultations:create', 'lab_requests:read')
   list(
     @Query('module') sourceModule?: string,
     @Query('status') status?: string,
@@ -87,6 +104,9 @@ export class ClinicalOrderController {
         dose: dto.dose,
         route: dto.route,
         frequency: dto.frequency,
+        itemId: dto.itemId,
+        quantity: dto.quantity,
+        instructions: dto.instructions,
       },
       request,
     );

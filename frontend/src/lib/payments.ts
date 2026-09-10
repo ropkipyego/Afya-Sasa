@@ -81,3 +81,7 @@ export async function collectPayment(input: CollectPaymentInput) {
 export function listPatientPayments(patientId: string) {
   return apiRequest<PaymentTransactionRow[]>(`/payments/transactions?patientId=${patientId}&limit=20`)
 }
+
+export function listRecentPayments(limit = 200) {
+  return apiRequest<PaymentTransactionRow[]>(`/payments/transactions?limit=${Math.min(limit, 200)}`)
+}

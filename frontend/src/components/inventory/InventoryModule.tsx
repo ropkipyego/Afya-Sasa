@@ -1,17 +1,23 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowRightLeft,
   Boxes,
   ClipboardCheck,
   ClipboardList,
-  Package,
+  LayoutDashboard,
   PackagePlus,
+  Percent,
+  ShoppingCart,
   Truck,
 } from 'lucide-react'
 import { Alert, Button, Card, Field, PageHeader, Select } from '../ui'
+import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { InventoryOverview } from './InventoryOverview'
+import { ProcurementPanel } from './ProcurementPanel'
+import { InventoryPricesPanel } from './InventoryPricesPanel'
 
 type InventoryLocation = {
   id: string
@@ -56,7 +62,15 @@ type Requisition = {
   lines: RequisitionLine[]
 }
 
-type Tab = 'stock' | 'requisitions' | 'transfers' | 'receive' | 'ledger'
+type Tab =
+  | 'overview'
+  | 'stock'
+  | 'prices'
+  | 'requisitions'
+  | 'procurement'
+  | 'transfers'
+  | 'receive'
+  | 'ledger'
 
 const statusClass: Record<Requisition['status'], string> = {
   submitted: 'bg-sky-100 text-sky-800',
@@ -72,45 +86,44 @@ const routeLabel = {
 } as const
 
 export function InventoryModule() {
-  const [tab, setTab] = useState<Tab>('stock')
-  const tabs: { id: Tab; label: string; icon: typeof Package }[] = [
-    { id: 'stock', label: 'Stock levels', icon: Boxes },
-    { id: 'requisitions', label: 'Requisitions', icon: Truck },
-    { id: 'transfers', label: 'Transfers', icon: ArrowRightLeft },
-    { id: 'receive', label: 'Receive stock', icon: PackagePlus },
-    { id: 'ledger', label: 'Movement ledger', icon: ClipboardList },
-  ]
+  const [tab, setTab] = useState<Tab>('overview')
+  const [receiveItemId, setReceiveItemId] = useState('')
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <Card className="bg-gradient-to-br from-teal-900 to-slate-900 p-8 text-white">
-        <PageHeader
-          title="Inventory & store"
-          description="One engine for pharmacy and main store — receipts, department requisitions, and live balances."
-        />
-        <div className="mt-6 flex flex-wrap gap-2">
-          {tabs.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                tab === id
-                  ? 'bg-white text-teal-900 shadow'
-                  : 'bg-white/10 text-white hover:bg-white/20'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </button>
-          ))}
-        </div>
-      </Card>
-
+    <div className="workspace-shell animate-fade-in space-y-6">
+      <PageHeader
+        title="Inventory & store"
+        description="Supply desk — main store, requisitions, transfers, and goods receipt. Pharmacy dispenses from the PHARMACY location."
+      />
+      <WorkspaceTabs
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="h-4 w-4" /> },
+          { id: 'stock', label: 'Stock', icon: <Boxes className="h-4 w-4" /> },
+          { id: 'prices', label: 'Prices', icon: <Percent className="h-4 w-4" /> },
+          { id: 'requisitions', label: 'Requisitions', icon: <Truck className="h-4 w-4" /> },
+          { id: 'procurement', label: 'Buying list', icon: <ShoppingCart className="h-4 w-4" /> },
+          { id: 'transfers', label: 'Transfers', icon: <ArrowRightLeft className="h-4 w-4" /> },
+          { id: 'receive', label: 'Receive', icon: <PackagePlus className="h-4 w-4" /> },
+          { id: 'ledger', label: 'Ledger', icon: <ClipboardList className="h-4 w-4" /> },
+        ]}
+      />
+      {tab === 'overview' ? <InventoryOverview onOpen={setTab} /> : null}
       {tab === 'stock' ? <StockPanel /> : null}
+      {tab === 'prices' ? <InventoryPricesPanel /> : null}
       {tab === 'requisitions' ? <RequisitionsPanel /> : null}
+      {tab === 'procurement' ? (
+        <ProcurementPanel
+          onReceiveItem={(itemId) => {
+            setReceiveItemId(itemId)
+            setTab('receive')
+          }}
+          onOpenRequisitions={() => setTab('requisitions')}
+        />
+      ) : null}
       {tab === 'transfers' ? <TransfersPanel /> : null}
-      {tab === 'receive' ? <ReceiveStockPanel /> : null}
+      {tab === 'receive' ? <ReceiveStockPanel initialItemId={receiveItemId} /> : null}
       {tab === 'ledger' ? <LedgerPanel /> : null}
     </div>
   )
@@ -668,9 +681,9 @@ function TransfersPanel() {
   )
 }
 
-function ReceiveStockPanel() {
+function ReceiveStockPanel({ initialItemId = '' }: { initialItemId?: string }) {
   const queryClient = useQueryClient()
-  const [itemId, setItemId] = useState('')
+  const [itemId, setItemId] = useState(initialItemId)
   const [locationId, setLocationId] = useState('')
   const [quantity, setQuantity] = useState('')
   const [batchNo, setBatchNo] = useState('')
@@ -686,6 +699,10 @@ function ReceiveStockPanel() {
     queryKey: ['inventory-items'],
     queryFn: () => apiRequest<InventoryItem[]>('/inventory/items'),
   })
+
+  useEffect(() => {
+    if (initialItemId) setItemId(initialItemId)
+  }, [initialItemId])
 
   const selectedItem = items.find((i) => i.id === itemId)
   const isPharma = selectedItem?.category === 'pharmaceutical'

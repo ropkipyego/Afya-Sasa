@@ -75,10 +75,12 @@ export class DispensePharmacyDto {
   @IsString()
   itemId?: string;
 
-  @ApiProperty({ example: 10 })
+  @ApiPropertyOptional({ example: 10 })
+  @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0.0001)
-  quantity!: number;
+  quantity?: number;
 }
 
 export class DispenseOtcDto {
@@ -133,6 +135,39 @@ export class CreateRequisitionDto {
   @ValidateNested({ each: true })
   @Type(() => CreateRequisitionLineDto)
   lines!: CreateRequisitionLineDto[];
+}
+
+export class ImportInventoryCsvDto {
+  @ApiProperty()
+  @IsString()
+  csv!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+}
+
+export class UpdateItemPricingDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  cost?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  markup?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  sell?: number;
 }
 
 export class CreateTransferDto {

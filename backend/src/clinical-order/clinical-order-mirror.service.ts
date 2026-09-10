@@ -106,6 +106,9 @@ export class ClinicalOrderMirrorService {
     dose?: string
     route?: string
     frequency?: string
+    itemId?: string
+    quantity?: number
+    instructions?: string
   }, request: RequestContext) {
     const id = randomUUID();
     return this.orders.save(
@@ -128,6 +131,9 @@ export class ClinicalOrderMirrorService {
           dose: input.dose ?? null,
           route: input.route ?? null,
           frequency: input.frequency ?? null,
+          itemId: input.itemId ?? null,
+          quantity: input.quantity ?? null,
+          instructions: input.instructions ?? null,
         },
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,

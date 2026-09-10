@@ -31,13 +31,13 @@ export class RadiologyController {
   }
 
   @Post('modalities/import')
-  @RequirePermissions('radiology_catalogue:manage')
+  @RequirePermissions('radiology_catalogue:manage', 'settings:manage')
   importCatalog(@Body() dto: ImportRadiologyCatalogDto, @Req() request: RequestContext) {
     return this.radiologyService.importCatalog(dto, request);
   }
 
   @Get('studies')
-  @RequirePermissions('radiology_catalogue:read')
+  @RequirePermissions('radiology_catalogue:read', 'payments:initiate')
   listStudies(@Req() request: RequestContext) {
     return this.radiologyService.listStudies(request);
   }

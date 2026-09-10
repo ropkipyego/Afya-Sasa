@@ -1,0 +1,4 @@
+sku,name,category,unit,track_batch,cost,markup,sell,opening_qty,batch_no,expiry
+PARA500,Paracetamol 500mg,pharmaceutical,tablet,true,2,50,3,100,BTH-001,2027-12-31
+AMX250,Amoxicillin 250mg,pharmaceutical,capsule,true,8,40,11.2,50,BTH-002,2027-06-30
+GLOVE-M,Examination gloves M,medical_consumable,box,false,450,20,540,10,,

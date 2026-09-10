@@ -75,6 +75,12 @@ export class OpdController {
     return this.opdService.triage(id, dto, request);
   }
 
+  @Get('follow-ups')
+  @RequirePermissions('appointments:read', 'consultations:read')
+  listFollowUps() {
+    return this.opdService.listClinicalFollowUps();
+  }
+
   @Get('doctor/queue')
   @RequirePermissions('consultations:read')
   doctorQueue(@Query('doctorId') doctorId?: string, @Req() request?: RequestContext) {

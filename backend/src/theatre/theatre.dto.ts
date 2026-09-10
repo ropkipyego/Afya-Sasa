@@ -49,6 +49,12 @@ export class CreateSurgicalProcedureDto {
   expectedDurationMinutes?: number;
 }
 
+export class ImportTheatreProceduresDto {
+  @ApiProperty()
+  @IsString()
+  csv!: string;
+}
+
 export class CreateSurgeryBookingDto {
   @ApiProperty()
   @IsString()

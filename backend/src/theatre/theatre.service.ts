@@ -81,6 +81,50 @@ export class TheatreService {
     return this.procedures.find({ where: { active: true }, order: { name: 'ASC' } });
   }
 
+  async importProcedures(csv: string, request: RequestContext) {
+    const rows = csv
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (rows.length < 2) {
+      throw new BadRequestException('CSV is empty or missing a header row.');
+    }
+    const headers = rows[0].split(',').map((header) => header.trim().toLowerCase().replace(/\s+/g, '_'));
+    const summary = { created: 0, skipped: 0, errors: [] as string[] };
+    for (const [index, line] of rows.slice(1).entries()) {
+      const cells = line.split(',').map((cell) => cell.trim());
+      const row: Record<string, string> = {};
+      headers.forEach((header, cellIndex) => {
+        row[header] = cells[cellIndex] ?? '';
+      });
+      const code = (row.code ?? '').trim().toUpperCase();
+      const name = (row.name ?? '').trim();
+      if (!code || !name) {
+        summary.errors.push(`Line ${index + 2}: code and name are required.`);
+        continue;
+      }
+      const existing = await this.procedures.findOne({ where: { code } });
+      if (existing) {
+        summary.skipped += 1;
+        continue;
+      }
+      const duration = Number(row.expected_duration_minutes ?? row.duration ?? '');
+      await this.createProcedure(
+        {
+          code,
+          name,
+          category: row.category?.trim() || undefined,
+          description: row.description?.trim() || undefined,
+          expectedDurationMinutes: Number.isFinite(duration) && duration > 0 ? duration : undefined,
+        },
+        request,
+      );
+      summary.created += 1;
+    }
+    return summary;
+  }
+
   async createBooking(dto: CreateSurgeryBookingDto, request: RequestContext) {
     const [patient, procedure, theatre, encounter, admission] = await Promise.all([
       this.patients.findOne({ where: { id: dto.patientId } }),

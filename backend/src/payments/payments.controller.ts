@@ -37,7 +37,7 @@ export class PaymentsController {
 
   @Get('payments/transactions')
   @ApiBearerAuth()
-  @RequirePermissions('payments:read')
+  @RequirePermissions('payments:read', 'payments:initiate')
   listTransactions(@Query('limit') limit?: string, @Query('patientId') patientId?: string) {
     return this.payments.listTransactions(limit ? Number(limit) : 50, patientId);
   }

@@ -34,6 +34,7 @@ import { apiRequest } from '../../lib/api'
 import { formDataFromElement, optionalNumber, submitClinicalForm } from '../../lib/form-utils'
 import { notify } from '../../lib/notify'
 import { viewClinicalFile } from '../../lib/clinical-upload'
+import { PrescriptionForm } from '../orders/PrescriptionForm'
 
 type WorkspaceTab =
   | 'overview'
@@ -705,17 +706,35 @@ export function PatientWorkspace({
               }}
             />
           )}
-          {activeTab === 'pharmacy' && (
-            <DepartmentList
-              title="Pharmacy"
-              empty="No pharmacy orders on this admission yet."
-              items={pharmacyOrders.map((order) => ({
-                id: order.id,
-                title: String(order.metadata?.medication ?? order.orderNo),
-                meta: `${order.status} · ${new Date(order.orderedAt).toLocaleString()}`,
-              }))}
-            />
-          )}
+          {activeTab === 'pharmacy' && patientId ? (
+            <div className="space-y-6">
+              <Card className="p-5">
+                <p className="text-sm font-semibold text-slate-900">Prescribe to pharmacy</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  This sends a prescription to the pharmacy queue. The medication chart / MAR is separate.
+                </p>
+                <div className="mt-4">
+                  <PrescriptionForm
+                    patientId={patientId}
+                    admissionId={admissionId}
+                    encounterId={workspace?.admission.encounter?.id}
+                    onSuccess={async () => {
+                      await queryClient.invalidateQueries({ queryKey: ['ipd-pharmacy', patientId] })
+                    }}
+                  />
+                </div>
+              </Card>
+              <DepartmentList
+                title="Pharmacy"
+                empty="No pharmacy orders on this admission yet."
+                items={pharmacyOrders.map((order) => ({
+                  id: order.id,
+                  title: String(order.metadata?.medication ?? order.orderNo),
+                  meta: `${order.status}${order.metadata?.quantity != null ? ` · qty ${String(order.metadata.quantity)}` : ''} · ${new Date(order.orderedAt).toLocaleString()}`,
+                }))}
+              />
+            </div>
+          ) : null}
           {activeTab === 'theatre' && (
             <DepartmentList
               title="Theatre"

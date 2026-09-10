@@ -6,12 +6,13 @@ import {
   BedDouble,
   CalendarDays,
   ClipboardList,
-  CreditCard,
   FileText,
   FlaskConical,
   HeartPulse,
   Hospital,
+  Landmark,
   LayoutDashboard,
+  Megaphone,
   Package,
   Pill,
   Printer,
@@ -36,7 +37,6 @@ export const navigation: NavItem[] = [
   { group: 'Front Office', label: 'Patient Registry', icon: Users, permission: 'patients:read', shortLabel: 'Registry' },
   { group: 'Front Office', label: 'OPD Check-In', icon: Hospital, permission: 'encounters:create', shortLabel: 'Check-in' },
   { group: 'Front Office', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
-  { group: 'Front Office', label: 'Payments', icon: CreditCard, permission: 'payments:initiate', shortLabel: 'Pay' },
 
   // Outpatient
   { group: 'Outpatient', label: 'Triage Queue', icon: HeartPulse, permission: 'triage:read', shortLabel: 'Triage' },
@@ -65,11 +65,17 @@ export const navigation: NavItem[] = [
   { group: 'Emergency', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read', shortLabel: 'ED' },
 
   // Specialty & supply
-  { group: 'Specialty', label: 'Pharmacy', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Pharmacy' },
+  { group: 'Pharmacy', label: 'Pharmacy', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Pharmacy' },
+
+  { group: 'Finance', label: 'Finance', icon: Landmark, permission: 'payments:initiate', shortLabel: 'Finance' },
+
   { group: 'Specialty', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
   { group: 'Specialty', label: 'Maternity', icon: Baby, permission: 'pregnancies:read' },
   { group: 'Specialty', label: 'Orders', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Orders' },
-  { group: 'Specialty', label: 'Inventory & Store', icon: Package, permission: 'inventory:read', shortLabel: 'Store' },
+
+  { group: 'Supply', label: 'Inventory & Store', icon: Package, permission: 'inventory:read', shortLabel: 'Store' },
+
+  { group: 'Marketing', label: 'Marketing', icon: Megaphone, permission: 'appointments:read', shortLabel: 'Outreach' },
 
   // Reports
   { group: 'Reports', label: 'Reports', icon: LayoutDashboard, permission: 'reports:read' },
@@ -86,7 +92,11 @@ export const groupIcons: Record<string, LucideIcon> = {
   Imaging: ScanLine,
   Inpatient: BedDouble,
   Emergency: AlertTriangle,
+  Pharmacy: Pill,
+  Finance: Landmark,
   Specialty: Baby,
+  Supply: Package,
+  Marketing: Megaphone,
   Reports: LayoutDashboard,
   Administration: Settings,
 }
@@ -103,14 +113,16 @@ export const workflowDescriptions: Record<string, string> = {
   Worklists: 'Cross-department patient queues — filter by OPD, lab, imaging, IPD, or ED.',
   'Care Queues': 'Cross-department patient queues — filter by OPD, lab, imaging, IPD, or ED.',
   'Patient Registry': 'Browse all registered patients with age-band filters and basic demographics.',
+  Finance: 'Finance desk — cashier, revenue, and SHA. Not Front Office. Same payment engine, not a new billing system.',
   Payments: 'Hospital-wide cashier — M-Pesa STK, cash, card, insurance, and QuickBooks for any service.',
+  Marketing: 'Outreach desk — clinic follow-ups from Next visit, plus daily facility-visit reports.',
   Laboratory: 'Lab overview, sample worklist, and clinician results inbox.',
   Radiology: 'Imaging overview and reporting worklist.',
   Emergency: 'ED command center — triage, bays, observation, disposition.',
-  Pharmacy: 'Dispense prescriptions, check pharmacy stock, and record OTC sales.',
+  Pharmacy: 'Pharmacy desk — queue, dispense, OTC, and pharmacy-location stock. Store stays under Inventory.',
   Maternity: 'Maternity service line — ANC, labour, delivery, postnatal.',
   Orders: 'Clinical orders from all departments — lab, imaging, procedures.',
-  'Inventory & Store': 'Stock levels, requisitions, and goods receipt.',
+  'Inventory & Store': 'Supply overview, requisitions, buying list, transfers, and goods receipt. Not the pharmacy queue.',
   Nursing: 'Nursing command — vitals, MAR, observations, and shift notes.',
   Reports: 'OPD, clinical, analytics, and operations reporting.',
   'Inpatient (IPD)': 'Visual ward board → patient workspace.',

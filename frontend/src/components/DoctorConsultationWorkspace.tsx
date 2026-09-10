@@ -24,6 +24,7 @@ import {
 } from './investigations/ConsultationResultsPanel'
 import { EncounterAttachmentsPanel } from './documents/EncounterAttachmentsPanel'
 import { WorkspaceTabs } from './ui/WorkspaceTabs'
+import { PrescriptionForm } from './orders/PrescriptionForm'
 import { apiRequest } from '../lib/api'
 import { notify } from '../lib/notify'
 import type { WorkflowStep } from '../lib/workflow-status'
@@ -97,11 +98,6 @@ export function DoctorConsultationWorkspace({
 }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<DoctorTab>('context')
-  const [medication, setMedication] = useState('')
-  const [dose, setDose] = useState('')
-  const [route, setRoute] = useState('oral')
-  const [frequency, setFrequency] = useState('')
-  const [priority, setPriority] = useState('routine')
   const investigations = useConsultationInvestigations(selected.patient.id, selected.id)
 
   useEffect(() => {
@@ -131,35 +127,6 @@ export function DoctorConsultationWorkspace({
         `/clinical-orders?module=pharmacy&patientId=${selected.patient.id}&limit=20`,
       ),
     enabled: tab === 'meds',
-  })
-
-  const orderMedication = useMutation({
-    mutationFn: () => {
-      const name = medication.trim()
-      if (!name) throw new Error('Enter a medication name.')
-      return apiRequest('/clinical-orders/pharmacy', {
-        method: 'POST',
-        body: JSON.stringify({
-          patientId: selected.patient.id,
-          encounterId: selected.id,
-          medication: name,
-          dose: dose.trim() || undefined,
-          route: route.trim() || undefined,
-          frequency: frequency.trim() || undefined,
-          priority,
-        }),
-      })
-    },
-    onSuccess: async () => {
-      notify('Medication ordered', `${medication.trim()} sent to pharmacy.`, 'success')
-      setMedication('')
-      setDose('')
-      setFrequency('')
-      setPriority('routine')
-      await queryClient.invalidateQueries({ queryKey: ['consultation-pharmacy'] })
-      await queryClient.invalidateQueries({ queryKey: ['clinical-orders'] })
-    },
-    onError: (error: Error) => notify('Medication order failed', error.message, 'critical'),
   })
 
   const markAwaitingResults = useMutation({
@@ -370,74 +337,11 @@ export function DoctorConsultationWorkspace({
         <Card className="p-5 md:p-8">
           <PageHeader
             title="Medications"
-            description="Prescribe for this encounter — sent to the pharmacy / clinical orders feed."
+            description="Write a complete prescription — medication, dose, quantity to issue, and instructions. Pharmacy sees the same script."
           />
-          <form
-            className="mt-6 grid gap-4 md:grid-cols-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              orderMedication.mutate()
-            }}
-          >
-            <div className="md:col-span-2">
-              <Field
-                name="medication"
-                label="Medication"
-                placeholder="e.g. Amoxicillin"
-                value={medication}
-                onChange={(e) => setMedication(e.target.value)}
-                required
-              />
-            </div>
-            <Field
-              name="dose"
-              label="Dose"
-              placeholder="e.g. 500 mg"
-              value={dose}
-              onChange={(e) => setDose(e.target.value)}
-            />
-            <SelectField
-              name="route"
-              label="Route"
-              value={route}
-              onChange={(e) => setRoute(e.target.value)}
-            >
-              <option value="oral">Oral</option>
-              <option value="iv">IV</option>
-              <option value="im">IM</option>
-              <option value="sc">SC</option>
-              <option value="topical">Topical</option>
-              <option value="inhalation">Inhalation</option>
-              <option value="other">Other</option>
-            </SelectField>
-            <Field
-              name="frequency"
-              label="Frequency"
-              placeholder="e.g. TDS × 5 days"
-              value={frequency}
-              onChange={(e) => setFrequency(e.target.value)}
-            />
-            <SelectField
-              name="priority"
-              label="Priority"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            >
-              <option value="routine">Routine</option>
-              <option value="urgent">Urgent</option>
-              <option value="stat">STAT</option>
-            </SelectField>
-            <div className="md:col-span-2">
-              <Button
-                type="submit"
-                loading={orderMedication.isPending}
-                disabled={!medication.trim()}
-                className="min-h-12"
-              >
-                Order medication
-              </Button>
-            </div>
-          </form>
+          <div className="mt-6">
+            <PrescriptionForm patientId={selected.patient.id} encounterId={selected.id} />
+          </div>
 
           <div className="mt-8">
             <p className="text-sm font-semibold text-slate-800">Recent pharmacy orders for this patient</p>
@@ -452,6 +356,8 @@ export function DoctorConsultationWorkspace({
                         {order.metadata?.dose ? ` · ${String(order.metadata.dose)}` : ''}
                         {order.metadata?.route ? ` · ${String(order.metadata.route)}` : ''}
                         {order.metadata?.frequency ? ` · ${String(order.metadata.frequency)}` : ''}
+                        {order.metadata?.quantity != null ? ` · qty ${String(order.metadata.quantity)}` : ''}
+                        {order.metadata?.instructions ? ` · ${String(order.metadata.instructions)}` : ''}
                       </p>
                       <p className="text-xs text-slate-400">
                         {new Date(order.orderedAt).toLocaleString()}

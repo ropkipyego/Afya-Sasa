@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { ClipboardList } from 'lucide-react'
-import { Button, Card, PageHeader } from '../ui'
+import { Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
-import { notify } from '../../lib/notify'
 
 type ClinicalOrder = {
   id: string
@@ -18,7 +17,6 @@ type ClinicalOrder = {
 }
 
 export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boolean }) {
-  const queryClient = useQueryClient()
   const [moduleFilter, setModuleFilter] = useState('')
 
   const { data: orders = [], isLoading } = useQuery({
@@ -28,19 +26,6 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
         `/clinical-orders?limit=100${moduleFilter ? `&module=${moduleFilter}` : ''}`,
       ),
     refetchInterval: 20_000,
-  })
-
-  const dispensePharmacy = useMutation({
-    mutationFn: (orderId: string) =>
-      apiRequest('/inventory/dispense/pharmacy', {
-        method: 'POST',
-        body: JSON.stringify({ clinicalOrderId: orderId, quantity: 10 }),
-      }),
-    onSuccess: async () => {
-      notify('Dispensed', 'Stock deducted and order marked dispensed.', 'success')
-      await queryClient.invalidateQueries({ queryKey: ['clinical-orders'] })
-    },
-    onError: (error: Error) => notify('Dispense failed', error.message, 'critical'),
   })
 
   return (
@@ -95,6 +80,7 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
                       <p className="text-xs text-teal-800">
                         {String(order.metadata.medication)}
                         {order.metadata.dose ? ` · ${String(order.metadata.dose)}` : ''}
+                        {order.metadata.quantity != null ? ` · qty ${String(order.metadata.quantity)}` : ''}
                       </p>
                     ) : null}
                     <p className="text-xs text-slate-400">
@@ -107,15 +93,7 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
                     </span>
                     <p className="mt-1 text-xs text-slate-500">{order.priority}</p>
                     {order.sourceModule === 'pharmacy' && order.status !== 'dispensed' ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="mt-2"
-                        loading={dispensePharmacy.isPending}
-                        onClick={() => dispensePharmacy.mutate(order.id)}
-                      >
-                        Dispense
-                      </Button>
+                      <p className="mt-2 text-xs text-teal-800">Dispense from the Pharmacy desk</p>
                     ) : null}
                   </div>
                 </div>

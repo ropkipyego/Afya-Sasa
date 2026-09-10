@@ -1,8 +1,17 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
-import { CreateInventoryItemDto, CreateRequisitionDto, CreateTransferDto, DispenseOtcDto, DispensePharmacyDto, ReceiveStockDto } from './inventory.dto';
+import {
+  CreateInventoryItemDto,
+  CreateRequisitionDto,
+  CreateTransferDto,
+  DispenseOtcDto,
+  DispensePharmacyDto,
+  ImportInventoryCsvDto,
+  ReceiveStockDto,
+  UpdateItemPricingDto,
+} from './inventory.dto';
 import { InventoryItem, InventoryRequisition, InventoryTransfer } from './inventory.entities';
 import { InventoryService } from './inventory.service';
 
@@ -13,7 +22,7 @@ export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   @Get('locations')
-  @RequirePermissions('inventory:read')
+  @RequirePermissions('inventory:read', 'pharmacy:read', 'pharmacy:dispense')
   listLocations() {
     return this.inventoryService.listLocations();
   }
@@ -31,9 +40,15 @@ export class InventoryController {
   }
 
   @Get('items')
-  @RequirePermissions('inventory:read')
-  listItems(@Query('category') category?: InventoryItem['category']) {
-    return this.inventoryService.listItems({ category });
+  @RequirePermissions(
+    'inventory:read',
+    'pharmacy:read',
+    'pharmacy:prescribe',
+    'consultations:create',
+    'payments:initiate',
+  )
+  listItems(@Query('category') category?: InventoryItem['category'], @Req() request?: RequestContext) {
+    return this.inventoryService.listItems({ category, request });
   }
 
   @Post('items')
@@ -42,8 +57,24 @@ export class InventoryController {
     return this.inventoryService.createItem(dto, request);
   }
 
+  @Post('items/import')
+  @RequirePermissions('inventory:manage', 'settings:manage')
+  importItems(@Body() dto: ImportInventoryCsvDto, @Req() request: RequestContext) {
+    return this.inventoryService.importCatalog(dto, request);
+  }
+
+  @Patch('items/:id/pricing')
+  @RequirePermissions('inventory:manage')
+  updatePricing(
+    @Param('id') id: string,
+    @Body() dto: UpdateItemPricingDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.inventoryService.updateItemPricing(id, dto, request);
+  }
+
   @Get('locations/:id/balances')
-  @RequirePermissions('inventory:read')
+  @RequirePermissions('inventory:read', 'pharmacy:read', 'pharmacy:dispense')
   locationBalances(@Param('id') id: string) {
     return this.inventoryService.locationBalances(id);
   }

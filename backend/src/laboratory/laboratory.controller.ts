@@ -34,7 +34,7 @@ export class LaboratoryController {
   }
 
   @Get('tests')
-  @RequirePermissions('lab_catalogue:read')
+  @RequirePermissions('lab_catalogue:read', 'payments:initiate')
   listTests() {
     return this.laboratoryService.listTests();
   }
@@ -46,7 +46,7 @@ export class LaboratoryController {
   }
 
   @Post('tests/import')
-  @RequirePermissions('lab_catalogue:manage')
+  @RequirePermissions('lab_catalogue:manage', 'settings:manage')
   importTests(@Body() dto: ImportLabCatalogDto, @Req() request: RequestContext) {
     return this.laboratoryService.importCatalog(dto, request);
   }

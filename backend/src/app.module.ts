@@ -30,6 +30,7 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { WorklistsModule } from './worklists/worklists.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { MarketingModule } from './marketing/marketing.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ShaModule } from './integration/sha/sha.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
@@ -97,6 +98,7 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     WorklistsModule,
     WorkflowModule,
     InventoryModule,
+    MarketingModule,
     HealthModule,
     PaymentsModule,
     ShaModule,

@@ -4,7 +4,17 @@ import { IsNull, MoreThan, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
-import { CreateInventoryItemDto, CreateRequisitionDto, CreateTransferDto, DispenseOtcDto, DispensePharmacyDto, ReceiveStockDto } from './inventory.dto';
+import { TenantSettings } from '../core/core.entities';
+import {
+  CreateInventoryItemDto,
+  CreateRequisitionDto,
+  CreateTransferDto,
+  DispenseOtcDto,
+  DispensePharmacyDto,
+  ImportInventoryCsvDto,
+  ReceiveStockDto,
+  UpdateItemPricingDto,
+} from './inventory.dto';
 import {
   InventoryBatch,
   InventoryItem,
@@ -39,6 +49,8 @@ export class InventoryService {
     private readonly transferLines: Repository<InventoryTransferLine>,
     @InjectRepository(ClinicalOrder)
     private readonly clinicalOrders: Repository<ClinicalOrder>,
+    @InjectRepository(TenantSettings)
+    private readonly settings: Repository<TenantSettings>,
     private readonly clinicalOrderMirror: ClinicalOrderMirrorService,
   ) {}
 
@@ -64,13 +76,18 @@ export class InventoryService {
     });
   }
 
-  listItems(params?: { category?: InventoryItem['category'] }) {
-    return this.items.find({
+  async listItems(params?: { category?: InventoryItem['category']; request?: RequestContext }) {
+    const rows = await this.items.find({
       where: {
         active: true,
         ...(params?.category ? { category: params.category } : {}),
       },
       order: { name: 'ASC' },
+    });
+    const pricing = await this.readPricingMap(params?.request);
+    return rows.map((item) => {
+      const price = pricing[item.sku] ?? { cost: 0, markup: 0, sell: 0 };
+      return { ...item, cost: price.cost, markup: price.markup, sell: price.sell };
     });
   }
 
@@ -202,89 +219,109 @@ export class InventoryService {
   }
 
   async dispensePharmacyOrder(dto: DispensePharmacyDto, request: RequestContext) {
-    const order = await this.clinicalOrders.findOne({
-      where: { id: dto.clinicalOrderId, orderType: 'pharmacy' },
-      relations: { patient: true },
-    });
-    if (!order) {
-      throw new NotFoundException('Pharmacy order not found');
-    }
-    if (order.status === 'dispensed') {
-      throw new BadRequestException('Order already dispensed');
-    }
+    return this.items.manager.transaction(async (manager) => {
+      const orders = manager.getRepository(ClinicalOrder);
+      const items = manager.getRepository(InventoryItem);
+      const locations = manager.getRepository(InventoryLocation);
+      const batchesRepo = manager.getRepository(InventoryBatch);
+      const ledger = manager.getRepository(InventoryTransaction);
 
-    const pharmacy = await this.locations.findOne({ where: { code: 'PHARMACY', active: true } });
-    if (!pharmacy) {
-      throw new NotFoundException('Pharmacy location not configured');
-    }
-
-    let item: InventoryItem | null = null;
-    if (dto.itemId) {
-      item = await this.items.findOne({ where: { id: dto.itemId, active: true } });
-    } else {
-      const medication = String(order.metadata?.medication ?? '').toLowerCase();
-      if (medication.includes('paracetamol')) {
-        item = await this.items.findOne({ where: { sku: 'PARA500', active: true } });
+      const order = await orders.findOne({
+        where: { id: dto.clinicalOrderId, orderType: 'pharmacy' },
+        relations: { patient: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException('Pharmacy order not found');
       }
-    }
-    if (!item) {
-      throw new BadRequestException('Could not match medication to inventory item — provide itemId');
-    }
+      if (order.status === 'dispensed') {
+        throw new BadRequestException('This prescription is already dispensed.');
+      }
+      if (order.status === 'cancelled') {
+        throw new BadRequestException('This prescription was cancelled.');
+      }
 
-    const batches = await this.batches.find({
-      where: {
-        item: { id: item.id },
-        location: { id: pharmacy.id },
-        qtyOnHand: MoreThan('0'),
-      },
-      relations: { item: true, location: true },
-      order: { expiryDate: 'ASC', createdAt: 'ASC' },
-    });
+      const pharmacy = await locations.findOne({ where: { code: 'PHARMACY', active: true } });
+      if (!pharmacy) {
+        throw new NotFoundException('Pharmacy location not configured');
+      }
 
-    const allocations = this.allocateFromBatches(batches, dto.quantity);
+      const item = await this.resolvePharmacyItem(items, order, dto.itemId);
+      const quantity = this.resolveDispenseQuantity(dto.quantity, order);
+      const batches = await batchesRepo.find({
+        where: {
+          item: { id: item.id },
+          location: { id: pharmacy.id },
+          qtyOnHand: MoreThan('0'),
+        },
+        relations: { item: true, location: true },
+        order: { expiryDate: 'ASC', createdAt: 'ASC' },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    const ledgerRows: InventoryTransaction[] = [];
-    for (const { batch, quantity } of allocations) {
-      batch.qtyOnHand = (Number(batch.qtyOnHand) - quantity).toString();
-      batch.updatedBy = request.user?.sub ?? null;
-      await this.batches.save(batch);
-      ledgerRows.push(
-        await this.transactions.save(
-          this.transactions.create({
-            item,
-            batch,
-            sourceLocation: pharmacy,
-            destinationLocation: null,
-            quantity: (-quantity).toString(),
-            unit: item.unit,
-            transactionType: 'DISPENSE',
-            referenceType: 'clinical_order',
-            referenceId: order.id,
-            reason: `Dispense for ${order.orderNo}`,
-            createdBy: request.user?.sub ?? null,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        ),
-      );
-    }
-
-    await this.clinicalOrderMirror.syncSourceStatus(
-      'pharmacy',
-      order.sourceRecordId,
-      'dispensed',
-      request,
-    );
-
-    return {
-      orderId: order.id,
-      item,
-      allocations: allocations.map(({ batch, quantity }) => ({
-        batchId: batch.id,
-        batchNo: batch.batchNo,
+      const available = batches.reduce((sum, batch) => sum + Number(batch.qtyOnHand), 0);
+      const allocations = this.allocateFromBatches(
+        batches,
         quantity,
-      })),
-      transactions: ledgerRows,
-    };
+        `Insufficient pharmacy stock for ${item.name}. Need ${quantity} ${item.unit}, have ${available}.`,
+      );
+
+      const ledgerRows: InventoryTransaction[] = [];
+      for (const { batch, quantity: take } of allocations) {
+        batch.qtyOnHand = (Number(batch.qtyOnHand) - take).toString();
+        batch.updatedBy = request.user?.sub ?? null;
+        await batchesRepo.save(batch);
+        ledgerRows.push(
+          await ledger.save(
+            ledger.create({
+              item,
+              batch,
+              sourceLocation: pharmacy,
+              destinationLocation: null,
+              quantity: (-take).toString(),
+              unit: item.unit,
+              transactionType: 'DISPENSE',
+              referenceType: 'clinical_order',
+              referenceId: order.id,
+              reason: `Dispense ${order.orderNo} — ${item.name}`,
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          ),
+        );
+      }
+
+      order.status = 'dispensed';
+      order.completedAt = new Date();
+      order.updatedBy = request.user?.sub ?? null;
+      order.metadata = {
+        ...(order.metadata ?? {}),
+        itemId: item.id,
+        dispensedItemId: item.id,
+        dispensedItemName: item.name,
+        dispensedQuantity: quantity,
+        dispensedAt: new Date().toISOString(),
+        allocations: allocations.map(({ batch, quantity: take }) => ({
+          batchId: batch.id,
+          batchNo: batch.batchNo,
+          quantity: take,
+        })),
+      };
+      await orders.save(order);
+
+      return {
+        orderId: order.id,
+        orderNo: order.orderNo,
+        item: { id: item.id, name: item.name, sku: item.sku, unit: item.unit },
+        quantity,
+        allocations: allocations.map(({ batch, quantity: take }) => ({
+          batchId: batch.id,
+          batchNo: batch.batchNo,
+          quantity: take,
+        })),
+        transactions: ledgerRows,
+      };
+    });
   }
 
   async dispenseOtcSale(dto: DispenseOtcDto, request: RequestContext) {
@@ -311,7 +348,11 @@ export class InventoryService {
       order: { expiryDate: 'ASC', createdAt: 'ASC' },
     });
 
-    const allocations = this.allocateFromBatches(batches, dto.quantity);
+    const allocations = this.allocateFromBatches(
+      batches,
+      dto.quantity,
+      `Insufficient pharmacy stock for ${item.name}.`,
+    );
     const ledgerRows: InventoryTransaction[] = [];
 
     for (const { batch, quantity } of allocations) {
@@ -850,9 +891,75 @@ export class InventoryService {
     return { batch: destBatch, transaction };
   }
 
+  private resolveDispenseQuantity(requested: number | undefined, order: ClinicalOrder) {
+    const fromScript = Number(order.metadata?.quantity);
+    const quantity = requested ?? (Number.isFinite(fromScript) && fromScript > 0 ? fromScript : undefined);
+    if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) {
+      throw new BadRequestException('Enter how many units to issue.');
+    }
+    return quantity;
+  }
+
+  private async resolvePharmacyItem(
+    items: Repository<InventoryItem>,
+    order: ClinicalOrder,
+    itemId?: string,
+  ) {
+    if (itemId) {
+      const selected = await items.findOne({ where: { id: itemId, active: true } });
+      if (!selected) {
+        throw new BadRequestException('Selected stock item was not found.');
+      }
+      if (selected.category !== 'pharmaceutical') {
+        throw new BadRequestException('Dispense only pharmaceutical items from pharmacy.');
+      }
+      return selected;
+    }
+
+    const prescribedId = typeof order.metadata?.itemId === 'string' ? order.metadata.itemId : '';
+    if (prescribedId) {
+      const linked = await items.findOne({ where: { id: prescribedId, active: true } });
+      if (linked) return linked;
+    }
+
+    const name = String(order.metadata?.medication ?? '').trim();
+    if (!name) {
+      throw new BadRequestException('This prescription has no medication name. Select the stock item to issue.');
+    }
+
+    const catalog = await items.find({
+      where: { active: true, category: 'pharmaceutical' },
+      order: { name: 'ASC' },
+    });
+    const needle = this.normalizeMedName(name);
+    const exact = catalog.find(
+      (row) => this.normalizeMedName(row.name) === needle || this.normalizeMedName(row.sku) === needle,
+    );
+    if (exact) return exact;
+
+    const partial = catalog.filter((row) => {
+      const hay = this.normalizeMedName(row.name);
+      return hay.includes(needle) || needle.includes(hay);
+    });
+    if (partial.length === 1) return partial[0];
+    if (partial.length > 1) {
+      throw new BadRequestException(
+        `Several stock items match "${name}". Select the exact item on the dispense form.`,
+      );
+    }
+    throw new BadRequestException(
+      `No pharmacy stock item matches "${name}". Select the item to issue.`,
+    );
+  }
+
+  private normalizeMedName(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
   private allocateFromBatches(
     batches: InventoryBatch[],
     quantity: number,
+    insufficientMessage = 'Insufficient stock to fulfill this request.',
   ): Array<{ batch: InventoryBatch; quantity: number }> {
     let remaining = quantity;
     const allocations: Array<{ batch: InventoryBatch; quantity: number }> = [];
@@ -865,9 +972,154 @@ export class InventoryService {
       if (remaining <= 0) break;
     }
     if (remaining > 0) {
-      throw new BadRequestException('Insufficient stock to fulfill requisition');
+      throw new BadRequestException(insufficientMessage);
     }
     return allocations;
+  }
+
+  async updateItemPricing(itemId: string, dto: UpdateItemPricingDto, request: RequestContext) {
+    const item = await this.items.findOne({ where: { id: itemId, active: true } });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found');
+    }
+    const current = (await this.readPricingMap(request))[item.sku] ?? { cost: 0, markup: 0, sell: 0 };
+    const next = resolvePrice({
+      cost: dto.cost ?? current.cost,
+      markup: dto.markup ?? current.markup,
+      sell: dto.sell ?? current.sell,
+      preferSell: dto.sell != null && dto.markup == null,
+    });
+    await this.writePricing(item.sku, next, request);
+    return { ...item, ...next };
+  }
+
+  async importCatalog(dto: ImportInventoryCsvDto, request: RequestContext) {
+    const rows = parseInventoryCsv(dto.csv);
+    if (!rows.length) {
+      throw new BadRequestException('CSV is empty or missing a header row.');
+    }
+    const summary = { created: 0, updated: 0, received: 0, priced: 0, errors: [] as string[] };
+    const defaultLocation = dto.locationId
+      ? await this.locations.findOne({ where: { id: dto.locationId, active: true } })
+      : null;
+    if (dto.locationId && !defaultLocation) {
+      throw new BadRequestException('Receive location was not found.');
+    }
+
+    for (const [index, row] of rows.entries()) {
+      const line = index + 2;
+      const sku = (row.sku ?? '').trim().toUpperCase();
+      const name = (row.name ?? '').trim();
+      if (!sku || !name) {
+        summary.errors.push(`Line ${line}: sku and name are required.`);
+        continue;
+      }
+      const category = normalizeInventoryCategory(row.category);
+      try {
+        let item = await this.items.findOne({ where: { sku } });
+        if (!item) {
+          item = await this.items.save(
+            this.items.create({
+              sku,
+              name,
+              category,
+              unit: (row.unit ?? 'unit').trim() || 'unit',
+              trackBatch: parseBool(row.track_batch) ?? category === 'pharmaceutical',
+              active: true,
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          );
+          summary.created += 1;
+        } else {
+          item.name = name;
+          item.category = category;
+          item.unit = (row.unit ?? item.unit).trim() || item.unit;
+          if (row.track_batch != null && row.track_batch !== '') {
+            item.trackBatch = parseBool(row.track_batch) ?? item.trackBatch;
+          }
+          item.updatedBy = request.user?.sub ?? null;
+          item = await this.items.save(item);
+          summary.updated += 1;
+        }
+
+        const cost = Number(row.cost ?? row.cost_price ?? '');
+        const sell = Number(row.sell ?? row.selling_price ?? '');
+        const markup = Number(row.markup ?? row.markup_percent ?? '');
+        if ([cost, sell, markup].some((value) => Number.isFinite(value) && value !== 0) || row.sell === '0') {
+          const price = resolvePrice({
+            cost: Number.isFinite(cost) ? cost : 0,
+            markup: Number.isFinite(markup) ? markup : 0,
+            sell: Number.isFinite(sell) ? sell : 0,
+            preferSell: Number.isFinite(sell) && sell > 0,
+          });
+          await this.writePricing(sku, price, request);
+          summary.priced += 1;
+        }
+
+        const qty = Number(row.opening_qty ?? row.quantity ?? '');
+        if (Number.isFinite(qty) && qty > 0) {
+          const location =
+            defaultLocation ??
+            (await this.locations.findOne({
+              where: {
+                code: category === 'pharmaceutical' ? 'PHARMACY' : 'MAIN_STORE',
+                active: true,
+              },
+            }));
+          if (!location) {
+            summary.errors.push(`Line ${line}: no location for opening quantity.`);
+            continue;
+          }
+          await this.receiveStock(
+            {
+              itemId: item.id,
+              locationId: location.id,
+              quantity: qty,
+              batchNo: row.batch_no?.trim() || undefined,
+              expiryDate: row.expiry || row.expiry_date || undefined,
+              reason: `CSV import ${sku}`,
+            },
+            request,
+          );
+          summary.received += 1;
+        }
+      } catch (error) {
+        summary.errors.push(`Line ${line}: ${error instanceof Error ? error.message : 'import failed'}`);
+      }
+    }
+
+    return summary;
+  }
+
+  private async readPricingMap(request?: RequestContext): Promise<Record<string, ItemPrice>> {
+    const settings = await this.loadSettings(request);
+    const raw = (settings?.clinicalCatalog as { inventoryPricing?: Record<string, ItemPrice> } | undefined)
+      ?.inventoryPricing;
+    return raw && typeof raw === 'object' ? raw : {};
+  }
+
+  private async writePricing(sku: string, price: ItemPrice, request: RequestContext) {
+    const settings = await this.loadSettings(request);
+    if (!settings) {
+      throw new BadRequestException('Hospital settings are missing — cannot save prices.');
+    }
+    const catalog = { ...(settings.clinicalCatalog ?? {}) } as Record<string, unknown>;
+    const pricing = {
+      ...((catalog.inventoryPricing as Record<string, ItemPrice> | undefined) ?? {}),
+      [sku]: price,
+    };
+    catalog.inventoryPricing = pricing;
+    await this.settings.update(settings.id, {
+      clinicalCatalog: catalog as never,
+      updatedBy: request.user?.sub ?? null,
+    });
+  }
+
+  private async loadSettings(request?: RequestContext) {
+    const tenantId = request?.tenant?.id;
+    if (!tenantId) return null;
+    return this.settings.findOne({ where: { tenant: { id: tenantId } } });
   }
 
   private routeFulfillment(category: InventoryCategory): RequisitionFulfillmentRoute {
@@ -887,4 +1139,81 @@ export class InventoryService {
     const count = await this.requisitions.count();
     return `REQ-${year}-${String(count + 1).padStart(5, '0')}`;
   }
+}
+
+type ItemPrice = { cost: number; markup: number; sell: number };
+
+function resolvePrice(input: ItemPrice & { preferSell?: boolean }): ItemPrice {
+  const cost = Number.isFinite(input.cost) ? Math.max(0, input.cost) : 0;
+  let markup = Number.isFinite(input.markup) ? input.markup : 0;
+  let sell = Number.isFinite(input.sell) ? Math.max(0, input.sell) : 0;
+  if (input.preferSell && sell > 0 && cost > 0) {
+    markup = ((sell - cost) / cost) * 100;
+  } else if (cost > 0 && (sell <= 0 || !input.preferSell)) {
+    sell = Math.round(cost * (1 + markup / 100) * 100) / 100;
+  }
+  return {
+    cost: Math.round(cost * 100) / 100,
+    markup: Math.round(markup * 100) / 100,
+    sell: Math.round(sell * 100) / 100,
+  };
+}
+
+function normalizeInventoryCategory(value?: string): InventoryCategory {
+  const raw = (value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (raw === 'pharmaceutical' || raw === 'pharmacy' || raw === 'medicine' || raw === 'drug') {
+    return 'pharmaceutical';
+  }
+  if (raw === 'medical_consumable' || raw === 'consumable' || raw === 'consumables') {
+    return 'medical_consumable';
+  }
+  return 'non_medical';
+}
+
+function parseBool(value?: string) {
+  const raw = (value ?? '').trim().toLowerCase();
+  if (!raw) return undefined;
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'y';
+}
+
+function parseInventoryCsv(csv: string): Array<Record<string, string>> {
+  const lines = csv
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = splitCsvLine(lines[0]).map((header) => header.trim().toLowerCase().replace(/\s+/g, '_'));
+  return lines.slice(1).map((line) => {
+    const cells = splitCsvLine(line);
+    const row: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      row[header] = (cells[index] ?? '').trim();
+    });
+    return row;
+  });
+}
+
+function splitCsvLine(line: string) {
+  const cells: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === ',' && !quoted) {
+      cells.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current);
+  return cells;
 }

@@ -14,6 +14,7 @@ import {
   Settings,
   Shield,
   Stethoscope,
+  Upload,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -92,6 +93,15 @@ export const controlCenterCards: ControlCenterCard[] = [
     icon: <Heart className="h-6 w-6" />,
     keywords: ['wards', 'beds', 'ipd', 'admission', 'occupancy'],
     help: 'New wards appear in admissions, transfers, and bed reports immediately.',
+  },
+  {
+    id: 'catalogs',
+    title: 'Import service catalogs',
+    description: 'Upload lab, imaging, pharmacy, theatre, and marketing lists so staff pick from dropdowns.',
+    category: 'Service catalogs',
+    icon: <Upload className="h-6 w-6" />,
+    keywords: ['import', 'csv', 'catalog', 'upload', 'services', 'dropdown'],
+    help: 'Use this desk when you have the hospital price and service files. Each upload fills the matching dropdowns.',
   },
   {
     id: 'laboratory',
