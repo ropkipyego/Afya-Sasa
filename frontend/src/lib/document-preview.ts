@@ -6,11 +6,8 @@ export async function previewWordDocument(blob: Blob): Promise<string> {
 }
 
 export async function previewExcelDocument(blob: Blob): Promise<string> {
-  const XLSX = await import('xlsx')
-  const arrayBuffer = await blob.arrayBuffer()
-  const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-  const sheetName = workbook.SheetNames[0]
-  if (!sheetName) return '<p>Empty spreadsheet.</p>'
-  const sheet = workbook.Sheets[sheetName]
-  return XLSX.utils.sheet_to_html(sheet, { id: 'doc-preview-sheet' })
+  return `<div class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+    <p class="font-semibold">Spreadsheet preview disabled</p>
+    <p class="mt-1">This file is ${(blob.size / 1024).toFixed(1)} KB. Download it to inspect the spreadsheet locally.</p>
+  </div>`
 }
