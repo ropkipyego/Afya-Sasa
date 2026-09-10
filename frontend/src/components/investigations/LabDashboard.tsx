@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Clock, FlaskConical, Sparkles, TestTube2, Timer } from 'lucide-react'
+import { AlertTriangle, FlaskConical, Sparkles, TestTube2, Timer } from 'lucide-react'
 import { apiRequest } from '../../lib/api'
-import { LabHero, LabPriorityChip, LabStatCard, LabStatusChip, waitLabel } from './lab-ui'
+import { formatPatientNoShort } from '../../lib/patient-utils'
+import { LabHero, LabQueueItem, LabSection, LabStatCard, LabStatusChip, waitLabel } from './lab-ui'
 
 type LabRequest = {
   id: string
@@ -18,7 +19,13 @@ async function fetchLabRequests(): Promise<LabRequest[]> {
   return Array.isArray(res) ? res : (res.items ?? [])
 }
 
-export function LabDashboard({ embedded = false }: { embedded?: boolean }) {
+export function LabDashboard({
+  embedded = false,
+  onOpenRequest,
+}: {
+  embedded?: boolean
+  onOpenRequest?: (requestId: string) => void
+}) {
   const { data: requests = [], isLoading, isError, error } = useQuery({
     queryKey: ['lab-requests', 'dashboard'],
     queryFn: fetchLabRequests,
@@ -124,39 +131,37 @@ export function LabDashboard({ embedded = false }: { embedded?: boolean }) {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-6 py-4">
-          <h3 className="text-sm font-bold text-slate-900">Priority work queue</h3>
-          <p className="text-xs text-slate-500">Oldest pending requests first</p>
-        </div>
-        <ul className="divide-y divide-slate-100">
-          {pending.slice(0, 10).map((request) => (
-            <li key={request.id} className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-              <div>
-                <p className="font-semibold text-slate-900">
-                  {request.patient
+      <LabSection
+        title="Quick queue"
+        description="Open laboratory work, oldest first. Open a card to collect, attach, or verify."
+      >
+        {pending.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pending.slice(0, 12).map((request) => (
+              <LabQueueItem
+                key={request.id}
+                onClick={() => onOpenRequest?.(request.id)}
+                name={
+                  request.patient
                     ? `${request.patient.firstName} ${request.patient.lastName}`
-                    : 'Unknown patient'}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {request.requestNo} · {request.patient?.patientNo}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <LabStatusChip status={request.status} />
-                <LabPriorityChip priority={request.priority} />
-                <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                  <Clock className="h-3 w-3" />
-                  {waitLabel(request.createdAt)}
-                </span>
-              </div>
-            </li>
-          ))}
-          {!pending.length ? (
-            <li className="px-6 py-12 text-center text-sm text-slate-500">No pending laboratory work — queue is clear.</li>
-          ) : null}
-        </ul>
-      </div>
+                    : 'Unknown patient'
+                }
+                patientNo={
+                  request.patient?.patientNo
+                    ? formatPatientNoShort(request.patient.patientNo)
+                    : request.requestNo
+                }
+                status={request.status}
+                priority={request.priority}
+                wait={waitLabel(request.createdAt)}
+                subtitle={request.requestNo}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="py-10 text-center text-sm text-slate-500">No pending laboratory work — queue is clear.</p>
+        )}
+      </LabSection>
     </div>
   )
 }

@@ -11,6 +11,7 @@ import { uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
 import {
   LabEmptyState,
   LabFlagBadge,
+  LabModal,
   LabPatientStrip,
   LabQueueItem,
   LabSection,
@@ -415,6 +416,7 @@ export function LabResultsEntry() {
     onSuccess: async () => {
       notify('Verified', 'Doctor notified in inbox.', 'success')
       await refresh()
+      setSelectedId(null)
     },
     onError: (e: Error) => notify('Verification failed', e.message, 'critical'),
   })
@@ -470,54 +472,58 @@ export function LabResultsEntry() {
         ) : null}
       </LabSection>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <LabSection title="Open requests" description={`${filteredRequests.length} awaiting results`}>
-          <label className="relative mb-4 block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              className="input w-full pl-10"
-              placeholder="Search queue…"
-              value={queueSearch}
-              onChange={(e) => setQueueSearch(e.target.value)}
-            />
-          </label>
-          {listLoading ? (
-            <div className="h-64 animate-skeleton rounded-2xl" />
-          ) : (
-            <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1">
-              {filteredRequests.map((req) => (
-                <LabQueueItem
-                  key={req.id}
-                  active={selectedId === req.id}
-                  onClick={() => {
-                    setSelectedId(req.id)
-                    setActiveItemId('')
-                    setParameterValues({})
-                  }}
-                  name={
-                    req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown patient'
-                  }
-                  patientNo={req.patient?.patientNo}
-                  status={req.status}
-                  priority={req.priority}
-                  wait={waitLabel(req.createdAt)}
-                  subtitle={requestTestSummary(req.items)}
-                />
-              ))}
-              {!filteredRequests.length ? (
-                <LabEmptyState title="No open requests" description="The result entry queue is empty." />
-              ) : null}
-            </div>
-          )}
-        </LabSection>
+      <LabSection title="Open requests" description={`${filteredRequests.length} awaiting results — click a card to enter values`}>
+        <label className="relative mb-4 block max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            className="input w-full pl-10"
+            placeholder="Search queue…"
+            value={queueSearch}
+            onChange={(e) => setQueueSearch(e.target.value)}
+          />
+        </label>
+        {listLoading ? (
+          <div className="h-48 animate-skeleton rounded-2xl" />
+        ) : filteredRequests.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredRequests.map((req) => (
+              <LabQueueItem
+                key={req.id}
+                active={selectedId === req.id}
+                onClick={() => {
+                  setSelectedId(req.id)
+                  setActiveItemId('')
+                  setParameterValues({})
+                }}
+                name={
+                  req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown patient'
+                }
+                patientNo={req.patient?.patientNo}
+                status={req.status}
+                priority={req.priority}
+                wait={waitLabel(req.createdAt)}
+                subtitle={requestTestSummary(req.items)}
+              />
+            ))}
+          </div>
+        ) : (
+          <LabEmptyState title="No open requests" description="The result entry queue is empty." />
+        )}
+      </LabSection>
 
-        <div className="space-y-6">
-          {!selectedId ? (
-            <LabEmptyState
-              title="Result entry workspace"
-              description="Select a request from the queue to enter structured panel results or attach a PDF report."
-            />
-          ) : detailLoading ? (
+      {selectedId ? (
+        <LabModal
+          wide
+          title="Result entry"
+          description="Enter structured panel results or attach a PDF report."
+          onClose={() => {
+            setSelectedId(null)
+            setActiveItemId('')
+            setParameterValues({})
+          }}
+        >
+          <div className="space-y-6">
+          {detailLoading ? (
             <div className="space-y-4">
               <div className="h-20 animate-skeleton rounded-2xl" />
               <div className="h-72 animate-skeleton rounded-2xl" />
@@ -737,8 +743,9 @@ export function LabResultsEntry() {
           ) : (
             <LabEmptyState title="Could not load request" description="Try selecting the request again." />
           )}
-        </div>
-      </div>
+          </div>
+        </LabModal>
+      ) : null}
     </div>
   )
 }

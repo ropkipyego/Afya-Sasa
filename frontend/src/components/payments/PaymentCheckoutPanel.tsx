@@ -4,8 +4,10 @@ import { Smartphone, Wallet } from 'lucide-react'
 import { Alert, Button, Field, SelectField } from '../ui'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { normalizeClinicalCatalog } from '../../lib/clinical-catalog'
-import { collectPayment, type PaymentServiceLine } from '../../lib/payments'
+import { collectPayment, type PaymentServiceLine, type PaymentTransactionRow } from '../../lib/payments'
 import { notify } from '../../lib/notify'
+import { resolveHospitalBranding } from '../../lib/hospital-configuration'
+import { printPaymentReceipt } from '../../lib/print-payment-receipt'
 
 export type PaymentCheckoutPanelProps = {
   patientId: string
@@ -16,6 +18,7 @@ export type PaymentCheckoutPanelProps = {
   serviceDescription: string
   defaultAmount?: string
   submitLabel?: string
+  receiptPatient?: { name: string; patientNo: string }
   onSuccess?: (result: { method: string; message?: string }) => void
 }
 
@@ -28,10 +31,12 @@ export function PaymentCheckoutPanel({
   serviceDescription,
   defaultAmount = '',
   submitLabel,
+  receiptPatient,
   onSuccess,
 }: PaymentCheckoutPanelProps) {
   const { data: rawCatalog } = useClinicalCatalog()
   const catalog = normalizeClinicalCatalog(rawCatalog)
+  const brand = resolveHospitalBranding(catalog)
 
   const [amount, setAmount] = useState(defaultAmount)
   const [paymentMethod, setPaymentMethod] = useState('cash')
@@ -70,6 +75,10 @@ export function PaymentCheckoutPanel({
       })
     },
     onSuccess: (response) => {
+      const txn: PaymentTransactionRow | undefined =
+        response && typeof response === 'object' && 'transaction' in response
+          ? response.transaction
+          : (response as PaymentTransactionRow)
       const stkMessage =
         'stk' in response && response.stk?.message ? response.stk.message : undefined
       const message =
@@ -79,6 +88,21 @@ export function PaymentCheckoutPanel({
           : 'Payment recorded successfully.')
       setResultMessage(message)
       notify('Payment recorded', message, 'success')
+      if (receiptPatient && txn) {
+        printPaymentReceipt({
+          facilityName: brand.facilityName,
+          address: brand.physicalAddress ?? brand.address,
+          phone: brand.contactPhone,
+          patientName: receiptPatient.name,
+          patientNo: receiptPatient.patientNo,
+          service: serviceDescription,
+          amount: txn.amount ?? amount,
+          method: paymentMethod,
+          status: txn.status,
+          reference: txn.externalReference ?? paymentReference,
+          paidAt: txn.createdAt ?? new Date().toISOString(),
+        })
+      }
       onSuccess?.({ method: paymentMethod, message })
     },
     onError: (error: Error) => notify('Payment failed', error.message, 'critical'),

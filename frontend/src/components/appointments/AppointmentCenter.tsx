@@ -15,7 +15,7 @@ import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSea
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
-import { doctorSelectOptions } from '../../lib/clinical-catalog'
+import { doctorSelectOptionsForClinicId } from '../../lib/clinical-catalog'
 
 type AppointmentRow = {
   id: string
@@ -78,7 +78,10 @@ export function AppointmentCenter() {
   })
 
   const { data: catalog } = useClinicalCatalog()
-  const doctors = doctorSelectOptions(catalog)
+  const clinics = (catalog?.structuredClinics ?? []).filter((clinic) => clinic.active !== false)
+  const [clinicId, setClinicId] = useState('')
+  const doctors = doctorSelectOptionsForClinicId(catalog, clinicId)
+  const selectedClinic = clinics.find((clinic) => clinic.id === clinicId)
 
   const createAppointment = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
@@ -87,6 +90,7 @@ export function AppointmentCenter() {
         method: 'POST',
         body: JSON.stringify({
           patientId: selectedPatient?.id,
+          clinicId: form.get('clinicId') || undefined,
           doctorId: form.get('doctorId'),
           appointmentDate: form.get('appointmentDate'),
           appointmentTime: form.get('appointmentTime'),
@@ -183,27 +187,64 @@ export function AppointmentCenter() {
 
       <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
         <Card className="p-5 md:p-8">
-          <PageHeader title="Book appointment" description="Search patient, select doctor and slot." />
+          <PageHeader
+            title="Book appointment"
+            description="Patient → specialty/clinic → assigned doctor → date and time."
+          />
           <form
             className="mt-8 space-y-5"
             onSubmit={(event) => {
               event.preventDefault()
               createAppointment.mutate(event.currentTarget)
               event.currentTarget.reset()
+              setClinicId('')
             }}
           >
             <PatientSearchAutocomplete
               selected={selectedPatient}
               onSelect={setSelectedPatient}
             />
-            <SelectField name="doctorId" label="Doctor" required>
-              <option value="">Select doctor</option>
+            <SelectField
+              name="clinicId"
+              label="Specialty / clinic"
+              required
+              value={clinicId}
+              onChange={(event) => setClinicId(event.target.value)}
+            >
+              <option value="">Select clinic</option>
+              {clinics.map((clinic) => (
+                <option key={clinic.id} value={clinic.id}>
+                  {clinic.name}
+                  {clinic.departmentName ? ` · ${clinic.departmentName}` : ''}
+                </option>
+              ))}
+            </SelectField>
+            {selectedClinic ? (
+              <p className="text-xs text-slate-500">
+                Doctors listed below are assigned to {selectedClinic.name}
+                {selectedClinic.departmentName ? ` (${selectedClinic.departmentName})` : ''}.
+              </p>
+            ) : null}
+            <SelectField name="doctorId" label="Doctor" required disabled={!clinicId || !doctors.length}>
+              <option value="">
+                {!clinicId
+                  ? 'Select a clinic first'
+                  : doctors.length
+                    ? 'Select doctor'
+                    : 'No doctors assigned to this clinic'}
+              </option>
               {doctors.map((doc) => (
                 <option key={doc.value} value={doc.value}>
                   {doc.label}
                 </option>
               ))}
             </SelectField>
+            {!clinicId ? null : !doctors.length ? (
+              <Alert tone="warning">
+                No clinical staff are assigned to this clinic. Assign doctors in Hospital Control Center →
+                Departments & clinics.
+              </Alert>
+            ) : null}
             <Field name="appointmentDate" label="Date" type="date" required defaultValue={today} />
             <Field name="appointmentTime" label="Time" type="time" required />
             <SelectField name="type" label="Appointment type" required>
@@ -217,7 +258,11 @@ export function AppointmentCenter() {
             {createAppointment.isError ? (
               <Alert tone="error">{createAppointment.error.message}</Alert>
             ) : null}
-            <Button type="submit" loading={createAppointment.isPending} disabled={!selectedPatient}>
+            <Button
+              type="submit"
+              loading={createAppointment.isPending}
+              disabled={!selectedPatient || !clinicId || !doctors.length}
+            >
               Book appointment
             </Button>
           </form>

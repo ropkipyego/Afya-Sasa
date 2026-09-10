@@ -15,6 +15,7 @@ import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSea
 import { apiRequest } from '../../lib/api'
 import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
 import { notify } from '../../lib/notify'
+import { openPatientFile } from '../../lib/patient-file'
 
 type AvailableBed = {
   id: string
@@ -142,6 +143,13 @@ export function IpdAdmitPanel({
           <div>
             <dt className="text-xs font-bold uppercase tracking-wide text-slate-500">MRN</dt>
             <dd className="mt-1 font-semibold text-slate-900">{selectedPatient.patientNo}</dd>
+            <button
+              type="button"
+              className="mt-2 text-xs font-semibold text-teal-700 hover:underline"
+              onClick={() => openPatientFile(selectedPatient.id)}
+            >
+              Open patient file
+            </button>
           </div>
           <div>
             <dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Current encounter</dt>

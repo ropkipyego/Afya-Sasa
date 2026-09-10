@@ -203,9 +203,6 @@ export class Clinic extends AuditableEntity {
   @Column({ type: 'varchar' })
   code!: string;
 
-  @Column({ name: 'department_id', type: 'uuid', nullable: true })
-  departmentId!: string | null;
-
   @ManyToOne(() => Department, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'department_id' })
   department!: Department | null;

@@ -137,14 +137,14 @@ export class LaboratoryController {
 
   @Get('results/inbox')
   @RequirePermissions('lab_results:read')
-  resultsInbox() {
-    return this.laboratoryService.resultsInbox();
+  resultsInbox(@Query('patientId') patientId?: string) {
+    return this.laboratoryService.resultsInbox(patientId);
   }
 
   @Get('results/critical')
   @RequirePermissions('lab_results:read')
-  criticalResults() {
-    return this.laboratoryService.criticalResults();
+  criticalResults(@Query('patientId') patientId?: string) {
+    return this.laboratoryService.criticalResults(patientId);
   }
 
   @Post('results/:id/review')

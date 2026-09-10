@@ -379,6 +379,10 @@ export function RadiologyRequestTemplateForm({
           encounterId={context.encounterId ?? undefined}
           serviceDescription={createdSummary ?? 'Radiology imaging study'}
           submitLabel="Send M-Pesa STK / record payment"
+          receiptPatient={{
+            name: context.patientName,
+            patientNo: context.patientNo ?? '—',
+          }}
           onSuccess={() => onSuccess?.()}
         />
         <div className="rounded-2xl border border-dashed border-sky-300 bg-sky-50/50 p-5">

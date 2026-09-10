@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BedDouble, ClipboardList, FileText, FlaskConical, Paperclip, Pill, Printer, Stethoscope } from 'lucide-react'
+import { BedDouble, ClipboardList, FileText, FlaskConical, Inbox, Paperclip, Pill, Printer, Stethoscope } from 'lucide-react'
 import {
   Alert,
   Button,
@@ -18,6 +18,10 @@ import { PatientContextHeader } from './PatientContextHeader'
 import { PatientTimeline, type TimelineEvent } from './PatientTimeline'
 import { TriageSummaryPanel } from './VitalsFields'
 import { ClinicalInvestigationOrders } from './investigations/ClinicalInvestigationOrders'
+import {
+  ConsultationResultsPanel,
+  useConsultationInvestigations,
+} from './investigations/ConsultationResultsPanel'
 import { EncounterAttachmentsPanel } from './documents/EncounterAttachmentsPanel'
 import { WorkspaceTabs } from './ui/WorkspaceTabs'
 import { apiRequest } from '../lib/api'
@@ -59,7 +63,7 @@ export type ConsultationEncounter = {
   } | null
 }
 
-type DoctorTab = 'context' | 'soap' | 'orders' | 'meds' | 'referrals' | 'files' | 'disposition'
+type DoctorTab = 'context' | 'soap' | 'orders' | 'results' | 'meds' | 'referrals' | 'files' | 'disposition'
 
 type PharmacyOrder = {
   id: string
@@ -98,9 +102,10 @@ export function DoctorConsultationWorkspace({
   const [route, setRoute] = useState('oral')
   const [frequency, setFrequency] = useState('')
   const [priority, setPriority] = useState('routine')
+  const investigations = useConsultationInvestigations(selected.patient.id, selected.id)
 
   useEffect(() => {
-    setTab('context')
+    setTab(selected.status === 'awaiting_results' ? 'results' : 'context')
   }, [selected.id])
 
   const { data: timeline } = useQuery({
@@ -177,6 +182,21 @@ export function DoctorConsultationWorkspace({
     setTab(next)
   }
 
+  function tryCompleteVisit() {
+    if (investigations.unreviewedCount > 0) {
+      notify(
+        'Review results first',
+        investigations.unreviewedCritical
+          ? `${investigations.unreviewedCritical} critical result(s) still need review.`
+          : `${investigations.unreviewedCount} verified result(s) still need review.`,
+        'critical',
+      )
+      setTab('results')
+      return
+    }
+    completeEncounter.mutate()
+  }
+
   return (
     <div className="workspace-shell">
       <PatientContextHeader
@@ -193,6 +213,13 @@ export function DoctorConsultationWorkspace({
           { id: 'context', label: 'Context', icon: <ClipboardList className="h-4 w-4" /> },
           { id: 'soap', label: 'Consultation', icon: <Stethoscope className="h-4 w-4" /> },
           { id: 'orders', label: 'Lab & imaging', icon: <FlaskConical className="h-4 w-4" /> },
+          {
+            id: 'results',
+            label: investigations.unreviewedCount
+              ? `Results (${investigations.unreviewedCount})`
+              : 'Results',
+            icon: <Inbox className="h-4 w-4" />,
+          },
           { id: 'meds', label: 'Medications', icon: <Pill className="h-4 w-4" /> },
           { id: 'referrals', label: 'Referrals', icon: <FileText className="h-4 w-4" /> },
           { id: 'disposition', label: 'Disposition', icon: <BedDouble className="h-4 w-4" /> },
@@ -277,7 +304,7 @@ export function DoctorConsultationWorkspace({
                 variant="secondary"
                 loading={completeEncounter.isPending}
                 className="min-h-12"
-                onClick={() => completeEncounter.mutate()}
+                onClick={tryCompleteVisit}
               >
                 Complete visit
               </Button>
@@ -327,7 +354,16 @@ export function DoctorConsultationWorkspace({
             defaultClinicalIndication:
               selected.triage?.chiefComplaint ?? selected.presentingComplaint ?? undefined,
           }}
+          onSuccess={() => {
+            void queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
+            void queryClient.invalidateQueries({ queryKey: ['consultation-lab-requests'] })
+            void queryClient.invalidateQueries({ queryKey: ['consultation-rad-requests'] })
+          }}
         />
+      ) : null}
+
+      {tab === 'results' ? (
+        <ConsultationResultsPanel patientId={selected.patient.id} encounterId={selected.id} />
       ) : null}
 
       {tab === 'meds' ? (
@@ -473,7 +509,7 @@ export function DoctorConsultationWorkspace({
                 type="button"
                 loading={completeEncounter.isPending}
                 className="min-h-12"
-                onClick={() => completeEncounter.mutate()}
+                onClick={tryCompleteVisit}
               >
                 Complete visit
               </Button>
@@ -508,6 +544,11 @@ export function DoctorConsultationWorkspace({
             <p className="mt-4 text-xs text-slate-500">
               Follow-up uses the SOAP follow-up fields. Sick sheet opens the existing document workspace.
               Encounter status: {selected.status ?? 'unknown'}.
+              {investigations.unreviewedCount
+                ? ' Verified results on this visit must be marked reviewed before Complete visit.'
+                : investigations.openOrders
+                  ? ' Investigations are still in progress — use Awaiting results if you are waiting on lab or imaging.'
+                  : ''}
             </p>
           </Card>
           <IpdAdmitPanel

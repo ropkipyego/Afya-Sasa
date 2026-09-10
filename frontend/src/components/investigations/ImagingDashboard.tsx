@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Clock, ScanLine, Users } from 'lucide-react'
 import { Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { formatPatientNoShort } from '../../lib/patient-utils'
+import { LabQueueItem, LabSection, waitLabel } from './lab-ui'
 
 type RadRequest = {
   id: string
@@ -41,7 +43,13 @@ async function fetchRadRequests(): Promise<RadRequest[]> {
   return Array.isArray(res) ? res : (res.items ?? [])
 }
 
-export function ImagingDashboard({ embedded = false }: { embedded?: boolean }) {
+export function ImagingDashboard({
+  embedded = false,
+  onOpenRequest,
+}: {
+  embedded?: boolean
+  onOpenRequest?: (requestId: string) => void
+}) {
   const { data: requests = [], isLoading, isError, error } = useQuery({
     queryKey: ['radiology-requests', 'dashboard'],
     queryFn: fetchRadRequests,
@@ -116,46 +124,39 @@ export function ImagingDashboard({ embedded = false }: { embedded?: boolean }) {
         />
       </div>
 
-      <Card className="p-6">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-          Imaging worklist snapshot
-        </h3>
-        <ul className="mt-4 space-y-2">
-          {pending.slice(0, 12).map((request) => (
-            <li
-              key={request.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm"
-            >
-              <div>
-                <p className="font-semibold">
-                  {request.patient
+      <LabSection
+        title="Quick queue"
+        description="Open imaging studies, oldest first. Open a card to report or attach a PDF."
+      >
+        {pending.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pending.slice(0, 12).map((request) => (
+              <LabQueueItem
+                key={request.id}
+                onClick={() => onOpenRequest?.(request.id)}
+                name={
+                  request.patient
                     ? `${request.patient.firstName} ${request.patient.lastName}`
-                    : 'Patient'}{' '}
-                  · {request.requestNo}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {request.modality?.name ?? 'Modality'} · {request.bodyPart ?? '—'} ·{' '}
-                  {request.status.replace(/_/g, ' ')}
-                </p>
-              </div>
-              <span
-                className={`rounded-full px-2 py-1 text-xs font-bold ${
-                  request.priority === 'stat'
-                    ? 'bg-rose-100 text-rose-800'
-                    : request.priority === 'urgent'
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                {request.priority}
-              </span>
-            </li>
-          ))}
-          {!pending.length ? (
-            <p className="py-8 text-center text-sm text-slate-500">No pending imaging work.</p>
-          ) : null}
-        </ul>
-      </Card>
+                    : 'Unknown patient'
+                }
+                patientNo={
+                  request.patient?.patientNo
+                    ? formatPatientNoShort(request.patient.patientNo)
+                    : request.requestNo
+                }
+                status={request.status}
+                priority={request.priority}
+                wait={waitLabel(request.createdAt)}
+                subtitle={[request.modality?.name, request.bodyPart, request.requestNo]
+                  .filter(Boolean)
+                  .join(' · ')}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="py-10 text-center text-sm text-slate-500">No pending imaging work.</p>
+        )}
+      </LabSection>
     </div>
   )
 }

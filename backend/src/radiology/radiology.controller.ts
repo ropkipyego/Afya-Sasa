@@ -106,8 +106,8 @@ export class RadiologyController {
 
   @Get('reports/inbox')
   @RequirePermissions('radiology_reports:read')
-  reportsInbox() {
-    return this.radiologyService.reportsInbox();
+  reportsInbox(@Query('patientId') patientId?: string) {
+    return this.radiologyService.reportsInbox(patientId);
   }
 
   @Post('reports/:id/review')

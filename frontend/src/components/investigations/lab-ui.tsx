@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { FlaskConical, type LucideIcon } from 'lucide-react'
 
@@ -10,6 +10,9 @@ export const LAB_STATUS: Record<
   sample_collected: { label: 'Collected', tone: 'bg-amber-50 text-amber-900 ring-amber-200', dot: 'bg-amber-500' },
   processing: { label: 'Processing', tone: 'bg-violet-50 text-violet-900 ring-violet-200', dot: 'bg-violet-500' },
   resulted: { label: 'Resulted', tone: 'bg-teal-50 text-teal-900 ring-teal-200', dot: 'bg-teal-500' },
+  scheduled: { label: 'Scheduled', tone: 'bg-indigo-50 text-indigo-900 ring-indigo-200', dot: 'bg-indigo-500' },
+  in_progress: { label: 'In progress', tone: 'bg-violet-50 text-violet-900 ring-violet-200', dot: 'bg-violet-500' },
+  reported: { label: 'Reported', tone: 'bg-teal-50 text-teal-900 ring-teal-200', dot: 'bg-teal-500' },
   verified: { label: 'Verified', tone: 'bg-emerald-50 text-emerald-900 ring-emerald-200', dot: 'bg-emerald-500' },
   cancelled: { label: 'Cancelled', tone: 'bg-slate-100 text-slate-600 ring-slate-200', dot: 'bg-slate-400' },
 }
@@ -275,6 +278,60 @@ export function LabQueueItem({
   )
 }
 
+export function LabModal({
+  title,
+  description,
+  onClose,
+  children,
+  wide = false,
+}: {
+  title: string
+  description?: string
+  onClose: () => void
+  children: ReactNode
+  wide?: boolean
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className={clsx(
+          'flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl',
+          wide ? 'max-w-4xl' : 'max-w-2xl',
+        )}
+        role="dialog"
+        aria-modal="true"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+            {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+          >
+            Close
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
+      </div>
+    </div>
+  )
+}
+
 export function LabKanbanColumn({
   label,
   count,
@@ -287,7 +344,7 @@ export function LabKanbanColumn({
   children: ReactNode
 }) {
   return (
-    <div className={clsx('lab-kanban-column flex min-h-[20rem] flex-col rounded-2xl border p-3', tone)}>
+    <div className={clsx('lab-kanban-column flex min-h-[28rem] flex-col rounded-2xl border p-3', tone)}>
       <div className="mb-3 flex items-center justify-between px-1">
         <p className="text-[11px] font-bold uppercase tracking-wider text-slate-700">{label}</p>
         <span className="rounded-full bg-white/90 px-2 py-0.5 text-xs font-bold tabular-nums text-slate-700 shadow-sm">

@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CheckCircle2, Inbox, ScanLine } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Inbox } from 'lucide-react'
 import clsx from 'clsx'
 import { Button } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { formatPatientNoShort } from '../../lib/patient-utils'
 import { LabEmptyState, LabFlagBadge, LabSection } from './lab-ui'
 
 type LabInboxItem = {
@@ -20,17 +21,6 @@ type LabInboxItem = {
       requestNo?: string
       patient?: { firstName: string; lastName: string; patientNo: string }
     }
-  }
-}
-
-type RadiologyInboxItem = {
-  id: string
-  impression?: string
-  reviewedAt?: string | null
-  request?: {
-    requestNo?: string
-    patient?: { firstName: string; lastName: string; patientNo: string }
-    modality?: { name: string }
   }
 }
 
@@ -63,7 +53,7 @@ function InboxCard({
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0">
           {patientName ? (
             <p className="font-semibold text-slate-900">
               {patientName}
@@ -96,6 +86,14 @@ function InboxCard({
   )
 }
 
+function testName(item: LabInboxItem) {
+  return (
+    item.requestItem?.orderableTest?.name ??
+    item.requestItem?.test?.name ??
+    item.requestItem?.panel?.name
+  )
+}
+
 export function ResultsInbox() {
   const queryClient = useQueryClient()
   const { data: labResults = [] } = useQuery({
@@ -108,11 +106,6 @@ export function ResultsInbox() {
     queryFn: () => apiRequest<LabInboxItem[]>('/laboratory/results/critical'),
     refetchInterval: 20_000,
   })
-  const { data: radiologyReports = [] } = useQuery({
-    queryKey: ['radiology-reports-inbox'],
-    queryFn: () => apiRequest<RadiologyInboxItem[]>('/radiology/reports/inbox'),
-    refetchInterval: 20_000,
-  })
 
   const reviewLab = useMutation({
     mutationFn: (id: string) => apiRequest(`/laboratory/results/${id}/review`, { method: 'POST' }),
@@ -121,109 +114,87 @@ export function ResultsInbox() {
         queryClient.invalidateQueries({ queryKey: ['lab-results-inbox'] }),
         queryClient.invalidateQueries({ queryKey: ['critical-results'] }),
         queryClient.invalidateQueries({ queryKey: ['lab-module-summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['doctor-queue'] }),
+        queryClient.invalidateQueries({ queryKey: ['consultation-lab-inbox'] }),
       ])
     },
   })
 
-  const reviewRadiology = useMutation({
-    mutationFn: (id: string) => apiRequest(`/radiology/reports/${id}/review`, { method: 'POST' }),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['radiology-reports-inbox'] }),
-  })
-
   const pendingLab = labResults.filter((i) => !i.reviewedAt)
   const pendingCritical = criticalResults.filter((i) => !i.reviewedAt)
-  const pendingRad = radiologyReports.filter((i) => !i.reviewedAt)
 
   return (
-    <div className="grid gap-6 xl:grid-cols-3">
-      <LabSection
-        title="Verified lab results"
-        description={`${pendingLab.length} awaiting clinician review`}
-        icon={Inbox}
-      >
-        <div className="space-y-3">
-          {pendingLab.map((item) => {
-            const patient = item.requestItem?.request?.patient
-            const testName =
-              item.requestItem?.orderableTest?.name ??
-              item.requestItem?.test?.name ??
-              item.requestItem?.panel?.name
-            return (
-              <InboxCard
-                key={item.id}
-                patientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
-                patientNo={patient?.patientNo}
-                subtitle={[item.requestItem?.request?.requestNo, testName].filter(Boolean).join(' · ')}
-                resultLine={[item.value, item.unit].filter(Boolean).join(' ')}
-                flag={item.flag}
-                reviewed={Boolean(item.reviewedAt)}
-                reviewing={reviewLab.isPending}
-                onReview={() => reviewLab.mutate(item.id)}
-              />
-            )
-          })}
-          {!pendingLab.length ? (
-            <LabEmptyState title="Inbox clear" description="No verified lab results pending review." icon={Inbox} />
-          ) : null}
-        </div>
-      </LabSection>
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4">
+        <p className="text-sm font-semibold text-slate-900">Laboratory results only</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Verified and critical lab values. Imaging reports stay in Radiology.
+        </p>
+      </div>
 
-      <LabSection
-        title="Critical values"
-        description={`${pendingCritical.length} require immediate attention`}
-        icon={AlertTriangle}
-        className={pendingCritical.length ? 'ring-2 ring-rose-200' : undefined}
-      >
-        <div className="space-y-3">
-          {pendingCritical.map((item) => {
-            const patient = item.requestItem?.request?.patient
-            const testName =
-              item.requestItem?.orderableTest?.name ??
-              item.requestItem?.test?.name ??
-              item.requestItem?.panel?.name
-            return (
-              <InboxCard
-                key={item.id}
-                critical
-                patientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
-                patientNo={patient?.patientNo}
-                subtitle={[item.requestItem?.request?.requestNo, testName].filter(Boolean).join(' · ')}
-                resultLine={[item.value, item.unit].filter(Boolean).join(' ')}
-                flag={item.flag ?? 'CRITICAL'}
-                reviewed={Boolean(item.reviewedAt)}
-                reviewing={reviewLab.isPending}
-                onReview={() => reviewLab.mutate(item.id)}
-              />
-            )
-          })}
-          {!pendingCritical.length ? (
-            <LabEmptyState title="No critical flags" description="All critical results have been addressed." icon={AlertTriangle} />
-          ) : null}
-        </div>
-      </LabSection>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <LabSection
+          title="Verified lab results"
+          description={`${pendingLab.length} awaiting clinician review`}
+          icon={Inbox}
+        >
+          <div className="space-y-3">
+            {pendingLab.map((item) => {
+              const patient = item.requestItem?.request?.patient
+              return (
+                <InboxCard
+                  key={item.id}
+                  patientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
+                  patientNo={patient?.patientNo ? formatPatientNoShort(patient.patientNo) : undefined}
+                  subtitle={[item.requestItem?.request?.requestNo, testName(item)].filter(Boolean).join(' · ')}
+                  resultLine={[item.value, item.unit].filter(Boolean).join(' ')}
+                  flag={item.flag}
+                  reviewed={Boolean(item.reviewedAt)}
+                  reviewing={reviewLab.isPending}
+                  onReview={() => reviewLab.mutate(item.id)}
+                />
+              )
+            })}
+            {!pendingLab.length ? (
+              <LabEmptyState title="Inbox clear" description="No verified lab results pending review." icon={Inbox} />
+            ) : null}
+          </div>
+        </LabSection>
 
-      <LabSection title="Radiology reports" description={`${pendingRad.length} imaging reports`} icon={ScanLine}>
-        <div className="space-y-3">
-          {pendingRad.map((item) => {
-            const patient = item.request?.patient
-            return (
-              <InboxCard
-                key={item.id}
-                patientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
-                patientNo={patient?.patientNo}
-                subtitle={[item.request?.requestNo, item.request?.modality?.name].filter(Boolean).join(' · ')}
-                resultLine={item.impression ?? 'Report ready'}
-                reviewed={Boolean(item.reviewedAt)}
-                reviewing={reviewRadiology.isPending}
-                onReview={() => reviewRadiology.mutate(item.id)}
+        <LabSection
+          title="Critical values"
+          description={`${pendingCritical.length} require immediate attention`}
+          icon={AlertTriangle}
+          className={pendingCritical.length ? 'ring-2 ring-rose-200' : undefined}
+        >
+          <div className="space-y-3">
+            {pendingCritical.map((item) => {
+              const patient = item.requestItem?.request?.patient
+              return (
+                <InboxCard
+                  key={item.id}
+                  critical
+                  patientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
+                  patientNo={patient?.patientNo ? formatPatientNoShort(patient.patientNo) : undefined}
+                  subtitle={[item.requestItem?.request?.requestNo, testName(item)].filter(Boolean).join(' · ')}
+                  resultLine={[item.value, item.unit].filter(Boolean).join(' ')}
+                  flag={item.flag ?? 'CRITICAL'}
+                  reviewed={Boolean(item.reviewedAt)}
+                  reviewing={reviewLab.isPending}
+                  onReview={() => reviewLab.mutate(item.id)}
+                />
+              )
+            })}
+            {!pendingCritical.length ? (
+              <LabEmptyState
+                title="No critical flags"
+                description="All critical results have been addressed."
+                icon={AlertTriangle}
               />
-            )
-          })}
-          {!pendingRad.length ? (
-            <LabEmptyState title="No imaging reports" description="Radiology inbox is empty." icon={ScanLine} />
-          ) : null}
-        </div>
-      </LabSection>
+            ) : null}
+          </div>
+        </LabSection>
+      </div>
     </div>
   )
 }

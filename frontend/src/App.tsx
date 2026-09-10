@@ -156,6 +156,15 @@ function App() {
     localStorage.setItem('afyasasa.sidebarOpen', String(sidebarOpen))
   }, [sidebarOpen])
 
+  useEffect(() => {
+    const onOpenFile = (event: Event) => {
+      const patientId = (event as CustomEvent<{ patientId?: string }>).detail?.patientId
+      if (patientId) setSelectedPatientId(patientId)
+    }
+    window.addEventListener('afyasasa-open-patient-file', onOpenFile)
+    return () => window.removeEventListener('afyasasa-open-patient-file', onOpenFile)
+  }, [])
+
   const { data: notificationSummary } = useQuery({
     queryKey: ['notification-summary'],
     queryFn: () => apiRequest<{ unread: number }>('/notifications/inbox/summary'),
@@ -711,6 +720,13 @@ function DoctorQueue({
     onSuccess: async () => {
       setSelected(null)
       await queryClient.invalidateQueries({ queryKey: ['doctor-queue'] })
+    },
+    onError: (error: Error) => {
+      emitAppNotification({
+        title: 'Cannot complete visit',
+        body: error.message,
+        severity: 'critical',
+      })
     },
   })
   const createReferral = useMutation({

@@ -26,6 +26,7 @@ async function fetchLabSummary() {
 
 export function LabModule({ initialTab = 'worklist' }: { initialTab?: LabTab }) {
   const [tab, setTab] = useState<LabTab>(initialTab)
+  const [worklistRequestId, setWorklistRequestId] = useState<string | null>(null)
   const { data: summary } = useQuery({
     queryKey: ['lab-module-summary'],
     queryFn: fetchLabSummary,
@@ -66,9 +67,17 @@ export function LabModule({ initialTab = 'worklist' }: { initialTab?: LabTab }) 
       />
 
       <div className="lab-tab-panel">
-        {tab === 'overview' ? <LabDashboard embedded /> : null}
+        {tab === 'overview' ? (
+          <LabDashboard
+            embedded
+            onOpenRequest={(id) => {
+              setWorklistRequestId(id)
+              setTab('worklist')
+            }}
+          />
+        ) : null}
         {tab === 'walkin' ? <LabWalkInDesk /> : null}
-        {tab === 'worklist' ? <LabWorklist /> : null}
+        {tab === 'worklist' ? <LabWorklist initialRequestId={worklistRequestId} /> : null}
         {tab === 'upload' ? <LabResultsEntry /> : null}
         {tab === 'results' ? <ResultsInbox /> : null}
       </div>

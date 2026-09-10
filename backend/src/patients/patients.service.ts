@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -365,13 +366,28 @@ export class PatientsService {
     return [...candidates].filter(Boolean);
   }
 
-  private patientScanUrl(patientNo: string) {
-    const base = (
-      this.config.get<string>('PUBLIC_APP_URL') ||
-      this.config.get<string>('FRONTEND_ORIGIN') ||
-      'http://localhost:8080'
-    ).replace(/\/$/, '');
-    return `${base}/p/${encodeURIComponent(patientNo)}`;
+  private publicOrigin(originHint?: string) {
+    const candidates = [originHint, this.config.get<string>('PUBLIC_APP_URL'), this.config.get<string>('FRONTEND_ORIGIN')];
+    const usable = candidates
+      .map((value) => {
+        if (!value) return null;
+        try {
+          const url = new URL(value);
+          if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+          return url.origin;
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is string => Boolean(value));
+    const remote = usable.find((origin) => !/localhost|127\.0\.0\.1/i.test(origin));
+    return remote ?? usable[0] ?? null;
+  }
+
+  private patientScanUrl(patientNo: string, originHint?: string) {
+    const base = this.publicOrigin(originHint);
+    const path = `/p/${encodeURIComponent(patientNo)}`;
+    return base ? `${base}${path}` : path;
   }
 
   async history(id: string) {
@@ -688,9 +704,12 @@ export class PatientsService {
     };
   }
 
-  async qrCard(id: string) {
+  async qrCard(id: string, originHint?: string) {
     const patient = await this.findOne(id);
-    const scanUrl = this.patientScanUrl(patient.patientNo);
+    if (!patient.patientNo) {
+      throw new BadRequestException('Patient number is missing — reprint after registration completes.');
+    }
+    const scanUrl = this.patientScanUrl(patient.patientNo, originHint);
     return {
       patientNo: patient.patientNo,
       qrCode: scanUrl,

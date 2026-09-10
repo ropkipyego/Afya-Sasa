@@ -66,6 +66,11 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   sourceEncounterId?: string;
+
+  @ApiPropertyOptional({ description: 'Clinic the appointment is booked against' })
+  @IsOptional()
+  @IsString()
+  clinicId?: string;
 }
 
 export class UpdateAppointmentStatusDto {

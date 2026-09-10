@@ -238,21 +238,40 @@ export function doctorSelectOptions(catalog?: ClinicalCatalog | null): CatalogOp
   return (catalog?.assignableDoctors ?? []).map((name) => ({ value: name, label: name }))
 }
 
-/** Doctors scoped to a clinic when clinic mapping exists; falls back to all clinicians. */
+/** Doctors scoped to an assigned clinic. Never falls back to every doctor. */
 export function doctorSelectOptionsForClinic(
   catalog?: ClinicalCatalog | null,
   clinicName?: string | null,
 ): CatalogOption[] {
-  const all = doctorSelectOptions(catalog)
-  if (!clinicName?.trim()) return all
+  if (!clinicName?.trim()) return []
   const clinic = (catalog?.structuredClinics ?? []).find(
-    (row) => row.active && row.name.toLowerCase() === clinicName.trim().toLowerCase(),
+    (row) => row.active !== false && row.name.toLowerCase() === clinicName.trim().toLowerCase(),
   )
-  const doctorIds = clinic?.doctorIds ?? []
-  if (!doctorIds.length) return all
-  const allowed = new Set(doctorIds)
-  const scoped = all.filter((option) => allowed.has(option.value))
-  return scoped.length ? scoped : all
+  return doctorsAssignedToClinic(catalog, clinic)
+}
+
+export function doctorSelectOptionsForClinicId(
+  catalog?: ClinicalCatalog | null,
+  clinicId?: string | null,
+): CatalogOption[] {
+  if (!clinicId) return []
+  const clinic = (catalog?.structuredClinics ?? []).find((row) => row.id === clinicId && row.active !== false)
+  return doctorsAssignedToClinic(catalog, clinic)
+}
+
+function doctorsAssignedToClinic(
+  catalog: ClinicalCatalog | null | undefined,
+  clinic?: { doctorIds?: string[] } | null,
+): CatalogOption[] {
+  const assigned = clinic?.doctorIds ?? []
+  if (!assigned.length) return []
+  const allowed = new Set(assigned)
+  return (catalog?.staffClinicians ?? [])
+    .filter((doctor) => allowed.has(doctor.id))
+    .map((doctor) => ({
+      value: doctor.id,
+      label: doctor.label || `Dr. ${doctor.firstName} ${doctor.lastName}`,
+    }))
 }
 
 export function clinicIdForName(catalog: ClinicalCatalog | null | undefined, clinicName: string) {

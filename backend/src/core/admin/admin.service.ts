@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { In, IsNull, MoreThanOrEqual, Repository } from 'typeorm';
+import { In, IsNull, MoreThanOrEqual, QueryFailedError, Repository } from 'typeorm';
 import type { RequestContext } from '../../common/request-context';
 import { defaultTenantCode, tenantChannel } from '../../common/tenant-defaults';
 import {
@@ -654,51 +655,63 @@ export class AdminService {
     return saved;
   }
 
-  listClinics() {
-    return this.clinics.find({
+  async listClinics() {
+    const rows = await this.clinics.find({
       relations: { department: true },
       order: { name: 'ASC' },
     });
+    return rows.map((row) => ({
+      ...row,
+      departmentId: row.department?.id ?? null,
+    }));
   }
 
   async createClinic(dto: CreateClinicDto, request: RequestContext) {
     const name = dto.name.trim();
     if (!name) {
-      throw new ConflictException('Clinic name is required');
+      throw new BadRequestException('Clinic name is required');
     }
-    if (dto.departmentId) {
-      const department = await this.departments.findOne({
-        where: { id: dto.departmentId },
-      });
-      if (!department) {
-        throw new NotFoundException('Department not found');
-      }
+    if (!dto.departmentId?.trim()) {
+      throw new BadRequestException('Parent department is required');
+    }
+    const department = await this.departments.findOne({
+      where: { id: dto.departmentId },
+    });
+    if (!department) {
+      throw new NotFoundException('Department not found');
     }
     const code = await this.uniqueOrgCode(
       this.clinics,
       this.normalizeOrgCode(dto.code || name),
     );
-    const clinic = await this.clinics.save(
-      this.clinics.create({
-        name,
-        code,
-        departmentId: dto.departmentId || null,
-        doctorIds: dto.doctorIds ?? [],
-        consultationFee: String(dto.consultationFee ?? 0),
-        active: true,
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
-    await this.syncOrgCatalog(request);
-    return this.clinics.findOneOrFail({
-      where: { id: clinic.id },
-      relations: { department: true },
-    });
+    try {
+      const clinic = await this.clinics.save(
+        this.clinics.create({
+          name,
+          code,
+          department,
+          doctorIds: dto.doctorIds ?? [],
+          consultationFee: Number(dto.consultationFee ?? 0).toFixed(2),
+          active: true,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+      await this.syncOrgCatalog(request);
+      return this.clinics.findOneOrFail({
+        where: { id: clinic.id },
+        relations: { department: true },
+      });
+    } catch (error) {
+      throw this.clinicWriteError(error);
+    }
   }
 
   async updateClinic(id: string, dto: UpdateClinicDto, request: RequestContext) {
-    const clinic = await this.clinics.findOne({ where: { id } });
+    const clinic = await this.clinics.findOne({
+      where: { id },
+      relations: { department: true },
+    });
     if (!clinic) {
       throw new NotFoundException('Clinic not found');
     }
@@ -711,21 +724,42 @@ export class AdminService {
         if (!department) {
           throw new NotFoundException('Department not found');
         }
-        clinic.departmentId = dto.departmentId;
+        clinic.department = department;
       } else {
-        clinic.departmentId = null;
+        clinic.department = null;
       }
     }
     if (dto.active !== undefined) clinic.active = dto.active;
     if (dto.doctorIds !== undefined) clinic.doctorIds = dto.doctorIds;
-    if (dto.consultationFee !== undefined) clinic.consultationFee = String(dto.consultationFee);
+    if (dto.consultationFee !== undefined) {
+      clinic.consultationFee = Number(dto.consultationFee).toFixed(2);
+    }
     clinic.updatedBy = request.user?.sub ?? null;
-    await this.clinics.save(clinic);
-    await this.syncOrgCatalog(request);
-    return this.clinics.findOneOrFail({
-      where: { id },
-      relations: { department: true },
-    });
+    try {
+      await this.clinics.save(clinic);
+      await this.syncOrgCatalog(request);
+      return this.clinics.findOneOrFail({
+        where: { id },
+        relations: { department: true },
+      });
+    } catch (error) {
+      throw this.clinicWriteError(error);
+    }
+  }
+
+  private clinicWriteError(error: unknown): Error {
+    if (error instanceof QueryFailedError) {
+      const code = (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code;
+      if (code === '23505') {
+        return new ConflictException('A clinic with this name or code already exists');
+      }
+      if (code === '23503') {
+        return new BadRequestException('Parent department was not found');
+      }
+      return new BadRequestException('Could not save clinic. Check the name, department, and fee.');
+    }
+    return error instanceof Error ? error : new BadRequestException('Could not save clinic');
   }
 
   private normalizeOrgCode(value: string) {
@@ -753,7 +787,7 @@ export class AdminService {
   private async orgCatalogOverlay() {
     const [departments, clinics] = await Promise.all([
       this.departments.find({ order: { name: 'ASC' } }),
-      this.clinics.find({ order: { name: 'ASC' } }),
+      this.clinics.find({ relations: { department: true }, order: { name: 'ASC' } }),
     ]);
     return {
       departments: departments.filter((row) => row.active).map((row) => row.name),
@@ -764,13 +798,14 @@ export class AdminService {
         code: row.code,
         active: row.active,
         clinicIds: clinics
-          .filter((clinic) => clinic.departmentId === row.id && clinic.active)
+          .filter((clinic) => clinic.department?.id === row.id && clinic.active)
           .map((clinic) => clinic.id),
       })),
       structuredClinics: clinics.map((row) => ({
         id: row.id,
         name: row.name,
-        departmentId: row.departmentId,
+        departmentId: row.department?.id ?? null,
+        departmentName: row.department?.name ?? null,
         active: row.active,
         doctorIds: row.doctorIds ?? [],
         consultationFee: Number(row.consultationFee ?? 0),

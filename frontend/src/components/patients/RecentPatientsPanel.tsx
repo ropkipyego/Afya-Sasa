@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card } from '../ui'
 import { apiRequest } from '../../lib/api'
-import { calcAge } from '../../lib/patient-utils'
+import { calcAge, formatPatientNoShort } from '../../lib/patient-utils'
 import { mapEncounterStatusToWorkflow, workflowStepLabels } from '../../lib/workflow-status'
 
 export type RecentPatient = {
@@ -20,7 +20,7 @@ type EncounterRow = {
   id: string
   status: string
   startedAt: string
-  patient?: { id: string }
+  patient?: RecentPatient
 }
 
 function nairobiDayKey(value: string | Date) {
@@ -32,18 +32,33 @@ function nairobiDayKey(value: string | Date) {
   }).format(new Date(value))
 }
 
+function toRecentPatient(patient: RecentPatient): RecentPatient {
+  return {
+    id: patient.id,
+    patientNo: patient.patientNo,
+    firstName: patient.firstName,
+    lastName: patient.lastName,
+    dateOfBirth: patient.dateOfBirth,
+    gender: patient.gender,
+    primaryPhone: patient.primaryPhone,
+    createdAt: patient.createdAt,
+  }
+}
+
 export function RecentPatientsPanel({
   onView,
   onQuickCheckIn,
+  limit = 20,
 }: {
   onView: (patient: RecentPatient) => void
   onQuickCheckIn: (patient: RecentPatient) => void
+  limit?: number
 }) {
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['recent-patients'],
+    queryKey: ['recent-patients', limit],
     queryFn: () =>
       apiRequest<{ items: RecentPatient[]; meta: { pageSize: number; total: number } }>(
-        '/patients?pageSize=20',
+        `/patients?pageSize=${Math.max(limit, 40)}`,
       ),
   })
 
@@ -67,28 +82,57 @@ export function RecentPatientsPanel({
     return map
   }, [encounters, todayKey])
 
-  const patients = data?.items ?? []
+  const patients = useMemo(() => {
+    const byId = new Map<string, RecentPatient>()
+    for (const encounter of checkInByPatient.values()) {
+      if (encounter.patient?.id) {
+        byId.set(encounter.patient.id, {
+          ...toRecentPatient(encounter.patient),
+          createdAt: encounter.patient.createdAt || encounter.startedAt,
+        })
+      }
+    }
+    for (const patient of data?.items ?? []) {
+      if (!byId.has(patient.id)) byId.set(patient.id, patient)
+    }
+    return [...byId.values()]
+      .sort((a, b) => {
+        const aToday = checkInByPatient.has(a.id) || nairobiDayKey(a.createdAt) === todayKey ? 1 : 0
+        const bToday = checkInByPatient.has(b.id) || nairobiDayKey(b.createdAt) === todayKey ? 1 : 0
+        if (aToday !== bToday) return bToday - aToday
+        const aVisit = checkInByPatient.get(a.id)?.startedAt ?? a.createdAt
+        const bVisit = checkInByPatient.get(b.id)?.startedAt ?? b.createdAt
+        return new Date(bVisit).getTime() - new Date(aVisit).getTime()
+      })
+      .slice(0, limit)
+  }, [checkInByPatient, data?.items, limit, todayKey])
+
+  const todayCount = patients.filter(
+    (patient) => checkInByPatient.has(patient.id) || nairobiDayKey(patient.createdAt) === todayKey,
+  ).length
 
   return (
     <Card className="p-4 md:p-5">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-teal-700">Reception</p>
-          <h3 className="text-base font-bold text-slate-900">Recent patients</h3>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-700">OPD Check-In</p>
+          <h3 className="text-base font-bold text-slate-900">Today&apos;s patients</h3>
         </div>
-        <p className="text-xs text-slate-500">{patients.length} newest</p>
+        <p className="text-xs text-slate-500">
+          Up to {limit} · {todayCount} from today
+        </p>
       </div>
-      {isLoading ? <p className="py-6 text-sm text-slate-500">Loading recent patients…</p> : null}
+      {isLoading ? <p className="py-6 text-sm text-slate-500">Loading today&apos;s patients…</p> : null}
       {isError ? (
         <Alert tone="error">{error instanceof Error ? error.message : 'Could not load recent patients.'}</Alert>
       ) : null}
       {!isLoading && !isError && !patients.length ? (
-        <p className="py-6 text-sm text-slate-500">No patients registered yet.</p>
+        <p className="py-6 text-sm text-slate-500">No patients for today yet.</p>
       ) : null}
       {patients.length ? (
-        <div className="overflow-x-auto">
+        <div className="max-h-[28rem] overflow-auto">
           <table className="min-w-full text-left text-sm">
-            <thead className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 bg-white text-[11px] font-bold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="py-2 pr-3">Patient</th>
                 <th className="py-2 pr-3">Age/sex</th>
@@ -102,14 +146,18 @@ export function RecentPatientsPanel({
                 const visit = checkInByPatient.get(patient.id)
                 const todayLabel = visit
                   ? workflowStepLabels[mapEncounterStatusToWorkflow(visit.status)]
-                  : 'Not checked in'
+                  : nairobiDayKey(patient.createdAt) === todayKey
+                    ? 'Registered today'
+                    : 'Not checked in'
                 return (
                   <tr key={patient.id} className="align-middle">
                     <td className="py-2.5 pr-3">
                       <p className="font-semibold text-slate-900">
                         {patient.firstName} {patient.lastName}
                       </p>
-                      <p className="text-xs text-slate-500">{patient.patientNo}</p>
+                      <p className="text-xs text-slate-500" title={patient.patientNo}>
+                        {formatPatientNoShort(patient.patientNo)}
+                      </p>
                     </td>
                     <td className="py-2.5 pr-3 text-slate-700">
                       {calcAge(patient.dateOfBirth)} / {patient.gender}

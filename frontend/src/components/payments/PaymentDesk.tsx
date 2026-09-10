@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { CreditCard, History } from 'lucide-react'
+import { CreditCard, History, Printer } from 'lucide-react'
 import {
+  Button,
   Card,
   Field,
   PageHeader,
@@ -16,11 +17,15 @@ import {
   listPatientPayments,
   PAYMENT_SERVICE_LINES,
   type PaymentServiceLine,
+  type PaymentTransactionRow,
 } from '../../lib/payments'
 import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
+import { resolveHospitalBranding } from '../../lib/hospital-configuration'
+import { printPaymentReceipt } from '../../lib/print-payment-receipt'
 
 export function PaymentDesk() {
   const { data: catalog } = useClinicalCatalog()
+  const brand = resolveHospitalBranding(catalog)
   const [patient, setPatient] = useState<PatientSearchItem | null>(null)
   const [serviceLine, setServiceLine] = useState<PaymentServiceLine>('consultation')
   const [clinicName, setClinicName] = useState('')
@@ -40,6 +45,23 @@ export function PaymentDesk() {
     if (mappedFee > 0) setAmount(String(mappedFee))
     setServiceDescription(`${clinicName} consultation`)
   }, [clinicName, mappedFee, serviceLine])
+
+  const printReceipt = (txn: PaymentTransactionRow) => {
+    if (!patient) return
+    printPaymentReceipt({
+      facilityName: brand.facilityName,
+      address: brand.physicalAddress ?? brand.address,
+      phone: brand.contactPhone,
+      patientName: `${patient.firstName} ${patient.lastName}`,
+      patientNo: patient.patientNo,
+      service: txn.serviceDescription ?? txn.serviceLine ?? 'Hospital service',
+      amount: txn.amount ?? 0,
+      method: txn.method,
+      status: txn.status,
+      reference: txn.externalReference,
+      paidAt: txn.createdAt,
+    })
+  }
 
   const descriptionPlaceholder =
     serviceLine === 'consultation'
@@ -154,6 +176,10 @@ export function PaymentDesk() {
                 }
                 defaultAmount={amount}
                 submitLabel="Collect payment"
+                receiptPatient={{
+                  name: `${patient.firstName} ${patient.lastName}`,
+                  patientNo: patient.patientNo,
+                }}
                 onSuccess={async () => {
                   await refetch()
                   setAmount('')
@@ -192,9 +218,15 @@ export function PaymentDesk() {
                     {new Date(txn.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <span className="font-bold text-teal-800">
-                  {txn.amount ? `KES ${Number(txn.amount).toLocaleString()}` : '—'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-teal-800">
+                    {txn.amount ? `KES ${Number(txn.amount).toLocaleString()}` : '—'}
+                  </span>
+                  <Button type="button" variant="secondary" className="px-3 py-2 text-xs" onClick={() => printReceipt(txn)}>
+                    <Printer className="h-3.5 w-3.5" />
+                    Receipt
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

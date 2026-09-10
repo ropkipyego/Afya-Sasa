@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Building2, ChevronDown, Hospital, ShieldCheck } from 'lucide-react'
+import { Activity, Building2, ChevronDown, Hospital } from 'lucide-react'
 import { PasswordInput } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { fetchPublicHospitals, type PublicHospital } from '../../lib/public-api'
@@ -131,17 +131,18 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
   const error =
     mutation.error?.message ?? forgotMutation.error?.message ?? resetMutation.error?.message ?? null
 
-  const pageTitle = selectedHospital?.name ?? 'AfyaSasa'
-
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10 sm:max-w-lg sm:px-6">
-        <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-md">
-            <ShieldCheck className="h-6 w-6" />
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-600 to-teal-900 text-white shadow-lg shadow-teal-900/20">
+            <Activity className="h-6 w-6" strokeWidth={2.25} />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">{pageTitle}</h1>
-          <p className="mt-1 text-sm text-slate-500">Staff sign-in</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-teal-700">AfyaSasa</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">Clinical EMR</h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500">
+            One patient. One chart. From the front desk to the ward — the visit never loses the person.
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">

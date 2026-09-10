@@ -41,7 +41,11 @@ type WorkspaceTab =
   | 'nursing'
   | 'vitals'
   | 'medication'
-  | 'investigations'
+  | 'laboratory'
+  | 'radiology'
+  | 'pharmacy'
+  | 'theatre'
+  | 'physio'
   | 'documents'
   | 'transfers'
   | 'discharge'
@@ -63,7 +67,11 @@ const tabs: { id: WorkspaceTab; label: string }[] = [
   { id: 'nursing', label: 'Nursing Notes' },
   { id: 'vitals', label: 'Vitals' },
   { id: 'medication', label: 'Medication Chart' },
-  { id: 'investigations', label: 'Lab & Imaging' },
+  { id: 'laboratory', label: 'Laboratory' },
+  { id: 'radiology', label: 'Radiology' },
+  { id: 'pharmacy', label: 'Pharmacy' },
+  { id: 'theatre', label: 'Theatre' },
+  { id: 'physio', label: 'Physiotherapy' },
   { id: 'documents', label: 'Documents' },
   { id: 'transfers', label: 'Transfers' },
   { id: 'discharge', label: 'Discharge' },
@@ -73,8 +81,8 @@ const actions: { id: ActionKey; label: string; icon: ReactNode; tab?: WorkspaceT
   { id: 'doctor-review', label: 'Doctor Review', icon: <Stethoscope className="h-4 w-4" />, tab: 'reviews' },
   { id: 'nursing-note', label: 'Nursing Note', icon: <ClipboardList className="h-4 w-4" />, tab: 'nursing' },
   { id: 'vitals', label: 'Vitals', icon: <Activity className="h-4 w-4" />, tab: 'vitals' },
-  { id: 'lab', label: 'Lab Request', icon: <FlaskConical className="h-4 w-4" />, tab: 'investigations' },
-  { id: 'radiology', label: 'Radiology Request', icon: <Scan className="h-4 w-4" />, tab: 'investigations' },
+  { id: 'lab', label: 'Lab Request', icon: <FlaskConical className="h-4 w-4" />, tab: 'laboratory' },
+  { id: 'radiology', label: 'Radiology Request', icon: <Scan className="h-4 w-4" />, tab: 'radiology' },
   { id: 'medication', label: 'Medication Order', icon: <Pill className="h-4 w-4" />, tab: 'medication' },
   { id: 'transfer', label: 'Transfer', icon: <ArrowLeft className="h-4 w-4 rotate-180" />, tab: 'transfers' },
   { id: 'discharge', label: 'Discharge', icon: <FileText className="h-4 w-4" />, tab: 'discharge' },
@@ -194,6 +202,37 @@ export function PatientWorkspace({
       apiRequest<{ id: string; requestNo: string; status: string; patient: { id: string }; createdAt: string }[]>(
         '/radiology/requests',
       ),
+  })
+
+  const { data: pharmacyOrders = [] } = useQuery({
+    queryKey: ['ipd-pharmacy', patientId],
+    queryFn: () =>
+      apiRequest<{ id: string; orderNo: string; status: string; orderedAt: string; metadata?: Record<string, unknown> }[]>(
+        `/clinical-orders?module=pharmacy&patientId=${patientId}&limit=50`,
+      ),
+    enabled: Boolean(patientId),
+  })
+
+  const { data: theatreBookings = [] } = useQuery({
+    queryKey: ['ipd-theatre', patientId],
+    queryFn: async () => {
+      const rows = await apiRequest<
+        { id: string; status: string; scheduledStartAt?: string; procedure?: { name: string }; theatre?: { name: string }; patient?: { id: string } }[]
+      >('/theatre/bookings')
+      return rows.filter((row) => row.patient?.id === patientId)
+    },
+    enabled: Boolean(patientId),
+    retry: false,
+  })
+
+  const { data: physioOrders = [] } = useQuery({
+    queryKey: ['ipd-physio', patientId],
+    queryFn: () =>
+      apiRequest<{ id: string; orderNo: string; status: string; orderedAt: string; metadata?: Record<string, unknown> }[]>(
+        `/clinical-orders?patientId=${patientId}&limit=50`,
+      ),
+    enabled: Boolean(patientId),
+    retry: false,
   })
 
   const { data: observations = [] } = useQuery({
@@ -431,7 +470,7 @@ export function PatientWorkspace({
   }
 
   return (
-    <div className="animate-fade-in space-y-10 pb-12">
+    <div className="-mx-3 min-h-[calc(100dvh-6.5rem)] animate-fade-in space-y-6 pb-10 sm:-mx-4 md:-mx-6 md:space-y-8">
       <Button variant="ghost" onClick={onBack}>
         <ArrowLeft className="h-4 w-4" /> Back to ward
       </Button>
@@ -494,7 +533,7 @@ export function PatientWorkspace({
           ))}
         </div>
 
-        <Card className="min-h-[28rem] p-8">
+        <Card className="min-h-[36rem] p-6 md:p-10">
           {activeAction ? (
             <div className="mb-8 rounded-2xl border border-teal-200 bg-teal-50/30 p-6">
               <div className="mb-4 flex items-center justify-between gap-4">
@@ -602,7 +641,7 @@ export function PatientWorkspace({
                   }}
                   onSuccess={() => {
                     setActiveAction(null)
-                    setActiveTab('investigations')
+                    setActiveTab(activeAction === 'radiology' ? 'radiology' : 'laboratory')
                   }}
                 />
               ) : null}
@@ -639,18 +678,68 @@ export function PatientWorkspace({
               onUpdateStatus={(id, status) => updateMarStatus.mutate({ id, status })}
             />
           )}
-          {activeTab === 'investigations' && (
+          {activeTab === 'laboratory' && (
             <InvestigationsTab
+              mode="lab"
               patientLabs={patientLabs}
-              patientRadiology={patientRadiology}
+              patientRadiology={[]}
               labAttachments={labAttachments}
               onOrderLab={() => handleAction('lab')}
               onOrderRadiology={() => handleAction('radiology')}
               onOrdersPlaced={async () => {
                 await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
-                await queryClient.invalidateQueries({ queryKey: ['radiology-requests'] })
                 await queryClient.invalidateQueries({ queryKey: ['lab-patient-attachments', patientId] })
               }}
+            />
+          )}
+          {activeTab === 'radiology' && (
+            <InvestigationsTab
+              mode="radiology"
+              patientLabs={[]}
+              patientRadiology={patientRadiology}
+              labAttachments={[]}
+              onOrderLab={() => handleAction('lab')}
+              onOrderRadiology={() => handleAction('radiology')}
+              onOrdersPlaced={async () => {
+                await queryClient.invalidateQueries({ queryKey: ['radiology-requests'] })
+              }}
+            />
+          )}
+          {activeTab === 'pharmacy' && (
+            <DepartmentList
+              title="Pharmacy"
+              empty="No pharmacy orders on this admission yet."
+              items={pharmacyOrders.map((order) => ({
+                id: order.id,
+                title: String(order.metadata?.medication ?? order.orderNo),
+                meta: `${order.status} · ${new Date(order.orderedAt).toLocaleString()}`,
+              }))}
+            />
+          )}
+          {activeTab === 'theatre' && (
+            <DepartmentList
+              title="Theatre"
+              empty="No theatre bookings for this patient."
+              items={theatreBookings.map((row) => ({
+                id: row.id,
+                title: row.procedure?.name ?? 'Surgery',
+                meta: `${row.status}${row.theatre?.name ? ` · ${row.theatre.name}` : ''}${
+                  row.scheduledStartAt ? ` · ${new Date(row.scheduledStartAt).toLocaleString()}` : ''
+                }`,
+              }))}
+            />
+          )}
+          {activeTab === 'physio' && (
+            <DepartmentList
+              title="Physiotherapy"
+              empty="No physiotherapy orders recorded for this patient."
+              items={physioOrders
+                .filter((order) => String(order.metadata?.module ?? order.orderNo).toLowerCase().includes('physio'))
+                .map((order) => ({
+                  id: order.id,
+                  title: String(order.metadata?.service ?? order.orderNo),
+                  meta: `${order.status} · ${new Date(order.orderedAt).toLocaleString()}`,
+                }))}
             />
           )}
           {activeTab === 'documents' && (
@@ -920,13 +1009,43 @@ function NursingNotesTab({
   )
 }
 
+function DepartmentList({
+  title,
+  empty,
+  items,
+}: {
+  title: string
+  empty: string
+  items: { id: string; title: string; meta: string }[]
+}) {
+  return (
+    <div className="space-y-6">
+      <h3 className="text-xl font-bold text-slate-900">{title}</h3>
+      {items.length ? (
+        <ul className="space-y-3">
+          {items.map((item) => (
+            <li key={item.id} className="rounded-xl border border-slate-200 px-4 py-3">
+              <p className="font-semibold text-slate-900">{item.title}</p>
+              <p className="mt-1 text-xs text-slate-500">{item.meta}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="py-10 text-center text-sm text-slate-500">{empty}</p>
+      )}
+    </div>
+  )
+}
+
 function InvestigationsTab({
+  mode = 'both',
   patientLabs,
   patientRadiology,
   labAttachments,
   onOrderLab,
   onOrderRadiology,
 }: {
+  mode?: 'lab' | 'radiology' | 'both'
   patientLabs: { id: string; requestNo: string; status: string; createdAt: string }[]
   patientRadiology: { id: string; requestNo: string; status: string; createdAt: string }[]
   labAttachments: {
@@ -944,16 +1063,20 @@ function InvestigationsTab({
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap gap-3">
-        <Button type="button" variant="secondary" onClick={onOrderLab}>
-          Order lab
-        </Button>
-        <Button type="button" variant="secondary" onClick={onOrderRadiology}>
-          Order imaging
-        </Button>
+        {mode !== 'radiology' ? (
+          <Button type="button" variant="secondary" onClick={onOrderLab}>
+            Order lab
+          </Button>
+        ) : null}
+        {mode !== 'lab' ? (
+          <Button type="button" variant="secondary" onClick={onOrderRadiology}>
+            Order imaging
+          </Button>
+        ) : null}
       </div>
 
-      <InvestigationList items={patientLabs} type="lab" />
-      <InvestigationList items={patientRadiology} type="radiology" />
+      {mode !== 'radiology' ? <InvestigationList items={patientLabs} type="lab" /> : null}
+      {mode !== 'lab' ? <InvestigationList items={patientRadiology} type="radiology" /> : null}
 
       {labAttachments.length ? (
         <div className="space-y-3">

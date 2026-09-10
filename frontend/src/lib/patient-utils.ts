@@ -22,6 +22,14 @@ export function calcAge(dateOfBirth: string): number {
   return Math.max(age, 0)
 }
 
+/** Last segment of JH-2026-00021 → 00021. Full MRN stays on the patient card. */
+export function formatPatientNoShort(patientNo?: string | null): string {
+  const value = patientNo?.trim() ?? ''
+  if (!value) return '—'
+  const parts = value.split('-').filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : value
+}
+
 export function formatPatientName(patient: PatientLike): string {
   const middle = patient.middleName ? ` ${patient.middleName}` : ''
   return `${patient.firstName}${middle} ${patient.lastName}`.trim()

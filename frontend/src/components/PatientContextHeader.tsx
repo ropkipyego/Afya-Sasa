@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
-import { AlertTriangle, Baby, FlaskConical } from 'lucide-react'
+import { AlertTriangle, Baby, FlaskConical, FolderOpen } from 'lucide-react'
 import {
   calcAge,
   formatPatientName,
+  formatPatientNoShort,
   primaryIdentifier,
   type PatientLike,
 } from '../lib/patient-utils'
+import { openPatientFile } from '../lib/patient-file'
 import { WorkflowBadge, WorkflowProgress } from './WorkflowBadge'
 import type { WorkflowStep } from '../lib/workflow-status'
 
@@ -19,7 +21,7 @@ export function PatientContextHeader({
   criticalLabAlert = false,
   className,
 }: {
-  patient: PatientLike
+  patient: PatientLike & { id?: string }
   workflowStep?: WorkflowStep
   sticky?: boolean
   showWorkflow?: boolean
@@ -41,8 +43,11 @@ export function PatientContextHeader({
     >
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-4 py-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-teal-600">
-            {patient.patientNo}
+          <p
+            className="text-xs font-bold uppercase tracking-wide text-teal-600"
+            title={patient.patientNo}
+          >
+            {formatPatientNoShort(patient.patientNo)}
           </p>
           <h2 className="text-lg font-bold text-slate-900">{formatPatientName(patient)}</h2>
           <p className="mt-0.5 text-sm text-slate-500">
@@ -51,14 +56,26 @@ export function PatientContextHeader({
             {idLine ? ` · ${idLine}` : ''}
           </p>
         </div>
-        {workflowStep && showWorkflow ? (
-          <div className="text-right">
-            <WorkflowBadge step={workflowStep} />
-            <div className="mt-2 hidden lg:block">
-              <WorkflowProgress current={workflowStep} />
+        <div className="flex flex-wrap items-start gap-3">
+          {patient.id ? (
+            <button
+              type="button"
+              onClick={() => openPatientFile(patient.id!)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              Patient file
+            </button>
+          ) : null}
+          {workflowStep && showWorkflow ? (
+            <div className="text-right">
+              <WorkflowBadge step={workflowStep} />
+              <div className="mt-2 hidden lg:block">
+                <WorkflowProgress current={workflowStep} />
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2 px-4 py-3">

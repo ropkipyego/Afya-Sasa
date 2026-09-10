@@ -332,6 +332,7 @@ nav::-webkit-scrollbar-thumb {
 .lab-kanban-scroll {
   display: grid;
   gap: 0.75rem;
+  min-height: 28rem;
   overflow-x: auto;
   padding-bottom: 0.5rem;
   grid-template-columns: repeat(5, minmax(220px, 1fr));

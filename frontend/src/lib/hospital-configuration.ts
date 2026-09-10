@@ -39,7 +39,8 @@ export type StructuredDepartment = {
 export type StructuredClinic = {
   id: string
   name: string
-  departmentId?: string
+  departmentId?: string | null
+  departmentName?: string | null
   facilityId?: string
   active: boolean
   /** User IDs of clinicians assigned to this clinic */

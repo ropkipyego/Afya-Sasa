@@ -108,7 +108,7 @@ export function IpdModule({
 
   if (view.screen === 'admit') {
     return (
-      <div className="workspace-shell animate-fade-in">
+      <div className="workspace-shell -mx-3 min-h-[calc(100dvh-6.5rem)] animate-fade-in sm:-mx-4 md:-mx-6">
         <IpdAdmitPanel
           initialBedId={view.bedId}
           onAdmitted={(admissionId) => setView({ screen: 'workspace', admissionId })}
@@ -125,6 +125,7 @@ export function IpdModule({
   }
 
   return (
+    <div className="-mx-3 min-h-[calc(100dvh-6.5rem)] sm:-mx-4 md:-mx-6">
     <IpdDashboard
       wardTypeFilter={initialWardType}
       onSelectWard={(wardId) => setView({ screen: 'ward', wardId })}
@@ -133,5 +134,6 @@ export function IpdModule({
       onSetup={() => setView({ screen: 'setup' })}
       onAdmit={() => setView({ screen: 'admit' })}
     />
+    </div>
   )
 }

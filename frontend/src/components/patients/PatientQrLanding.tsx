@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Droplets, Phone, ShieldAlert, User } from 'lucide-react'
 import { Alert, Button } from '../ui'
 import { PatientFileModal } from './PatientFileModal'
-import { apiRequest } from '../../lib/api'
+import { fetchPublicPatientScan } from '../../lib/public-api'
 import { useAuthStore } from '../../lib/auth-store'
 
 type ScanCard = {
@@ -30,15 +30,24 @@ type ScanCard = {
 export function PatientQrLanding({ code }: { code: string }) {
   const accessToken = useAuthStore((state) => state.accessToken)
   const [openFile, setOpenFile] = useState(false)
+  const safeCode = decodeURIComponent(code ?? '').trim()
+  const invalidCode = !safeCode || ['null', 'undefined', 'nan'].includes(safeCode.toLowerCase())
   const { data: card, isLoading, error } = useQuery({
-    queryKey: ['patient-scan-card', code],
-    queryFn: () => apiRequest<ScanCard>(`/patients/scan/${encodeURIComponent(code)}`),
+    queryKey: ['patient-scan-card', safeCode],
+    queryFn: () => fetchPublicPatientScan<ScanCard>(safeCode),
+    enabled: !invalidCode,
   })
   const color = card?.hospital.primaryColor || '#0d9488'
 
   return (
     <div className="min-h-dvh bg-slate-100 px-4 py-8">
       <div className="mx-auto w-full max-w-md space-y-4">
+        {invalidCode ? (
+          <Alert tone="error">
+            This QR code is incomplete. Ask reception to reprint the patient card — do not scan a
+            localhost or empty code.
+          </Alert>
+        ) : null}
         {isLoading ? <p className="text-center text-sm text-slate-500">Looking up patient card…</p> : null}
         {error ? (
           <Alert tone="error">

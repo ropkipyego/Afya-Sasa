@@ -1,8 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileUp, ScanLine, Download, Printer } from 'lucide-react'
-import clsx from 'clsx'
+import { FileUp, Download, Printer } from 'lucide-react'
 import { Button, Card, PageHeader, TextareaField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { RadiologyRequestTemplateForm } from './RadiologyRequestTemplateForm'
@@ -14,6 +13,8 @@ import { normalizeClinicalCatalog } from '../../lib/clinical-catalog'
 import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { parseStoredRequestFormData } from '../../lib/jalaram-imaging-request'
 import { printJalaramImagingRequest } from '../../lib/print-radiology-request'
+import { formatPatientNoShort } from '../../lib/patient-utils'
+import { LabKanbanColumn, LabModal, LabQueueItem } from './lab-ui'
 
 type RadiologyRequestRow = {
   id: string
@@ -45,7 +46,7 @@ function waitLabel(createdAt: string) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
-export function RadiologyWorklist() {
+export function RadiologyWorklist({ initialRequestId }: { initialRequestId?: string | null }) {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
   const { data: rawCatalog } = useClinicalCatalog()
@@ -53,7 +54,7 @@ export function RadiologyWorklist() {
   const brand = resolveHospitalBranding(catalog)
   const profile = catalog.hospitalProfile ?? {}
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(initialRequestId ?? null)
   const [showNewRequest, setShowNewRequest] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
@@ -63,6 +64,10 @@ export function RadiologyWorklist() {
     queryFn: () => apiRequest<RadiologyRequestRow[]>('/radiology/requests'),
     refetchInterval: 30_000,
   })
+
+  useEffect(() => {
+    if (initialRequestId) setActiveId(initialRequestId)
+  }, [initialRequestId])
 
   const active = requests.find((r) => r.id === activeId) ?? null
 
@@ -190,8 +195,8 @@ export function RadiologyWorklist() {
   return (
     <div className="workspace-shell animate-fade-in">
       <PageHeader
-        title="Radiology operations"
-        description="Card worklist — requested → scheduled → in progress → reported → verified"
+        title="Imaging workflow board"
+        description="Five-column board from request to verified report. Click a study to report or attach a PDF."
         actions={
           <Button type="button" variant="secondary" onClick={() => setShowNewRequest((v) => !v)}>
             New request
@@ -229,67 +234,60 @@ export function RadiologyWorklist() {
       ) : null}
 
       {isLoading ? (
-        <div className="lab-kanban">
+        <div className="lab-kanban-scroll">
           {stages.map((s) => (
-            <div key={s.id} className="h-64 animate-skeleton rounded-2xl" />
+            <div key={s.id} className="h-72 animate-skeleton rounded-2xl" />
           ))}
         </div>
       ) : (
-        <div className="lab-kanban">
+        <div className="lab-kanban-scroll">
           {stages.map((stage) => (
-            <section key={stage.id} className={clsx('rounded-2xl border p-4', stage.tone)}>
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-bold uppercase tracking-wide">{stage.label}</h3>
-                <span className="rounded-full bg-white/80 px-2.5 py-0.5 text-xs font-bold">
-                  {byStage[stage.id]?.length ?? 0}
-                </span>
-              </div>
-              <div className="max-h-[28rem] space-y-3 overflow-y-auto">
-                {(byStage[stage.id] ?? []).map((req) => (
-                  <button
-                    key={req.id}
-                    type="button"
-                    onClick={() => setActiveId(req.id)}
-                    className={clsx(
-                      'card-hover w-full rounded-xl border border-white/60 bg-white p-4 text-left shadow-sm',
-                      activeId === req.id && 'ring-2 ring-teal-400',
-                    )}
-                  >
-                    <p className="font-semibold text-slate-900">
-                      {req.patient?.firstName} {req.patient?.lastName}
-                    </p>
-                    <p className="text-xs text-slate-500">{req.patient?.patientNo}</p>
-                    <p className="mt-2 text-sm font-medium">{req.modality?.name}</p>
-                    <p className="text-xs text-slate-500">{req.bodyPart}</p>
-                    <div className="mt-3 flex items-center justify-between text-[10px] font-bold uppercase">
-                      <span className="text-amber-700">{req.priority}</span>
-                      <span className="text-slate-400">{waitLabel(req.createdAt)}</span>
-                    </div>
-                  </button>
-                ))}
-                {!byStage[stage.id]?.length ? (
-                  <p className="py-6 text-center text-xs text-slate-500">No requests</p>
-                ) : null}
-              </div>
-            </section>
+            <LabKanbanColumn
+              key={stage.id}
+              label={stage.label}
+              count={byStage[stage.id]?.length ?? 0}
+              tone={stage.tone}
+            >
+              {(byStage[stage.id] ?? []).map((req) => (
+                <LabQueueItem
+                  key={req.id}
+                  active={activeId === req.id}
+                  onClick={() => setActiveId(req.id)}
+                  name={
+                    req.patient
+                      ? `${req.patient.firstName} ${req.patient.lastName}`
+                      : 'Unknown patient'
+                  }
+                  patientNo={req.patient?.patientNo ? formatPatientNoShort(req.patient.patientNo) : undefined}
+                  status={req.status}
+                  priority={req.priority}
+                  wait={waitLabel(req.createdAt)}
+                  subtitle={[req.modality?.name, req.bodyPart].filter(Boolean).join(' · ')}
+                />
+              ))}
+              {!byStage[stage.id]?.length ? (
+                <p className="py-8 text-center text-xs text-slate-400">Empty</p>
+              ) : null}
+            </LabKanbanColumn>
           ))}
         </div>
       )}
 
       {activeRequest ? (
-        <Card className="p-5 md:p-8">
-          <PageHeader
-            title="Report & attach"
-            description={`${activeRequest.patient?.firstName ?? ''} ${activeRequest.patient?.lastName ?? ''} — ${activeRequest.modality?.name}`}
-            actions={
-              activeRequest.requestFormData ? (
-                <Button type="button" variant="secondary" onClick={printActiveRequest}>
-                  <Printer className="h-4 w-4" />
-                  Print request form
-                </Button>
-              ) : null
-            }
-          />
+        <LabModal
+          wide
+          title="Report workspace"
+          description={`${activeRequest.patient?.firstName ?? ''} ${activeRequest.patient?.lastName ?? ''} — ${activeRequest.modality?.name ?? 'Imaging'}`}
+          onClose={() => setActiveId(null)}
+        >
+          {activeRequest.requestFormData ? (
+            <div className="mb-5">
+              <Button type="button" variant="secondary" onClick={printActiveRequest}>
+                <Printer className="h-4 w-4" />
+                Print request form
+              </Button>
+            </div>
+          ) : null}
           {activeRequest.status === 'reported' && latestReport && !latestReport.verifiedAt ? (
             <div className="mt-6">
               <Button
@@ -371,15 +369,8 @@ export function RadiologyWorklist() {
               ))}
             </div>
           ) : null}
-        </Card>
-      ) : (
-        <Card className="flex items-center justify-center p-12">
-          <div className="text-center text-slate-500">
-            <ScanLine className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-            Select a request from the worklist
-          </div>
-        </Card>
-      )}
+        </LabModal>
+      ) : null}
     </div>
   )
 }

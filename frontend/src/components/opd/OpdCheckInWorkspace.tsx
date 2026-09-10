@@ -215,7 +215,12 @@ export function OpdCheckInWorkspace({
                 required
                 value={visitDraft.clinicName}
                 onChange={(e) =>
-                  setVisitDraft((current) => ({ ...current, clinicName: e.target.value }))
+                  setVisitDraft((current) => ({
+                    ...current,
+                    clinicName: e.target.value,
+                    preferredDoctorId: '',
+                    preferredDoctorName: '',
+                  }))
                 }
               >
                 <option value="">Select clinic</option>
@@ -247,6 +252,12 @@ export function OpdCheckInWorkspace({
                   </option>
                 ))}
               </SelectField>
+              {visitDraft.clinicName && !doctorOptions.length ? (
+                <p className="text-sm text-amber-800">
+                  No doctors are assigned to this clinic yet. Assign them under Hospital Control Center →
+                  Departments & clinics. Check-in can continue without a preferred doctor.
+                </p>
+              ) : null}
               {doctorOptions.length ? (
                 <SelectField
                   name="preferredDoctor"

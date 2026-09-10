@@ -136,9 +136,10 @@ export class CreateLabRequestDto {
 }
 
 export class CollectSampleDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  type!: string;
+  type?: string;
 }
 
 export class ReceiveSampleDto {

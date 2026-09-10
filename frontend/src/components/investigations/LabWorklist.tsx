@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -8,17 +8,19 @@ import {
   Printer,
   TestTube,
   Trash2,
-  X,
 } from 'lucide-react'
 import { Button, Field, SelectField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { ClinicalInvestigationOrders } from './ClinicalInvestigationOrders'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { printLabStickers } from '../../lib/print-lab-stickers'
+import { formatPatientNoShort } from '../../lib/patient-utils'
+import { openPatientFile } from '../../lib/patient-file'
 import { downloadClinicalFile, uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
 import {
-  LabEmptyState,
   LabKanbanColumn,
+  LabModal,
   LabPatientStrip,
   LabQueueItem,
   LabSection,
@@ -34,13 +36,20 @@ type LabAttachment = {
   createdAt: string
 }
 
+type LabSampleRow = {
+  id: string
+  barcode: string
+  type: string
+  testName?: string
+}
+
 type LabRequestRow = {
   id: string
   status: string
   priority: string
   createdAt: string
   requestNo?: string
-  patient?: { firstName: string; lastName: string; patientNo: string }
+  patient?: { id?: string; firstName: string; lastName: string; patientNo: string }
   items?: {
     id: string
     status: string
@@ -48,6 +57,7 @@ type LabRequestRow = {
     panel?: { name: string }
     orderableTest?: { name: string; code?: string }
   }[]
+  samples?: LabSampleRow[]
   attachments?: LabAttachment[]
 }
 
@@ -68,11 +78,11 @@ function itemSummary(items?: LabRequestRow['items']) {
     .join(', ')
 }
 
-export function LabWorklist() {
+export function LabWorklist({ initialRequestId }: { initialRequestId?: string | null }) {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(initialRequestId ?? null)
   const [showNewRequest, setShowNewRequest] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [fileBusyId, setFileBusyId] = useState<string | null>(null)
@@ -85,6 +95,10 @@ export function LabWorklist() {
     },
     refetchInterval: 20_000,
   })
+
+  useEffect(() => {
+    if (initialRequestId) setActiveId(initialRequestId)
+  }, [initialRequestId])
 
   const active = requests.find((r) => r.id === activeId) ?? null
 
@@ -108,11 +122,31 @@ export function LabWorklist() {
 
   const collectSample = useMutation({
     mutationFn: (requestId: string) =>
-      apiRequest(`/laboratory/requests/${requestId}/samples`, {
+      apiRequest<{
+        requestNo: string
+        patient: { firstName: string; lastName: string; patientNo: string }
+        samples: LabSampleRow[]
+      }>(`/laboratory/requests/${requestId}/samples`, {
         method: 'POST',
         body: JSON.stringify({ type: 'blood' }),
       }),
-    onSuccess: refreshClinical,
+    onSuccess: async (result) => {
+      notify(
+        'Samples collected',
+        `${result.samples.length} sticker${result.samples.length === 1 ? '' : 's'} ready to print.`,
+        'success',
+      )
+      printLabStickers(
+        result.samples.map((sample) => ({
+          barcode: sample.barcode,
+          patientName: `${result.patient.firstName} ${result.patient.lastName}`,
+          patientNo: result.patient.patientNo,
+          sample: sample.testName || sample.type,
+          requestNo: result.requestNo,
+        })),
+      )
+      await refreshClinical()
+    },
     onError: (error: Error) => notify('Sample collection failed', error.message, 'critical'),
   })
 
@@ -192,7 +226,7 @@ export function LabWorklist() {
     <div className="space-y-6">
       <LabSection
         title="Specimen workflow board"
-        description="Drag-through kanban view of every open request from order to verified release."
+        description="Five-column board from order to verified release. Click a request to collect samples, attach a PDF, or verify."
         action={
           <Button type="button" variant="secondary" onClick={() => setShowNewRequest((v) => !v)}>
             <Plus className="h-4 w-4" />
@@ -247,7 +281,7 @@ export function LabWorklist() {
                     name={
                       req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown patient'
                     }
-                    patientNo={req.patient?.patientNo}
+                    patientNo={req.patient?.patientNo ? formatPatientNoShort(req.patient.patientNo) : undefined}
                     status={req.status}
                     priority={req.priority}
                     wait={waitLabel(req.createdAt)}
@@ -263,60 +297,36 @@ export function LabWorklist() {
         )}
       </LabSection>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <LabSection title="Quick queue" description="All non-verified requests in wait order.">
-          <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-1">
-            {requests
-              .filter((r) => r.status !== 'verified' && r.status !== 'cancelled')
-              .slice(0, 20)
-              .map((req) => (
-                <LabQueueItem
-                  key={req.id}
-                  active={activeId === req.id}
-                  onClick={() => setActiveId(req.id)}
-                  name={
-                    req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown patient'
-                  }
-                  patientNo={req.patient?.patientNo}
-                  status={req.status}
-                  priority={req.priority}
-                  wait={waitLabel(req.createdAt)}
-                  subtitle={itemSummary(req.items)}
-                />
-              ))}
-            {!requests.filter((r) => r.status !== 'verified').length ? (
-              <LabEmptyState title="Queue is clear" description="No open requests right now." />
-            ) : null}
-          </div>
-        </LabSection>
-
-        <LabSection
+      {activeRequest ? (
+        <LabModal
+          wide
           title="Request workspace"
           description="Collect samples, attach instrument PDFs, and release verified results."
-          action={
-            activeRequest ? (
-              <Button type="button" variant="ghost" onClick={() => setActiveId(null)}>
-                <X className="h-4 w-4" />
-                Close
-              </Button>
-            ) : null
-          }
+          onClose={() => setActiveId(null)}
         >
-          {!activeRequest ? (
-            <LabEmptyState
-              title="Select a request"
-              description="Choose a card from the kanban board or quick queue to manage that specimen."
-            />
-          ) : (
-            <div className="space-y-5">
+          <div className="space-y-5">
               <LabPatientStrip
                 firstName={activeRequest.patient?.firstName}
                 lastName={activeRequest.patient?.lastName}
-                patientNo={activeRequest.patient?.patientNo}
+                patientNo={
+                  activeRequest.patient?.patientNo
+                    ? formatPatientNoShort(activeRequest.patient.patientNo)
+                    : undefined
+                }
                 status={activeRequest.status}
                 priority={activeRequest.priority}
                 wait={waitLabel(activeRequest.createdAt)}
               />
+              {activeRequest.patient?.id ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="px-3 py-2 text-xs"
+                  onClick={() => openPatientFile(activeRequest.patient!.id!)}
+                >
+                  Open patient file
+                </Button>
+              ) : null}
 
               {(activeRequest.items ?? []).length ? (
                 <div className="flex flex-wrap gap-2">
@@ -330,6 +340,21 @@ export function LabWorklist() {
                   ))}
                 </div>
               ) : null}
+              {(activeRequest.samples ?? []).length ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-900">Sample stickers</p>
+                  <ul className="mt-2 space-y-1.5 text-sm">
+                    {activeRequest.samples!.map((sample) => (
+                      <li key={sample.id} className="font-mono text-slate-800">
+                        {sample.barcode}
+                        <span className="ml-2 font-sans text-slate-600">
+                          · {sample.testName || sample.type}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               <div className="flex flex-wrap gap-2">
                 {activeRequest.status === 'requested' ? (
@@ -339,7 +364,29 @@ export function LabWorklist() {
                     loading={collectSample.isPending}
                   >
                     <TestTube className="h-4 w-4" />
-                    Mark sample collected
+                    Collect & print stickers
+                  </Button>
+                ) : null}
+                {(activeRequest.samples ?? []).length ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      printLabStickers(
+                        activeRequest.samples!.map((sample) => ({
+                          barcode: sample.barcode,
+                          patientName: activeRequest.patient
+                            ? `${activeRequest.patient.firstName} ${activeRequest.patient.lastName}`
+                            : 'Patient',
+                          patientNo: activeRequest.patient?.patientNo ?? '—',
+                          sample: sample.testName || sample.type,
+                          requestNo: activeRequest.requestNo,
+                        })),
+                      )
+                    }
+                  >
+                    <Printer className="h-4 w-4" />
+                    Reprint stickers ({activeRequest.samples!.length})
                   </Button>
                 ) : null}
                 {['resulted', 'processing', 'sample_collected'].includes(activeRequest.status) ? (
@@ -473,10 +520,9 @@ export function LabWorklist() {
                   </Button>
                 </form>
               ) : null}
-            </div>
-          )}
-        </LabSection>
-      </div>
+          </div>
+        </LabModal>
+      ) : null}
     </div>
   )
 }

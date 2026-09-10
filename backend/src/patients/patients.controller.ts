@@ -94,8 +94,8 @@ export class PatientsController {
 
   @Get(':id/qr-card')
   @RequirePermissions('patients:read')
-  qrCard(@Param('id') id: string) {
-    return this.patientsService.qrCard(id);
+  qrCard(@Param('id') id: string, @Query('origin') origin?: string) {
+    return this.patientsService.qrCard(id, origin);
   }
 
   @Get(':id')

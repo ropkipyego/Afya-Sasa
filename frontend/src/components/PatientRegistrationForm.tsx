@@ -15,7 +15,6 @@ import {
   WorkflowSteps,
 } from './ui'
 import { PatientSearchBrowse } from './PatientSearchAutocomplete'
-import { RecentPatientsPanel, type RecentPatient } from './patients/RecentPatientsPanel'
 import { identifierFieldLabel } from '../lib/clinical-catalog'
 import { useClinicalCatalog } from '../hooks/useClinicalCatalog'
 import { apiRequest } from '../lib/api'
@@ -288,7 +287,7 @@ export function PatientRegistrationForm({
 
   const steps = ['Search registry', 'Register patient']
 
-  const toCheckInPatient = (patient: DuplicateCandidate | RecentPatient | RegisteredPatient): RegisteredPatient => ({
+  const toCheckInPatient = (patient: DuplicateCandidate | RegisteredPatient): RegisteredPatient => ({
     id: patient.id,
     patientNo: patient.patientNo,
     firstName: patient.firstName,
@@ -410,22 +409,16 @@ export function PatientRegistrationForm({
             </Button>
           </div>
         </Card>
-        <div className="space-y-6">
-          <Card className="bg-teal-900 text-white">
-            <UserPlus className="mb-3 text-teal-200" />
-            <h3 className="text-lg font-bold">Search-first safety</h3>
-            <ul className="mt-4 space-y-2.5 text-sm text-teal-100">
-              <li>Search by name, phone, patient number, or ID.</li>
-              <li>Duplicate patients cause clinical risk.</li>
-              <li>Only required fields are needed to register.</li>
-              <li>Medical alerts can be captured at registration.</li>
-            </ul>
-          </Card>
-          <RecentPatientsPanel
-            onView={(patient) => onViewPatient?.(patient.id)}
-            onQuickCheckIn={(patient) => onQuickCheckIn?.(toCheckInPatient(patient))}
-          />
-        </div>
+        <Card className="bg-gradient-to-br from-teal-900 to-teal-800 text-white">
+          <UserPlus className="mb-3 text-teal-200" />
+          <h3 className="text-lg font-bold">Search-first safety</h3>
+          <ul className="mt-4 space-y-2.5 text-sm text-teal-100">
+            <li>Search by name, phone, patient number, or ID.</li>
+            <li>Duplicate patients cause clinical risk.</li>
+            <li>Only required fields are needed to register.</li>
+            <li>Medical alerts can be captured at registration.</li>
+          </ul>
+        </Card>
       </div>
       </div>
     )

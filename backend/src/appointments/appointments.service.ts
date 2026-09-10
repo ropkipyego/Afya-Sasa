@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { tenantChannel } from '../common/tenant-defaults';
+import { Clinic } from '../core/core.entities';
 import { Patient } from '../patients/patient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { OpdService } from '../opd/opd.service';
@@ -26,6 +27,8 @@ export class AppointmentsService {
     private readonly patients: Repository<Patient>,
     @InjectRepository(Encounter)
     private readonly encounters: Repository<Encounter>,
+    @InjectRepository(Clinic)
+    private readonly clinics: Repository<Clinic>,
     private readonly opdService: OpdService,
     private readonly notifications: NotificationsService,
   ) {}
@@ -75,6 +78,28 @@ export class AppointmentsService {
     const sourceEncounter = dto.sourceEncounterId
       ? await this.encounters.findOne({ where: { id: dto.sourceEncounterId } })
       : null;
+
+    let reason = dto.reason.trim();
+    if (dto.clinicId) {
+      const clinic = await this.clinics.findOne({
+        where: { id: dto.clinicId },
+        relations: { department: true },
+      });
+      if (!clinic?.active) {
+        throw new BadRequestException('Clinic not found or inactive');
+      }
+      const assigned = clinic.doctorIds ?? [];
+      if (!assigned.includes(dto.doctorId)) {
+        throw new BadRequestException(
+          'That doctor is not assigned to the selected clinic. Assign them under Departments & clinics.',
+        );
+      }
+      const specialty = clinic.department?.name;
+      reason = specialty
+        ? `${clinic.name} (${specialty}): ${reason}`
+        : `${clinic.name}: ${reason}`;
+    }
+
     const appointment = await this.appointments.save(
       this.appointments.create({
         patient,
@@ -84,7 +109,7 @@ export class AppointmentsService {
         appointmentDate: dto.appointmentDate,
         appointmentTime: dto.appointmentTime,
         type: dto.type,
-        reason: dto.reason,
+        reason,
         status: 'scheduled',
         sourceEncounter,
         linkedEncounter: null,

@@ -206,7 +206,7 @@ export function DepartmentsClinicsPanel() {
                   <p className="text-xs text-slate-500">
                     {dept.code}
                     {dept.type ? ` · ${dept.type}` : ''} ·{' '}
-                    {clinics.filter((clinic) => clinic.departmentId === dept.id && clinic.active).length} clinic(s) ·{' '}
+                    {clinics.filter((clinic) => (clinic.departmentId ?? clinic.department?.id) === dept.id && clinic.active).length} clinic(s) ·{' '}
                     {dept.active ? 'Active' : 'Inactive'}
                   </p>
                 </div>
@@ -227,7 +227,8 @@ export function DepartmentsClinicsPanel() {
         <section>
           <h3 className="text-lg font-bold">Clinics</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Shown on OPD check-in. Each clinic has a consultation amount cashiers must charge.
+            Shown on OPD check-in and Appointments. Assign doctors here so they only appear for this
+            specialty — an ENT doctor will not show when booking Cardiology.
           </p>
           <div className="mt-4 space-y-3">
             <Field
@@ -252,7 +253,7 @@ export function DepartmentsClinicsPanel() {
                 value={clinicDepartmentId}
                 onChange={(e) => setClinicDepartmentId(e.target.value)}
               >
-                <option value="">Not linked</option>
+                <option value="">Select parent department</option>
                 {departments
                   .filter((d) => d.active)
                   .map((dept) => (
@@ -266,7 +267,7 @@ export function DepartmentsClinicsPanel() {
               type="button"
               variant="secondary"
               loading={createClinic.isPending}
-              disabled={!clinicName.trim()}
+              disabled={!clinicName.trim() || !clinicDepartmentId}
               onClick={() => createClinic.mutate()}
             >
               <Plus className="h-4 w-4" />

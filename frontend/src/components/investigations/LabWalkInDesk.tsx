@@ -237,6 +237,10 @@ export function LabWalkInDesk() {
               serviceEntityId={lastRequest.id}
               serviceDescription={orderSummary}
               submitLabel="Send M-Pesa STK / record payment"
+              receiptPatient={{
+                name: `${patient.firstName} ${patient.lastName}`,
+                patientNo: patient.patientNo,
+              }}
               onSuccess={() => setStep(3)}
             />
             <Button type="button" variant="ghost" onClick={() => setStep(3)}>

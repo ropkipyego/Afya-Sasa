@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { tenantChannel } from '../common/tenant-defaults';
@@ -245,7 +245,7 @@ export class LaboratoryService {
     return this.requests
       .find({
         where: { patient: { id: patientId } },
-        relations: { patient: true },
+        relations: { patient: true, encounter: true },
         order: { createdAt: 'DESC' },
         take: 100,
       })
@@ -362,23 +362,54 @@ export class LaboratoryService {
   }
 
   async collectSample(id: string, dto: CollectSampleDto, request: RequestContext) {
-    const labRequest = await this.requests.findOne({ where: { id } });
+    const labRequest = await this.requests.findOne({
+      where: { id },
+      relations: { patient: true },
+    });
     if (!labRequest) throw new NotFoundException('Lab request not found');
-    const sample = await this.samples.save(
-      this.samples.create({
-        request: labRequest,
-        barcode: await this.generateBarcode(),
-        type: dto.type,
-        collectedAt: new Date(),
-        receivedAt: null,
-        condition: null,
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
+
+    const requestItems = await this.items.find({
+      where: { request: { id } },
+      relations: { orderableTest: { specimen: true }, test: true, panel: true },
+      order: { createdAt: 'ASC' },
+    });
+    const items = requestItems.length ? requestItems : [null];
+    const samples = [];
+    for (const item of items) {
+      const sampleType =
+        item?.orderableTest?.specimen?.name ||
+        item?.test?.sampleType ||
+        dto.type ||
+        'blood';
+      const saved = await this.samples.save(
+        this.samples.create({
+          request: labRequest,
+          barcode: await this.generateBarcode(),
+          type: sampleType,
+          collectedAt: new Date(),
+          receivedAt: null,
+          condition: null,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+      samples.push({
+        ...saved,
+        testName:
+          item?.orderableTest?.name ?? item?.test?.name ?? item?.panel?.name ?? sampleType,
+      });
+    }
     await this.requests.update(id, { status: 'sample_collected' });
     await this.items.update({ request: { id } }, { status: 'sample_collected' });
-    return sample;
+    return {
+      requestNo: labRequest.requestNo,
+      patient: {
+        firstName: labRequest.patient.firstName,
+        lastName: labRequest.patient.lastName,
+        patientNo: labRequest.patient.patientNo,
+      },
+      samples,
+    };
   }
 
   async addAttachment(id: string, dto: CreateLabAttachmentDto, request: RequestContext) {
@@ -719,22 +750,42 @@ export class LaboratoryService {
     return this.resultsInbox();
   }
 
-  async resultsInbox() {
-    return this.results.find({
-      where: { verifiedAt: Not(IsNull()) },
-      relations: { requestItem: { request: { patient: true }, test: true, panel: true } },
-      order: { enteredAt: 'DESC' },
-      take: 100,
-    });
+  async resultsInbox(patientId?: string) {
+    const qb = this.results
+      .createQueryBuilder('result')
+      .innerJoinAndSelect('result.requestItem', 'item')
+      .innerJoinAndSelect('item.request', 'request')
+      .leftJoinAndSelect('request.patient', 'patient')
+      .leftJoinAndSelect('request.encounter', 'encounter')
+      .leftJoinAndSelect('item.test', 'test')
+      .leftJoinAndSelect('item.panel', 'panel')
+      .leftJoinAndSelect('item.orderableTest', 'orderableTest')
+      .where('result.verified_at IS NOT NULL')
+      .orderBy('result.entered_at', 'DESC')
+      .take(patientId ? 200 : 100);
+    if (patientId) {
+      qb.andWhere('patient.id = :patientId', { patientId });
+    }
+    return qb.getMany();
   }
 
-  criticalResults() {
-    return this.results.find({
-      where: { isCritical: true },
-      relations: { requestItem: { request: { patient: true }, test: true } },
-      order: { enteredAt: 'DESC' },
-      take: 100,
-    });
+  criticalResults(patientId?: string) {
+    const qb = this.results
+      .createQueryBuilder('result')
+      .innerJoinAndSelect('result.requestItem', 'item')
+      .innerJoinAndSelect('item.request', 'request')
+      .leftJoinAndSelect('request.patient', 'patient')
+      .leftJoinAndSelect('request.encounter', 'encounter')
+      .leftJoinAndSelect('item.test', 'test')
+      .leftJoinAndSelect('item.panel', 'panel')
+      .leftJoinAndSelect('item.orderableTest', 'orderableTest')
+      .where('result.is_critical = true')
+      .orderBy('result.entered_at', 'DESC')
+      .take(patientId ? 200 : 100);
+    if (patientId) {
+      qb.andWhere('patient.id = :patientId', { patientId });
+    }
+    return qb.getMany();
   }
 
   async reviewResult(id: string, request: RequestContext) {
@@ -755,23 +806,8 @@ export class LaboratoryService {
     });
 
     const encounter = result.requestItem?.request?.encounter;
-    if (encounter?.id && encounter.status === 'awaiting_results') {
-      const pendingReview = await this.results
-        .createQueryBuilder('result')
-        .innerJoin('result.requestItem', 'item')
-        .innerJoin('item.request', 'request')
-        .where('request.encounter_id = :encounterId', { encounterId: encounter.id })
-        .andWhere('result.verified_at IS NOT NULL')
-        .andWhere('result.reviewed_at IS NULL')
-        .getCount();
-
-      if (pendingReview === 0) {
-        await this.encounterWorkflow.requireTransition(
-          encounter.id,
-          'in_consultation',
-          request,
-        );
-      }
+    if (encounter?.id) {
+      await this.encounterWorkflow.maybeReturnToConsultation(encounter.id, request);
     }
 
     return this.results.findOneOrFail({ where: { id } });

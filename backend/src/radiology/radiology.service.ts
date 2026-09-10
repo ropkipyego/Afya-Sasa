@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, IsNull } from 'typeorm';
+import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { tenantChannel } from '../common/tenant-defaults';
@@ -453,13 +453,20 @@ export class RadiologyService {
     return attachment;
   }
 
-  async reportsInbox() {
-    return this.reports.find({
-      where: { verifiedAt: Not(IsNull()) },
-      relations: { request: { patient: true, modality: true } },
-      order: { createdAt: 'DESC' },
-      take: 100,
-    });
+  async reportsInbox(patientId?: string) {
+    const qb = this.reports
+      .createQueryBuilder('report')
+      .innerJoinAndSelect('report.request', 'request')
+      .leftJoinAndSelect('request.patient', 'patient')
+      .leftJoinAndSelect('request.modality', 'modality')
+      .leftJoinAndSelect('request.encounter', 'encounter')
+      .where('report.verified_at IS NOT NULL')
+      .orderBy('report.created_at', 'DESC')
+      .take(patientId ? 200 : 100);
+    if (patientId) {
+      qb.andWhere('patient.id = :patientId', { patientId });
+    }
+    return qb.getMany();
   }
 
   async reviewReport(id: string, request: RequestContext) {
@@ -478,22 +485,8 @@ export class RadiologyService {
     });
 
     const encounter = report.request?.encounter;
-    if (encounter?.id && encounter.status === 'awaiting_results') {
-      const pendingReview = await this.reports
-        .createQueryBuilder('report')
-        .innerJoin('report.request', 'request')
-        .where('request.encounter_id = :encounterId', { encounterId: encounter.id })
-        .andWhere('report.verified_at IS NOT NULL')
-        .andWhere('report.reviewed_at IS NULL')
-        .getCount();
-
-      if (pendingReview === 0) {
-        await this.encounterWorkflow.requireTransition(
-          encounter.id,
-          'in_consultation',
-          request,
-        );
-      }
+    if (encounter?.id) {
+      await this.encounterWorkflow.maybeReturnToConsultation(encounter.id, request);
     }
 
     return this.reports.findOneOrFail({ where: { id } });

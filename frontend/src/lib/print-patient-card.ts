@@ -119,11 +119,7 @@ function buildPatientCardHtml({
       color: #1e293b;
     }
     .code {
-      margin-top: 16px;
-      font-family: ui-monospace, monospace;
-      font-size: 10px;
-      color: #94a3b8;
-      word-break: break-all;
+      display: none;
     }
     .footer {
       margin-top: 16px;
@@ -151,7 +147,7 @@ function buildPatientCardHtml({
     ${bloodRow}
     <p class="row"><span class="label">Phone</span> <span class="value">${escapeHtml(patient.primaryPhone)}</span></p>
     ${emergencyRow}
-    <p class="code">${escapeHtml(qr.qrCode)}</p>
+    <p class="code"></p>
     ${footer}
   </div>
 </body>
@@ -159,9 +155,10 @@ function buildPatientCardHtml({
 }
 
 export async function printPatientCard(patientId: string, catalog?: ClinicalCatalog | null) {
+  const origin = window.location.origin
   const [patient, qr] = await Promise.all([
     apiRequest<PatientRecord>(`/patients/${patientId}`),
-    apiRequest<QrCard>(`/patients/${patientId}/qr-card`),
+    apiRequest<QrCard>(`/patients/${patientId}/qr-card?origin=${encodeURIComponent(origin)}`),
   ])
 
   const html = buildPatientCardHtml({ patient, qr, catalog })
