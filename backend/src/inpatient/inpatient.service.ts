@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, MoreThanOrEqual, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, In, MoreThanOrEqual, Not, QueryFailedError, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { tenantChannel } from '../common/tenant-defaults';
@@ -571,9 +571,11 @@ export class InpatientService {
       throw new BadRequestException('Only an active admission can be cancelled.');
     }
     const userId = request.user?.sub ?? null;
+    const encounterRestore = await this.encounterStatusAfterCancelledAdmission(admission);
     await this.dataSource.transaction(async (manager) => {
       const admissionRepo = manager.getRepository(Admission);
       const bedRepo = manager.getRepository(Bed);
+      const encounterRepo = manager.getRepository(Encounter);
       await admissionRepo.update(id, {
         status: 'cancelled',
         dischargedAt: new Date(),
@@ -587,20 +589,35 @@ export class InpatientService {
           updatedBy: userId,
         },
       );
+      if (encounterRestore) {
+        await encounterRepo.update(encounterRestore.encounterId, {
+          status: encounterRestore.status,
+          endedAt: null,
+          updatedBy: userId,
+        });
+      }
     });
     this.realtime.publish(tenantChannel(request), 'admission.discharged', { admissionId: id });
     this.realtime.publish(tenantChannel(request), 'bed.updated', { bedId: admission.bed.id });
+    if (encounterRestore) {
+      this.realtime.publish(tenantChannel(request), 'encounter.updated', {
+        encounterId: encounterRestore.encounterId,
+        status: encounterRestore.status,
+      });
+    }
     return this.getAdmission(id);
   }
 
   async dischargeSummaryPdf(admissionId: string) {
     const admission = await this.getAdmission(admissionId);
     const summary = await this.summaries.findOne({
-      where: { admission: { id: admissionId } },
+      where: { admission: { id: admissionId }, status: 'complete' },
       order: { createdAt: 'DESC' },
     });
     if (!summary) {
-      throw new NotFoundException('No discharge summary is on file for this admission.');
+      throw new NotFoundException(
+        'No completed discharge summary is on file for this admission. Finalise the summary before printing.',
+      );
     }
     const patient = admission.patient;
     return {
@@ -856,6 +873,39 @@ export class InpatientService {
     const bed = await this.beds.findOne({ where: { id }, relations: { ward: true } });
     if (!bed) throw new NotFoundException('Bed not found');
     return bed;
+  }
+
+  /**
+   * Cancellation is not a normal forward workflow step.
+   * If this admission is what put the encounter into `admitted`, return the patient
+   * to open clinical care instead of leaving them admitted or auto-completing the visit.
+   */
+  private async encounterStatusAfterCancelledAdmission(admission: Admission) {
+    const encounter = admission.encounter;
+    if (!encounter?.id || encounter.status !== 'admitted') {
+      return null;
+    }
+    const otherActive = await this.admissions.findOne({
+      where: {
+        id: Not(admission.id),
+        encounter: { id: encounter.id },
+        status: 'active',
+      },
+    });
+    if (otherActive) {
+      return null;
+    }
+    const outstanding = await this.encounterWorkflow.investigationOutstanding(encounter.id);
+    const stillWaiting =
+      outstanding.openLab +
+        outstanding.openRad +
+        outstanding.unreviewedLab +
+        outstanding.unreviewedRad >
+      0;
+    return {
+      encounterId: encounter.id,
+      status: (stillWaiting ? 'awaiting_results' : 'in_consultation') as Encounter['status'],
+    };
   }
 
   private async getAdmission(id: string) {

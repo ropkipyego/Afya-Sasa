@@ -30,6 +30,8 @@ import {
 
 @Injectable()
 export class InventoryService {
+  private reorderColumnsReady: boolean | null = null;
+
   constructor(
     @InjectRepository(InventoryItem)
     private readonly items: Repository<InventoryItem>,
@@ -98,6 +100,7 @@ export class InventoryService {
     }
     const trackBatch =
       dto.trackBatch ?? dto.category === 'pharmaceutical';
+    const canStoreReorder = await this.hasReorderColumns();
     return this.items.save(
       this.items.create({
         sku: dto.sku.trim().toUpperCase(),
@@ -106,8 +109,12 @@ export class InventoryService {
         unit: dto.unit.trim(),
         trackBatch,
         active: true,
-        minLevel: dto.minLevel != null ? String(dto.minLevel) : null,
-        maxLevel: dto.maxLevel != null ? String(dto.maxLevel) : null,
+        ...(canStoreReorder
+          ? {
+              minLevel: dto.minLevel != null ? String(dto.minLevel) : null,
+              maxLevel: dto.maxLevel != null ? String(dto.maxLevel) : null,
+            }
+          : {}),
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),
@@ -115,7 +122,16 @@ export class InventoryService {
   }
 
   async listLowStock() {
-    const items = await this.items.find({ where: { active: true } });
+    if (!(await this.hasReorderColumns())) {
+      return [];
+    }
+    const items = await this.items
+      .createQueryBuilder('item')
+      .addSelect('item.minLevel')
+      .addSelect('item.maxLevel')
+      .where('item.active = :active', { active: true })
+      .andWhere('item.deletedAt IS NULL')
+      .getMany();
     const batches = await this.batches.find({ relations: { item: true, location: true } });
     return items
       .map((item) => {
@@ -1158,6 +1174,21 @@ export class InventoryService {
     const year = new Date().getFullYear();
     const count = await this.requisitions.count();
     return `REQ-${year}-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  private async hasReorderColumns() {
+    if (this.reorderColumnsReady != null) {
+      return this.reorderColumnsReady;
+    }
+    const rows = (await this.items.query(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = 'demo'
+          AND table_name = 'inventory_items'
+          AND column_name IN ('min_level', 'max_level')`,
+    )) as Array<{ column_name: string }>;
+    this.reorderColumnsReady = rows.length === 2;
+    return this.reorderColumnsReady;
   }
 }
 

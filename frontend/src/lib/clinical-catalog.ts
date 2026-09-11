@@ -130,6 +130,7 @@ export const defaultClinicalCatalog: ClinicalCatalog = {
     { value: 'aar', label: 'AAR Insurance' },
     { value: 'britam', label: 'Britam' },
     { value: 'cic', label: 'CIC Insurance' },
+    { value: 'smart', label: 'Smart' },
     { value: 'corporate', label: 'Corporate / employer scheme' },
     { value: 'other', label: 'Other insurer' },
   ],

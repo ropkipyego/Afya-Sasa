@@ -47,10 +47,10 @@ export class InventoryItem extends SoftDeleteClinicalEntity {
   @Column({ type: 'boolean', default: true })
   active!: boolean;
 
-  @Column({ type: 'numeric', name: 'min_level', nullable: true })
+  @Column({ type: 'numeric', name: 'min_level', nullable: true, select: false })
   minLevel!: string | null;
 
-  @Column({ type: 'numeric', name: 'max_level', nullable: true })
+  @Column({ type: 'numeric', name: 'max_level', nullable: true, select: false })
   maxLevel!: string | null;
 }
 

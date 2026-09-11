@@ -1199,7 +1199,11 @@ async function downloadDischargeSummaryPdf(admissionId: string) {
     },
   })
   if (!response.ok) {
-    throw new Error(response.status === 404 ? 'No discharge summary PDF is available.' : 'Could not download the summary.')
+    throw new Error(
+      response.status === 404
+        ? 'No completed discharge summary is available. Finalise the summary before printing.'
+        : 'Could not download the summary.',
+    )
   }
   const blob = new Blob([await response.arrayBuffer()], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)

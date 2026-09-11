@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -34,6 +35,7 @@ type PeriodTotals = {
 @Injectable()
 export class MarketingService {
   private readonly logger = new Logger(MarketingService.name);
+  private foundationReady: boolean | null = null;
 
   constructor(
     @InjectRepository(TenantSettings)
@@ -45,6 +47,7 @@ export class MarketingService {
   ) {}
 
   async listActivities(query: ListMarketingActivitiesQuery, request: RequestContext) {
+    await this.assertFoundation();
     const actorId = this.requireActor(request);
     const canSeeTeam = this.canSeeTeam(request);
     if (query.staffId && query.staffId !== actorId && !canSeeTeam) {
@@ -110,12 +113,14 @@ export class MarketingService {
   }
 
   async getActivity(id: string, request: RequestContext) {
+    await this.assertFoundation();
     const activity = await this.loadActivity(id);
     this.assertCanView(request, activity);
     return this.toActivityResponse(activity);
   }
 
   async createActivity(dto: CreateMarketingActivityDto, request: RequestContext) {
+    await this.assertFoundation();
     const actorId = this.requireActor(request);
     const ownerUserId = this.resolveOwnerUserId(dto.ownerUserId, request);
     this.assertActivityRules(dto);
@@ -214,6 +219,7 @@ export class MarketingService {
   }
 
   async getDashboard(request: RequestContext, staffId?: string) {
+    await this.assertFoundation();
     const actorId = this.requireActor(request);
     const ownerId = this.resolveDashboardOwner(staffId?.trim() || undefined, request, actorId);
     const today = todayIso();
@@ -236,6 +242,7 @@ export class MarketingService {
   }
 
   async getTeamSummary(query: ListMarketingActivitiesQuery, request: RequestContext) {
+    await this.assertFoundation();
     if (!this.canSeeTeam(request)) {
       throw new ForbiddenException('Marketing reports require management access');
     }
@@ -436,6 +443,7 @@ export class MarketingService {
   }
 
   private async loadActivity(id: string) {
+    await this.assertFoundation();
     const activity = await this.activities.findOne({
       where: { id },
       relations: { owner: true },
@@ -586,6 +594,21 @@ export class MarketingService {
       throw new ForbiddenException('You can only view your own marketing dashboard');
     }
     return staffId;
+  }
+
+  private async assertFoundation() {
+    if (this.foundationReady) {
+      return;
+    }
+    const rows = (await this.activities.query(
+      `SELECT to_regclass('demo.marketing_visits') AS table_name`,
+    )) as Array<{ table_name: string | null }>;
+    if (!rows[0]?.table_name) {
+      throw new ServiceUnavailableException(
+        'Marketing activities are not available until the marketing foundation migration is applied.',
+      );
+    }
+    this.foundationReady = true;
   }
 
   private requireActor(request: RequestContext) {
