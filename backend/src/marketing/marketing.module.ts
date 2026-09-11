@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TenantSettings } from '../core/core.entities';
+import { TenantSettings, User } from '../core/core.entities';
 import { MarketingController } from './marketing.controller';
+import { MarketingVisit } from './marketing.entities';
 import { MarketingService } from './marketing.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TenantSettings])],
+  imports: [TypeOrmModule.forFeature([TenantSettings, MarketingVisit, User])],
   controllers: [MarketingController],
   providers: [MarketingService],
 })

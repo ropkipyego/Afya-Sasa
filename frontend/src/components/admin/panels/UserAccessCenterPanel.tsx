@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { Alert, Button, Card, Field, PageHeader } from '../../ui'
 import { formDataFromElement, submitFormMutation } from '../../../lib/form-utils'
-import { apiRequest } from '../../../lib/api'
+import { apiRequest, getApiErrorStatus } from '../../../lib/api'
 import { notify } from '../../../lib/notify'
 import { useAuthStore } from '../../../lib/auth-store'
 
@@ -50,70 +50,145 @@ type UserSummary = {
 
 const CLINICAL_ROLE_NAMES = new Set(['doctor', 'consultant', 'clinical_officer'])
 
+function accountActionError(error: unknown, fallback: string) {
+  const status = getApiErrorStatus(error)
+  const message = error instanceof Error ? error.message : fallback
+  if (status === 400) return message
+  if (status === 401) return 'Your session expired. Sign in again.'
+  if (status === 403) return message || 'You do not have permission to manage this account.'
+  if (status === 404) return 'User or role was not found.'
+  if (status === 409) return message
+  if (status === 500 || status === 502 || status === 503) return fallback
+  return message
+}
+
+function RoleChecklist({
+  name,
+  roles,
+  selectedIds,
+  onChange,
+  disabled,
+}: {
+  name: string
+  roles: RoleItem[]
+  selectedIds?: string[]
+  onChange?: (ids: string[]) => void
+  disabled?: boolean
+}) {
+  const selected = new Set(selectedIds ?? [])
+  return (
+    <fieldset className="space-y-2" disabled={disabled}>
+      <legend className="text-sm font-semibold">Roles</legend>
+      <p className="text-xs text-slate-500">A person can hold more than one role. Tick every role they should keep.</p>
+      {roles.map((role) => (
+        <label key={role.id} className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name={name}
+            value={role.id}
+            checked={onChange ? selected.has(role.id) : undefined}
+            defaultChecked={!onChange ? selected.has(role.id) : undefined}
+            onChange={
+              onChange
+                ? (event) => {
+                    const next = new Set(selected)
+                    if (event.target.checked) next.add(role.id)
+                    else next.delete(role.id)
+                    onChange([...next])
+                  }
+                : undefined
+            }
+          />
+          <span>
+            {role.label}
+            <span className="ml-1 text-xs text-slate-400">{role.name}</span>
+          </span>
+        </label>
+      ))}
+      {!roles.length ? <p className="text-xs text-slate-500">No assignable roles available.</p> : null}
+    </fieldset>
+  )
+}
+
 function QuickAddForm({
   title,
   children,
   pending,
+  error,
   onSubmit,
 }: {
   title: string
   children: React.ReactNode
   pending: boolean
+  error?: string | null
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
 }) {
   return (
     <form className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5" onSubmit={onSubmit}>
       <h4 className="font-bold">{title}</h4>
       {children}
-      <Button type="submit" loading={pending} variant="secondary">
-        Save
+      <Button type="submit" loading={pending} disabled={pending} variant="secondary">
+        {pending ? 'Saving…' : 'Save'}
       </Button>
+      {error ? <Alert tone="error">{error}</Alert> : null}
     </form>
   )
 }
 
 export function UserAccessCenterPanel() {
   const queryClient = useQueryClient()
-  const canManageUsers = useAuthStore((state) =>
-    state.user?.permissions.includes('users:manage'),
-  )
-  const canManageDepartments = useAuthStore((state) =>
-    state.user?.permissions.includes('departments:manage'),
-  )
+  const currentUser = useAuthStore((state) => state.user)
+  const clearSession = useAuthStore((state) => state.clearSession)
+  const canManageUsers = currentUser?.permissions.includes('users:manage')
+  const canManageDepartments = currentUser?.permissions.includes('departments:manage')
+  const currentIsSuperadmin = currentUser?.roles.includes('superadmin') ?? false
 
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [addMode, setAddMode] = useState<'user' | 'doctor'>('user')
   const [editingUser, setEditingUser] = useState<AdminUserItem | null>(null)
+  const [editRoleIds, setEditRoleIds] = useState<string[]>([])
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null)
+  const [pendingActionKey, setPendingActionKey] = useState<string | null>(null)
+  const [actionErrorUserId, setActionErrorUserId] = useState<string | null>(null)
 
-  const { data: summary } = useQuery({
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+  } = useQuery({
     queryKey: ['admin-users-summary'],
     queryFn: () => apiRequest<UserSummary>('/admin/users/summary'),
-    enabled: canManageUsers,
+    enabled: Boolean(canManageUsers),
   })
-  const { data: users = [] } = useQuery({
+  const {
+    data: users = [],
+    isLoading: usersLoading,
+    isError: usersError,
+    error: usersQueryError,
+    refetch: refetchUsers,
+  } = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => apiRequest<AdminUserItem[]>('/admin/users'),
-    enabled: canManageUsers,
+    enabled: Boolean(canManageUsers),
   })
-  const { data: roles = [] } = useQuery({
+  const { data: roles = [], isLoading: rolesLoading } = useQuery({
     queryKey: ['admin-user-role-options'],
     queryFn: () => apiRequest<RoleItem[]>('/admin/users/role-options'),
-    enabled: canManageUsers,
+    enabled: Boolean(canManageUsers),
   })
   const { data: departments = [] } = useQuery({
     queryKey: ['admin-departments'],
     queryFn: () => apiRequest<{ id: string; name: string; code: string }[]>('/admin/departments'),
-    enabled: canManageDepartments,
+    enabled: Boolean(canManageDepartments),
   })
   const { data: clinicalStaff = [] } = useQuery({
     queryKey: ['admin-clinical-staff'],
     queryFn: () => apiRequest<ClinicalStaffItem[]>('/admin/clinical-staff'),
-    enabled: canManageUsers,
+    enabled: Boolean(canManageUsers),
   })
 
   const doctorRole = roles.find((role) => role.name === 'doctor')
+  const assignableRoleIds = useMemo(() => new Set(roles.map((role) => role.id)), [roles])
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-users'] })
@@ -125,18 +200,18 @@ export function UserAccessCenterPanel() {
   const createUser = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
-      const roleId = form.get('roleId')?.toString()
+      const roleIds = form.getAll('roleIds').map(String).filter(Boolean)
       return apiRequest('/admin/users', {
         method: 'POST',
         body: JSON.stringify({
-          employeeNo: form.get('employeeNo'),
-          firstName: form.get('firstName'),
-          lastName: form.get('lastName'),
-          email: form.get('email'),
-          phone: form.get('phone'),
-          specialisation: form.get('specialisation') || undefined,
+          employeeNo: String(form.get('employeeNo') ?? '').trim(),
+          firstName: String(form.get('firstName') ?? '').trim(),
+          lastName: String(form.get('lastName') ?? '').trim(),
+          email: String(form.get('email') ?? '').trim(),
+          phone: String(form.get('phone') ?? '').trim() || undefined,
+          specialisation: String(form.get('specialisation') ?? '').trim() || undefined,
           temporaryPassword: form.get('temporaryPassword'),
-          roleIds: roleId ? [roleId] : [],
+          ...(roleIds.length ? { roleIds } : {}),
         }),
       })
     },
@@ -144,30 +219,34 @@ export function UserAccessCenterPanel() {
       notify('User created', 'Staff account is ready for first login.', 'success')
       await invalidate()
     },
+    onError: (error: Error) => {
+      notify('Could not create user', accountActionError(error, 'Unable to create the account. Please try again.'), 'critical')
+    },
   })
 
   const updateUser = useMutation({
-    mutationFn: (formElement: HTMLFormElement) => {
-      const form = formDataFromElement(formElement)
-      const id = form.get('userId')?.toString()
-      const roleId = form.get('roleId')?.toString()
-      return apiRequest(`/admin/users/${id}`, {
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string
+      payload: Record<string, unknown>
+    }) =>
+      apiRequest(`/admin/users/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          employeeNo: form.get('employeeNo'),
-          firstName: form.get('firstName'),
-          lastName: form.get('lastName'),
-          email: form.get('email'),
-          phone: form.get('phone') || undefined,
-          specialisation: form.get('specialisation') || undefined,
-          roleIds: roleId ? [roleId] : [],
-        }),
-      })
-    },
-    onSuccess: async () => {
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: async (_data, variables) => {
       notify('User updated', 'Staff profile saved.', 'success')
       setEditingUser(null)
       await invalidate()
+      if (variables.id === currentUser?.id && variables.payload.roleIds) {
+        notify('Session ended', 'Your roles changed. Sign in again to continue.', 'warning')
+        clearSession()
+      }
+    },
+    onError: (error: Error) => {
+      notify('Could not update user', accountActionError(error, 'Unable to save the account. Please try again.'), 'critical')
     },
   })
 
@@ -187,6 +266,13 @@ export function UserAccessCenterPanel() {
       setResetPasswordUserId(null)
       await invalidate()
     },
+    onError: (error: Error) => {
+      notify(
+        'Could not reset password',
+        accountActionError(error, 'Unable to reset the password. Please try again.'),
+        'critical',
+      )
+    },
   })
 
   const assignDepartment = useMutation({
@@ -200,13 +286,41 @@ export function UserAccessCenterPanel() {
         }),
       })
     },
-    onSuccess: invalidate,
+    onSuccess: async () => {
+      notify('Department assigned', 'Staff department was saved.', 'success')
+      await invalidate()
+    },
+    onError: (error: Error) => {
+      notify(
+        'Could not assign department',
+        accountActionError(error, 'Unable to assign the department. Please try again.'),
+        'critical',
+      )
+    },
   })
 
   const userAction = useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'activate' | 'deactivate' | 'unlock' }) =>
       apiRequest(`/admin/users/${id}/${action}`, { method: 'POST' }),
-    onSuccess: invalidate,
+    onSuccess: async (_data, variables) => {
+      setActionErrorUserId(null)
+      notify(
+        variables.action === 'unlock'
+          ? 'Account unlocked'
+          : variables.action === 'activate'
+            ? 'User activated'
+            : 'User deactivated',
+        variables.action === 'deactivate'
+          ? 'The account is inactive and signed out.'
+          : 'The account status was updated.',
+        'success',
+      )
+      await invalidate()
+    },
+    onError: (error: Error) => {
+      notify('Action failed', accountActionError(error, 'Unable to update the account. Please try again.'), 'critical')
+    },
+    onSettled: () => setPendingActionKey(null),
   })
 
   const filteredUsers = useMemo(() => {
@@ -231,6 +345,67 @@ export function UserAccessCenterPanel() {
     { label: 'Password change due', value: summary?.forcePasswordChange ?? 0 },
   ]
 
+  const openEdit = (user: AdminUserItem) => {
+    setEditingUser(user)
+    setEditRoleIds(user.roles.filter((role) => assignableRoleIds.has(role.id)).map((role) => role.id))
+    setResetPasswordUserId(null)
+  }
+
+  const submitUserEdit = (event: React.FormEvent<HTMLFormElement>, user: AdminUserItem) => {
+    event.preventDefault()
+    if (updateUser.isPending) return
+    const form = new FormData(event.currentTarget)
+    const targetIsSuperadmin = user.roles.some((role) => role.name === 'superadmin')
+    const canEditRoles = !targetIsSuperadmin || currentIsSuperadmin
+    const payload: Record<string, unknown> = {
+      employeeNo: String(form.get('employeeNo') ?? '').trim(),
+      firstName: String(form.get('firstName') ?? '').trim(),
+      lastName: String(form.get('lastName') ?? '').trim(),
+      email: String(form.get('email') ?? '').trim(),
+      phone: String(form.get('phone') ?? '').trim() || undefined,
+      specialisation: String(form.get('specialisation') ?? '').trim() || undefined,
+    }
+    if (canEditRoles) {
+      if (!editRoleIds.length) {
+        notify('Roles required', 'Keep at least one role. Empty role lists are not saved.', 'warning')
+        return
+      }
+      const preservedHiddenRoles = user.roles
+        .filter((role) => !assignableRoleIds.has(role.id))
+        .map((role) => role.id)
+      payload.roleIds = [...new Set([...preservedHiddenRoles, ...editRoleIds])]
+      if (user.id === currentUser?.id) {
+        const ok = window.confirm(
+          'Changing your own roles will end this session. You will need to sign in again. Continue?',
+        )
+        if (!ok) return
+      }
+    }
+    updateUser.mutate({ id: user.id, payload })
+  }
+
+  const runUserAction = (
+    user: AdminUserItem,
+    action: 'activate' | 'deactivate' | 'unlock',
+  ) => {
+    if (userAction.isPending) return
+    if (action === 'deactivate' && user.id === currentUser?.id) {
+      notify('Not allowed', 'You cannot deactivate your own account.', 'warning')
+      return
+    }
+    const label = `${user.firstName} ${user.lastName}`
+    const confirmed =
+      action === 'deactivate'
+        ? window.confirm(`Deactivate ${label}? They will be signed out and cannot use the system until reactivated.`)
+        : action === 'activate'
+          ? window.confirm(`Activate ${label}? They will be able to sign in again.`)
+          : window.confirm(`Unlock ${label}? Failed-login lockout will be cleared.`)
+    if (!confirmed) return
+    setActionErrorUserId(user.id)
+    setPendingActionKey(`${action}:${user.id}`)
+    userAction.mutate({ id: user.id, action })
+  }
+
   if (!canManageUsers) {
     return (
       <Alert tone="warning">
@@ -251,7 +426,9 @@ export function UserAccessCenterPanel() {
           {stats.map((stat) => (
             <div key={stat.label} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{stat.label}</p>
-              <p className="mt-1 text-2xl font-bold text-slate-900">{stat.value}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">
+                {summaryLoading && stat.label === 'Active users' ? '…' : stat.value}
+              </p>
             </div>
           ))}
         </div>
@@ -313,7 +490,13 @@ export function UserAccessCenterPanel() {
             <form
               key={addMode}
               className="mt-4 space-y-4"
-              onSubmit={(event) => submitFormMutation(createUser, event)}
+              onSubmit={(event) => {
+                if (createUser.isPending) {
+                  event.preventDefault()
+                  return
+                }
+                submitFormMutation(createUser, event)
+              }}
             >
               <Field name="employeeNo" label="Employee no." required />
               <Field name="firstName" label="First name" required />
@@ -337,34 +520,45 @@ export function UserAccessCenterPanel() {
                 hint="Minimum 10 characters. The user must change this on first login."
                 required
               />
-              <label>
-                <span className="text-sm font-semibold">Role</span>
-                <select
-                  name="roleId"
-                  className="input mt-2 w-full"
-                  defaultValue={addMode === 'doctor' ? doctorRole?.id ?? '' : ''}
-                >
-                  <option value="">No role</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Button type="submit" loading={createUser.isPending}>
+              {rolesLoading ? (
+                <p className="text-sm text-slate-500">Loading roles...</p>
+              ) : (
+                <RoleChecklist
+                  name="roleIds"
+                  roles={roles}
+                  selectedIds={addMode === 'doctor' && doctorRole ? [doctorRole.id] : []}
+                />
+              )}
+              <Button type="submit" loading={createUser.isPending} disabled={createUser.isPending}>
                 <UserPlus className="h-4 w-4" />
-                {addMode === 'doctor' ? 'Create doctor account' : 'Create user'}
+                {createUser.isPending
+                  ? 'Saving…'
+                  : addMode === 'doctor'
+                    ? 'Create doctor account'
+                    : 'Create user'}
               </Button>
             </form>
-            {createUser.error ? <Alert tone="error">{createUser.error.message}</Alert> : null}
+            {createUser.error ? (
+              <Alert tone="error">{accountActionError(createUser.error, 'Unable to create the account.')}</Alert>
+            ) : null}
           </Card>
 
           {canManageDepartments ? (
             <QuickAddForm
               title="Assign staff to department"
               pending={assignDepartment.isPending}
-              onSubmit={(event) => submitFormMutation(assignDepartment, event)}
+              error={
+                assignDepartment.error
+                  ? accountActionError(assignDepartment.error, 'Unable to assign the department.')
+                  : null
+              }
+              onSubmit={(event) => {
+                if (assignDepartment.isPending) {
+                  event.preventDefault()
+                  return
+                }
+                submitFormMutation(assignDepartment, event)
+              }}
             >
               <p className="text-xs text-slate-500">
                 Create or rename departments in Control Center → Departments &amp; clinics. This screen only assigns
@@ -421,13 +615,32 @@ export function UserAccessCenterPanel() {
           <p className="mt-2 text-xs text-slate-500">
             Showing {filteredUsers.length} of {users.length} accounts
           </p>
+          {usersLoading ? (
+            <p className="mt-4 text-sm text-slate-500">Loading staff accounts...</p>
+          ) : usersError ? (
+            <div className="mt-4 space-y-3">
+              <Alert tone="error">
+                {usersQueryError instanceof Error ? usersQueryError.message : 'Unable to load staff accounts.'}
+              </Alert>
+              <Button type="button" variant="secondary" onClick={() => refetchUsers()}>
+                Retry
+              </Button>
+            </div>
+          ) : (
           <div className="mt-4 space-y-3">
-            {filteredUsers.map((user) => (
+            {filteredUsers.map((user) => {
+              const targetIsSuperadmin = user.roles.some((role) => role.name === 'superadmin')
+              const canEditRoles = !targetIsSuperadmin || currentIsSuperadmin
+              const canMutateProtected = !targetIsSuperadmin || currentIsSuperadmin
+              const isSelf = user.id === currentUser?.id
+              const isLocked = Boolean(user.lockedUntil && new Date(user.lockedUntil).getTime() > Date.now())
+              return (
               <div key={user.id} className="rounded-2xl border border-slate-200 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="font-bold">
                       {user.firstName} {user.lastName}
+                      {isSelf ? <span className="ml-2 text-xs font-semibold text-teal-700">You</span> : null}
                     </p>
                     <p className="text-sm text-slate-500">
                       {user.employeeNo} · {user.email}
@@ -443,45 +656,53 @@ export function UserAccessCenterPanel() {
                       {user.departments?.map((d) => d.name).join(', ') || 'none'}
                     </p>
                   </div>
-                  <span
-                    className={`rounded-full px-2 py-1 text-xs font-bold ${
-                      user.active ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {user.active ? 'Active' : 'Inactive'}
-                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-bold ${
+                        user.active ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {user.active ? 'Active' : 'Inactive'}
+                    </span>
+                    {isLocked ? (
+                      <span className="rounded-full bg-rose-50 px-2 py-1 text-xs font-bold text-rose-800">
+                        Locked
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="ghost"
                     className="text-xs"
-                    onClick={() => {
-                      setEditingUser(user)
-                      setResetPasswordUserId(null)
-                    }}
+                    onClick={() => openEdit(user)}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                     Edit
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="text-xs"
-                    onClick={() => {
-                      setResetPasswordUserId(user.id)
-                      setEditingUser(null)
-                    }}
-                  >
-                    <KeyRound className="h-3.5 w-3.5" />
-                    Reset password
-                  </Button>
+                  {canMutateProtected ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-xs"
+                      onClick={() => {
+                        setResetPasswordUserId(user.id)
+                        setEditingUser(null)
+                      }}
+                    >
+                      <KeyRound className="h-3.5 w-3.5" />
+                      Reset password
+                    </Button>
+                  ) : null}
                   {user.active ? (
                     <Button
                       type="button"
                       variant="secondary"
                       className="text-xs"
-                      onClick={() => userAction.mutate({ id: user.id, action: 'deactivate' })}
+                      loading={pendingActionKey === `deactivate:${user.id}`}
+                      disabled={userAction.isPending || isSelf || !canMutateProtected}
+                      onClick={() => runUserAction(user, 'deactivate')}
                     >
                       <UserMinus className="h-3.5 w-3.5" />
                       Deactivate
@@ -491,7 +712,9 @@ export function UserAccessCenterPanel() {
                       type="button"
                       variant="secondary"
                       className="text-xs"
-                      onClick={() => userAction.mutate({ id: user.id, action: 'activate' })}
+                      loading={pendingActionKey === `activate:${user.id}`}
+                      disabled={userAction.isPending || !canMutateProtected}
+                      onClick={() => runUserAction(user, 'activate')}
                     >
                       <UserPlus className="h-3.5 w-3.5" />
                       Activate
@@ -501,7 +724,9 @@ export function UserAccessCenterPanel() {
                     type="button"
                     variant="ghost"
                     className="text-xs"
-                    onClick={() => userAction.mutate({ id: user.id, action: 'unlock' })}
+                    loading={pendingActionKey === `unlock:${user.id}`}
+                    disabled={userAction.isPending || !canMutateProtected}
+                    onClick={() => runUserAction(user, 'unlock')}
                   >
                     {user.lockedUntil ? <LockOpen className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
                     Unlock
@@ -519,13 +744,22 @@ export function UserAccessCenterPanel() {
                     </span>
                   ) : null}
                 </div>
+                {!canMutateProtected ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Protected superadmin account. Status, unlock, password, and role changes are reserved for a superadmin.
+                  </p>
+                ) : null}
+                {userAction.error && actionErrorUserId === user.id ? (
+                  <Alert tone="error" className="mt-3">
+                    {accountActionError(userAction.error, 'Unable to update the account.')}
+                  </Alert>
+                ) : null}
 
                 {editingUser?.id === user.id ? (
                   <form
                     className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
-                    onSubmit={(event) => submitFormMutation(updateUser, event)}
+                    onSubmit={(event) => submitUserEdit(event, user)}
                   >
-                    <input type="hidden" name="userId" value={user.id} />
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-bold">Edit staff profile</p>
                       <button type="button" onClick={() => setEditingUser(null)}>
@@ -542,31 +776,45 @@ export function UserAccessCenterPanel() {
                       label="Specialisation"
                       defaultValue={user.specialisation ?? ''}
                     />
-                    <label>
-                      <span className="text-sm font-semibold">Role</span>
-                      <select
-                        name="roleId"
-                        className="input mt-2 w-full"
-                        defaultValue={user.roles[0]?.id ?? ''}
-                      >
-                        <option value="">No role</option>
-                        {roles.map((role) => (
-                          <option key={role.id} value={role.id}>
-                            {role.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <Button type="submit" loading={updateUser.isPending} className="text-xs">
-                      Save changes
+                    {canEditRoles ? (
+                      <RoleChecklist
+                        name="roleIds"
+                        roles={roles}
+                        selectedIds={editRoleIds}
+                        onChange={setEditRoleIds}
+                      />
+                    ) : (
+                      <Alert tone="warning">
+                        Only a superadmin can change roles on this protected account. Current roles stay{' '}
+                        {user.roles.map((role) => role.label).join(', ')}.
+                      </Alert>
+                    )}
+                    {isSelf ? (
+                      <p className="text-xs text-amber-800">
+                        This is your account. You cannot deactivate it here. Changing roles will sign you out.
+                      </p>
+                    ) : null}
+                    <Button type="submit" loading={updateUser.isPending} disabled={updateUser.isPending} className="text-xs">
+                      {updateUser.isPending ? 'Saving…' : 'Save changes'}
                     </Button>
+                    {updateUser.error ? (
+                      <Alert tone="error">
+                        {accountActionError(updateUser.error, 'Unable to save the account.')}
+                      </Alert>
+                    ) : null}
                   </form>
                 ) : null}
 
                 {resetPasswordUserId === user.id ? (
                   <form
                     className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4"
-                    onSubmit={(event) => submitFormMutation(resetPassword, event)}
+                    onSubmit={(event) => {
+                      if (resetPassword.isPending) {
+                        event.preventDefault()
+                        return
+                      }
+                      submitFormMutation(resetPassword, event, { resetOnSuccess: true })
+                    }}
                   >
                     <input type="hidden" name="userId" value={user.id} />
                     <div className="flex items-center justify-between">
@@ -579,20 +827,27 @@ export function UserAccessCenterPanel() {
                       name="temporaryPassword"
                       label="New temporary password"
                       type="password"
-                      hint="Minimum 10 characters. User sessions will be signed out."
+                      hint="Minimum 10 characters. User sessions will be signed out. The password is not stored in logs."
                       required
                     />
-                    <Button type="submit" loading={resetPassword.isPending} variant="secondary" className="text-xs">
-                      Reset password
+                    <Button type="submit" loading={resetPassword.isPending} disabled={resetPassword.isPending} variant="secondary" className="text-xs">
+                      {resetPassword.isPending ? 'Saving…' : 'Reset password'}
                     </Button>
+                    {resetPassword.error ? (
+                      <Alert tone="error">
+                        {accountActionError(resetPassword.error, 'Unable to reset the password.')}
+                      </Alert>
+                    ) : null}
                   </form>
                 ) : null}
               </div>
-            ))}
+              )
+            })}
             {!filteredUsers.length ? (
               <p className="text-sm text-slate-500">No staff match your search.</p>
             ) : null}
           </div>
+          )}
         </Card>
       </div>
     </div>

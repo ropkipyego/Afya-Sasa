@@ -23,6 +23,12 @@ export class ShaController {
     return this.shaService.latestForPatient(patientId);
   }
 
+  @Get('coverage/patient/:patientId')
+  @RequirePermissions('patients:read')
+  coverage(@Param('patientId') patientId: string) {
+    return this.shaService.coverageForPatient(patientId);
+  }
+
   @Post('eligibility')
   @RequirePermissions('patients:read', 'patients:search')
   check(@Body() dto: CheckShaEligibilityDto, @Req() request: RequestContext) {

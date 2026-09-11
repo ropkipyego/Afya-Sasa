@@ -1,7 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsIn, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import type { PaymentServiceLine } from './payment.entities';
+
+function trimString({ value }: { value: unknown }) {
+  return typeof value === 'string' ? value.trim() : value;
+}
 
 const SERVICE_LINES = [
   'consultation',
@@ -14,7 +18,9 @@ const SERVICE_LINES = [
 
 export class InitiateMpesaStkDto {
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty()
   patientId!: string;
 
   @ApiProperty({ enum: SERVICE_LINES })
@@ -65,7 +71,9 @@ export class InitiateMpesaStkDto {
 
 export class RecordManualPaymentDto {
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty()
   patientId!: string;
 
   @ApiProperty({ enum: SERVICE_LINES })
@@ -111,6 +119,7 @@ export class RecordManualPaymentDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  @Min(0, { message: 'Amount cannot be negative' })
   amount?: number;
 }
 

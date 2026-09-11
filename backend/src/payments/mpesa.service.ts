@@ -40,7 +40,7 @@ export class MpesaService {
     const phone = this.normalizePhone(input.phone);
     if (!this.isConfigured()) {
       const mockId = `MOCK-${Date.now()}`;
-      this.logger.warn(`M-Pesa not configured — mock STK for ${phone}, KES ${input.amount}`);
+      this.logger.warn(`M-Pesa not configured — mock STK initiated for amount ${input.amount}`);
       return {
         checkoutRequestId: mockId,
         merchantRequestId: mockId,

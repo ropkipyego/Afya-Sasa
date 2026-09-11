@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -43,6 +44,9 @@ export class SuperadminPolicyService {
     targetUserId: string,
     roleIds: string[],
   ): Promise<void> {
+    if (!roleIds.length) {
+      throw new BadRequestException('At least one role is required');
+    }
     const roles = await this.roles.findBy({ id: In(roleIds) });
     if (roles.length !== roleIds.length) {
       throw new NotFoundException('One or more roles were not found');
@@ -96,6 +100,9 @@ export class SuperadminPolicyService {
     if (targetIsSuperadmin && !this.isActorSuperadmin(request)) {
       throw new ForbiddenException('Only a superadmin can activate or deactivate this account');
     }
+    if (request.user?.sub === targetUserId && !active) {
+      throw new BadRequestException('You cannot deactivate your own account');
+    }
     if (targetIsSuperadmin && !active) {
       const others = await this.countActiveSuperadmins(targetUserId);
       if (others === 0) {
@@ -103,6 +110,19 @@ export class SuperadminPolicyService {
           'Cannot deactivate the last active superadmin account',
         );
       }
+    }
+  }
+
+  async assertCanUnlockUser(
+    request: RequestContext,
+    targetUserId: string,
+  ): Promise<void> {
+    const targetIsSuperadmin = await this.userHasRole(
+      targetUserId,
+      SUPERADMIN_ROLE_NAME,
+    );
+    if (targetIsSuperadmin && !this.isActorSuperadmin(request)) {
+      throw new ForbiddenException('Only a superadmin can unlock this account');
     }
   }
 

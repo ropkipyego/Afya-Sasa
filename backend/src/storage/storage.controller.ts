@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  NotFoundException,
   Post,
   Req,
   Res,
@@ -84,10 +85,19 @@ export class StorageController {
     @Req() request: RequestContext,
     @Res() response: Response,
   ) {
-    const buffer = await this.storageService.getObjectBuffer(dto.key, request.tenant?.code);
-    const filename = dto.key.split('/').pop() ?? 'download';
-    response.setHeader('Content-Type', 'application/octet-stream');
-    response.setHeader('Content-Disposition', `inline; filename="${filename.replace(/"/g, '')}"`);
-    response.send(buffer);
+    try {
+      const file = await this.storageService.getObject(dto.key, request.tenant?.code);
+      const safeName = file.filename.replace(/"/g, '');
+      const inline = file.contentType === 'application/pdf' || file.contentType.startsWith('image/');
+      response.setHeader('Content-Type', file.contentType);
+      response.setHeader(
+        'Content-Disposition',
+        `${inline ? 'inline' : 'attachment'}; filename="${safeName}"`,
+      );
+      response.setHeader('Cache-Control', 'private, no-store');
+      response.send(file.buffer);
+    } catch {
+      throw new NotFoundException('Document was not found.');
+    }
   }
 }

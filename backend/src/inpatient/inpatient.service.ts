@@ -1,6 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
+import { DataSource, In, MoreThanOrEqual, QueryFailedError, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { tenantChannel } from '../common/tenant-defaults';
@@ -30,9 +36,12 @@ import {
 } from './inpatient.dto';
 import { RealtimeService } from '../realtime/realtime.service';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
+import { buildSimplePdf } from '../common/simple-pdf';
 
 @Injectable()
 export class InpatientService {
+  private readonly logger = new Logger(InpatientService.name);
+
   constructor(
     @InjectRepository(Ward) private readonly wards: Repository<Ward>,
     @InjectRepository(Bed) private readonly beds: Repository<Bed>,
@@ -50,43 +59,97 @@ export class InpatientService {
     private readonly dataSource: DataSource,
   ) {}
 
-  createWard(dto: CreateWardDto, request: RequestContext) {
-    return this.wards.save(
-      this.wards.create({
-        ...dto,
-        floor: dto.floor ?? null,
-        active: true,
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
+  async createWard(dto: CreateWardDto, request: RequestContext) {
+    try {
+      const ward = await this.wards.save(
+        this.wards.create({
+          name: dto.name,
+          code: dto.code,
+          type: dto.type,
+          floor: dto.floor ?? null,
+          active: true,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+      this.logWardBedOp(request, 'ward.create', 'POST /api/v1/inpatient/wards');
+      return ward;
+    } catch (error) {
+      this.logWardBedOp(request, 'ward.create', 'POST /api/v1/inpatient/wards', error);
+      throw this.wardBedWriteError(error, 'ward');
+    }
   }
 
-  listWards() {
-    return this.wards.find({ order: { name: 'ASC' } });
+  async listWards() {
+    const [wards, beds, activeAdmissions] = await Promise.all([
+      this.wards.find({ order: { name: 'ASC' } }),
+      this.beds.find({ relations: { ward: true } }),
+      this.admissions.find({
+        where: { status: 'active' },
+        relations: { bed: true },
+      }),
+    ]);
+    const occupiedBedIds = occupiedBedIdSet(activeAdmissions);
+    return wards.map((ward) => ({
+      ...ward,
+      ...this.wardOccupancy(ward, beds, occupiedBedIds),
+    }));
   }
 
   async updateWard(id: string, dto: UpdateWardDto, request: RequestContext) {
-    await this.wards.update(id, { ...dto, updatedBy: request.user?.sub ?? null });
-    return this.wards.findOneOrFail({ where: { id } });
+    const ward = await this.wards.findOne({ where: { id } });
+    if (!ward) throw new NotFoundException('Ward not found');
+
+    if (dto.active === false) {
+      const activeAdmission = await this.admissions.findOne({
+        where: { ward: { id }, status: 'active' },
+      });
+      if (activeAdmission) {
+        throw new BadRequestException(
+          'Cannot deactivate a ward while patients are admitted. Discharge or transfer them first.',
+        );
+      }
+    }
+
+    const patch: Partial<Ward> = { updatedBy: request.user?.sub ?? null };
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.code !== undefined) patch.code = dto.code;
+    if (dto.type !== undefined) patch.type = dto.type;
+    if (dto.floor !== undefined) patch.floor = dto.floor;
+    if (dto.active !== undefined) patch.active = dto.active;
+
+    try {
+      await this.wards.update(id, patch);
+      this.logWardBedOp(request, 'ward.update', `PATCH /api/v1/inpatient/wards/${id}`);
+      return this.wards.findOneOrFail({ where: { id } });
+    } catch (error) {
+      this.logWardBedOp(request, 'ward.update', `PATCH /api/v1/inpatient/wards/${id}`, error);
+      throw this.wardBedWriteError(error, 'ward');
+    }
   }
 
   async createBed(dto: CreateBedDto, request: RequestContext) {
     const ward = await this.wards.findOne({ where: { id: dto.wardId } });
     if (!ward) throw new NotFoundException('Ward not found');
-    const bed = await this.beds.save(
-      this.beds.create({
-        ward,
-        bedNo: dto.bedNo,
-        type: dto.type,
-        status: 'available',
-        version: 1,
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
-    await this.wards.update(ward.id, { bedCount: ward.bedCount + 1 });
-    return bed;
+    try {
+      const bed = await this.beds.save(
+        this.beds.create({
+          ward,
+          bedNo: dto.bedNo,
+          type: dto.type,
+          status: 'available',
+          version: 1,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+      await this.wards.update(ward.id, { bedCount: ward.bedCount + 1 });
+      this.logWardBedOp(request, 'bed.create', 'POST /api/v1/inpatient/beds');
+      return bed;
+    } catch (error) {
+      this.logWardBedOp(request, 'bed.create', 'POST /api/v1/inpatient/beds', error);
+      throw this.wardBedWriteError(error, 'bed');
+    }
   }
 
   listBeds(wardId?: string) {
@@ -123,22 +186,29 @@ export class InpatientService {
       );
     }
     const userId = request.user?.sub ?? null;
-    const updated = await this.beds.update(
-      { id, status: bed.status },
-      {
+    try {
+      const updated = await this.beds.update(
+        { id, status: bed.status },
+        {
+          status: dto.status,
+          version: bed.version + 1,
+          updatedBy: userId,
+        },
+      );
+      if (!updated.affected) {
+        throw new BadRequestException('Bed status changed. Refresh and try again.');
+      }
+      this.logWardBedOp(request, 'bed.status', `PATCH /api/v1/inpatient/beds/${id}/status`);
+      this.realtime.publish(tenantChannel(request), 'bed.updated', {
+        bedId: id,
         status: dto.status,
-        version: bed.version + 1,
-        updatedBy: userId,
-      },
-    );
-    if (!updated.affected) {
-      throw new BadRequestException('Bed status changed. Refresh and try again.');
+      });
+      return this.getBed(id);
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logWardBedOp(request, 'bed.status', `PATCH /api/v1/inpatient/beds/${id}/status`, error);
+      throw this.wardBedWriteError(error, 'bed');
     }
-    this.realtime.publish(tenantChannel(request), 'bed.updated', {
-      bedId: id,
-      status: dto.status,
-    });
-    return this.getBed(id);
   }
 
   async deleteBed(id: string, request: RequestContext) {
@@ -297,7 +367,7 @@ export class InpatientService {
     });
   }
 
-  listAdmissions(status?: 'active' | 'discharged', wardId?: string) {
+  listAdmissions(status?: 'active' | 'discharged' | 'cancelled', wardId?: string) {
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (wardId) where.ward = { id: wardId };
@@ -495,6 +565,67 @@ export class InpatientService {
     return this.getAdmission(id);
   }
 
+  async cancelAdmission(id: string, request: RequestContext) {
+    const admission = await this.getAdmission(id);
+    if (admission.status !== 'active') {
+      throw new BadRequestException('Only an active admission can be cancelled.');
+    }
+    const userId = request.user?.sub ?? null;
+    await this.dataSource.transaction(async (manager) => {
+      const admissionRepo = manager.getRepository(Admission);
+      const bedRepo = manager.getRepository(Bed);
+      await admissionRepo.update(id, {
+        status: 'cancelled',
+        dischargedAt: new Date(),
+        updatedBy: userId,
+      });
+      await bedRepo.update(
+        { id: admission.bed.id, status: 'occupied' },
+        {
+          status: 'available',
+          version: admission.bed.version + 1,
+          updatedBy: userId,
+        },
+      );
+    });
+    this.realtime.publish(tenantChannel(request), 'admission.discharged', { admissionId: id });
+    this.realtime.publish(tenantChannel(request), 'bed.updated', { bedId: admission.bed.id });
+    return this.getAdmission(id);
+  }
+
+  async dischargeSummaryPdf(admissionId: string) {
+    const admission = await this.getAdmission(admissionId);
+    const summary = await this.summaries.findOne({
+      where: { admission: { id: admissionId } },
+      order: { createdAt: 'DESC' },
+    });
+    if (!summary) {
+      throw new NotFoundException('No discharge summary is on file for this admission.');
+    }
+    const patient = admission.patient;
+    return {
+      filename: `${admission.admissionNo}-discharge-summary.pdf`,
+      buffer: buildSimplePdf(`Discharge summary ${admission.admissionNo}`, [
+        {
+          heading: 'Patient',
+          lines: [
+            `${patient.firstName} ${patient.lastName} · ${patient.patientNo}`,
+            `Admitted ${admission.admittedAt.toISOString().slice(0, 10)} · ${admission.ward?.name ?? ''} ${admission.bed?.bedNo ?? ''}`,
+            `Status ${admission.status}`,
+          ],
+        },
+        { heading: 'Presenting complaint', lines: [summary.presentingComplaint] },
+        { heading: 'History', lines: [summary.history] },
+        { heading: 'Exam on admission', lines: [summary.examOnAdmission] },
+        { heading: 'Investigations', lines: [summary.investigationsSummary] },
+        { heading: 'Final diagnosis', lines: [summary.finalDiagnosis] },
+        { heading: 'Treatment', lines: [summary.treatmentGiven] },
+        { heading: 'Discharge medicines', lines: [summary.dischargeMeds] },
+        { heading: 'Follow-up', lines: [summary.followUpInstructions] },
+      ]),
+    };
+  }
+
   async bedDashboard() {
     const beds = await this.beds.find({ relations: { ward: true }, order: { bedNo: 'ASC' } });
     const activeAdmissions = await this.admissions.find({
@@ -539,22 +670,29 @@ export class InpatientService {
         }),
       ]);
 
-    const occupiedBeds = beds.filter((b) => b.status === 'occupied').length;
-    const availableBeds = beds.filter((b) => b.status === 'available').length;
+    const occupiedBedIds = occupiedBedIdSet(activeAdmissions);
+    const occupiedBeds = occupiedBedIds.size;
+    const availableBeds = beds.filter(
+      (b) => b.status === 'available' && !occupiedBedIds.has(b.id),
+    ).length;
 
     const wardSummaries = wards.map((ward) => {
-      const wardBeds = beds.filter((b) => b.ward.id === ward.id);
+      const occupancy = this.wardOccupancy(ward, beds, occupiedBedIds);
       const wardAdmissions = activeAdmissions.filter((a) => a.ward.id === ward.id);
-      const capacity = wardBeds.length || ward.bedCount;
-      const occupied = wardBeds.filter((b) => b.status === 'occupied').length;
       return {
         id: ward.id,
         name: ward.name,
         code: ward.code,
         type: ward.type,
-        capacity,
-        occupied,
-        available: Math.max(capacity - occupied, 0),
+        physicalBeds: occupancy.physicalBeds,
+        configuredCapacity: occupancy.configuredCapacity,
+        capacity: occupancy.physicalBeds,
+        occupied: occupancy.occupied,
+        available: occupancy.available,
+        reserved: occupancy.reserved,
+        maintenance: occupancy.maintenance,
+        cleaning: occupancy.cleaning,
+        inactive: occupancy.inactive,
         // No stored IPD acuity exists. Do not invent a clinical "critical" definition.
         criticalPatients: null,
         dueForReview: wardAdmissions.filter((a) => {
@@ -568,8 +706,8 @@ export class InpatientService {
 
     const icuBeds = beds.filter((b) => b.ward.type === 'icu');
     const hduBeds = beds.filter((b) => b.ward.type === 'hdu');
-    const icuOccupied = icuBeds.filter((b) => b.status === 'occupied').length;
-    const hduOccupied = hduBeds.filter((b) => b.status === 'occupied').length;
+    const icuOccupied = icuBeds.filter((b) => occupiedBedIds.has(b.id)).length;
+    const hduOccupied = hduBeds.filter((b) => occupiedBedIds.has(b.id)).length;
 
     return {
       admissionsToday: admissionsToday.length,
@@ -624,10 +762,13 @@ export class InpatientService {
       }),
     ]);
 
+    const occupiedBedIds = occupiedBedIdSet(activeAdmissions);
+    const occupancy = this.wardOccupancy(ward, beds, occupiedBedIds);
+
     const census = beds.map((bed) => {
       const admission = activeAdmissions.find((a) => a.bed.id === bed.id) ?? null;
       let clinicalStatus: 'stable' | 'review_due' | 'pending_investigation' | 'critical' | 'discharge_planned' | 'available' =
-        bed.status === 'available' ? 'available' : 'stable';
+        bed.status === 'available' && !admission ? 'available' : 'stable';
 
       if (admission) {
         const losDays = Math.ceil(
@@ -653,12 +794,17 @@ export class InpatientService {
       };
     });
 
-    const occupied = beds.filter((b) => b.status === 'occupied').length;
     return {
       ward,
-      capacity: beds.length || ward.bedCount,
-      occupied,
-      available: beds.filter((b) => b.status === 'available').length,
+      physicalBeds: occupancy.physicalBeds,
+      configuredCapacity: occupancy.configuredCapacity,
+      capacity: occupancy.physicalBeds,
+      occupied: occupancy.occupied,
+      available: occupancy.available,
+      reserved: occupancy.reserved,
+      maintenance: occupancy.maintenance,
+      cleaning: occupancy.cleaning,
+      inactive: occupancy.inactive,
       census,
     };
   }
@@ -725,4 +871,115 @@ export class InpatientService {
     const total = await this.admissions.count();
     return formatHospitalNumber('adm', total + 1);
   }
+
+  private wardOccupancy(
+    ward: Ward,
+    beds: Bed[],
+    occupiedBedIds: Set<string>,
+  ) {
+    const wardBeds = beds.filter((bed) => bed.ward?.id === ward.id);
+    let available = 0;
+    let occupied = 0;
+    let reserved = 0;
+    let maintenance = 0;
+    let cleaning = 0;
+    let inactive = 0;
+
+    for (const bed of wardBeds) {
+      if (occupiedBedIds.has(bed.id)) {
+        occupied += 1;
+        continue;
+      }
+      if (bed.status === 'available') available += 1;
+      else if (bed.status === 'reserved') reserved += 1;
+      else if (bed.status === 'maintenance') maintenance += 1;
+      else if (bed.status === 'cleaning') cleaning += 1;
+      else if (bed.status === 'inactive') inactive += 1;
+    }
+
+    return {
+      physicalBeds: wardBeds.length,
+      configuredCapacity: ward.bedCount,
+      available,
+      occupied,
+      reserved,
+      maintenance,
+      cleaning,
+      inactive,
+    };
+  }
+
+  private logWardBedOp(
+    request: RequestContext,
+    operation: string,
+    endpoint: string,
+    error?: unknown,
+  ) {
+    const payload = {
+      operation,
+      endpoint,
+      userId: request.user?.sub ?? null,
+      tenant: request.tenant?.code ?? null,
+      role: request.user?.roles?.join(',') || null,
+      requestId:
+        headerString(request.headers['x-request-id']) ??
+        headerString(request.headers['x-correlation-id']) ??
+        null,
+    };
+    if (error) {
+      this.logger.warn(
+        JSON.stringify({
+          ...payload,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }),
+      );
+      return;
+    }
+    this.logger.log(JSON.stringify(payload));
+  }
+
+  private wardBedWriteError(error: unknown, kind: 'ward' | 'bed'): Error {
+    if (
+      error instanceof BadRequestException ||
+      error instanceof NotFoundException ||
+      error instanceof ConflictException
+    ) {
+      return error;
+    }
+    if (error instanceof QueryFailedError) {
+      const code = (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code;
+      if (code === '23505') {
+        return new ConflictException(
+          kind === 'ward'
+            ? 'A ward with this code already exists'
+            : 'A bed with this number already exists in this ward',
+        );
+      }
+      if (code === '22P02') {
+        return new BadRequestException(
+          kind === 'bed' ? 'A valid ward is required' : 'Invalid identifier',
+        );
+      }
+    }
+    return error instanceof Error
+      ? error
+      : new BadRequestException(`Unable to save ${kind}`);
+  }
+}
+
+function occupiedBedIdSet(admissions: Array<{ bed?: { id: string } | null }>) {
+  const ids = new Set<string>();
+  for (const admission of admissions) {
+    if (admission.bed?.id) ids.add(admission.bed.id);
+  }
+  return ids;
+}
+
+function headerString(value: string | string[] | undefined): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (Array.isArray(value) && typeof value[0] === 'string' && value[0].trim()) {
+    return value[0].trim();
+  }
+  return null;
 }

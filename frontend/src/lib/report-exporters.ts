@@ -1,3 +1,5 @@
+import { buildSimplePdfBlob } from './simple-pdf'
+
 export type ReportFormat = 'csv' | 'pdf' | 'xlsx' | 'docx'
 
 export type ReportDefinition = {
@@ -74,21 +76,17 @@ class CsvExporter implements ReportExporter {
 
 class PdfExporter implements ReportExporter {
   format = 'pdf' as const
-  mimeType = 'text/html;charset=utf-8'
-  extension = 'html'
+  mimeType = 'application/pdf'
+  extension = 'pdf'
 
   export(reportKey: string, payload: { data?: unknown; generatedAt?: string; csv?: string }) {
     const title = reportLibrary.find((r) => r.key === reportKey)?.title ?? reportKey
-    const body = payload.csv
-      ? `<pre style="font-family:monospace;font-size:11px;white-space:pre-wrap">${escapeHtml(payload.csv)}</pre>`
-      : `<pre style="font-family:monospace;font-size:11px">${escapeHtml(JSON.stringify(payload.data, null, 2))}</pre>`
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
-      <style>body{font-family:system-ui,sans-serif;padding:2rem;color:#0f172a}h1{color:#0d9488;font-size:1.25rem}
-      .meta{color:#64748b;font-size:0.875rem;margin-bottom:1.5rem}</style></head><body>
-      <h1>${escapeHtml(title)}</h1>
-      <p class="meta">AfyaSasa · Generated ${escapeHtml(payload.generatedAt ?? new Date().toISOString())}</p>
-      ${body}</body></html>`
-    return new Blob([html], { type: this.mimeType })
+    const lines = [
+      `AfyaSasa · Generated ${payload.generatedAt ?? new Date().toISOString()}`,
+      '',
+      ...(payload.csv ? payload.csv.split('\n') : [JSON.stringify(payload.data, null, 2)]),
+    ]
+    return buildSimplePdfBlob(title, lines)
   }
 }
 
@@ -101,10 +99,6 @@ class ExcelExporter implements ReportExporter {
     const header = `# ${reportKey} · ${payload.generatedAt ?? ''}\n`
     return new Blob([header + (payload.csv ?? '')], { type: this.mimeType })
   }
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 const exporters: Record<Exclude<ReportFormat, 'docx'>, ReportExporter> = {

@@ -195,9 +195,14 @@ export function AppointmentCenter() {
             className="mt-8 space-y-5"
             onSubmit={(event) => {
               event.preventDefault()
-              createAppointment.mutate(event.currentTarget)
-              event.currentTarget.reset()
-              setClinicId('')
+              if (createAppointment.isPending) return
+              const form = event.currentTarget
+              createAppointment.mutate(form, {
+                onSuccess: () => {
+                  form.reset()
+                  setClinicId('')
+                },
+              })
             }}
           >
             <PatientSearchAutocomplete

@@ -282,8 +282,8 @@ export function DoctorConsultationWorkspace({
             className="mt-8 grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 md:grid-cols-2"
             onSubmit={(event) => {
               event.preventDefault()
-              addDiagnosis.mutate(event.currentTarget)
-              event.currentTarget.reset()
+              const form = event.currentTarget
+              addDiagnosis.mutate(form)
             }}
           >
             <p className="md:col-span-2 text-sm font-bold text-slate-800">Add diagnosis</p>
@@ -384,8 +384,8 @@ export function DoctorConsultationWorkspace({
             className="mt-6 space-y-5"
             onSubmit={(event) => {
               event.preventDefault()
-              createReferral.mutate(event.currentTarget)
-              event.currentTarget.reset()
+              const form = event.currentTarget
+              createReferral.mutate(form)
             }}
           >
             <SelectField name="type" label="Referral type" required defaultValue="internal">

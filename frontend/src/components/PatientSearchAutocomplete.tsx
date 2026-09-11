@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { QrCode, Search, User, X } from 'lucide-react'
 import { apiRequest } from '../lib/api'
+import { calcAge } from '../lib/patient-utils'
 import { Input, Button } from './ui'
 import { useClinicalCatalog } from '../hooks/useClinicalCatalog'
 import { isFeatureEnabled } from '../lib/hospital-configuration'
@@ -193,7 +194,8 @@ export function PatientSearchAutocomplete({
                             {patient.firstName} {patient.lastName}
                           </p>
                           <p className="text-sm text-slate-500">
-                            {patient.patientNo} · DOB {patient.dateOfBirth} · {patient.primaryPhone}
+                            {patient.patientNo} · {calcAge(patient.dateOfBirth)} yrs
+                            {patient.gender ? ` · ${patient.gender}` : ''} · {patient.primaryPhone}
                           </p>
                         </button>
                       </li>
@@ -324,7 +326,7 @@ export function PatientSearchBrowse({
                       {patient.firstName} {patient.lastName}
                     </p>
                     <p className="text-sm text-slate-500">
-                      {patient.patientNo} · DOB {patient.dateOfBirth}
+                      {patient.patientNo} · {calcAge(patient.dateOfBirth)} yrs · DOB {patient.dateOfBirth}
                       {patient.gender ? ` · ${patient.gender}` : ''} · {patient.primaryPhone}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400">

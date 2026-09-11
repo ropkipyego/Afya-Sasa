@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { Encounter } from '../opd/opd.entities';
 import { LabRequest } from '../laboratory/laboratory.entities';
@@ -23,8 +23,15 @@ export class PaymentsService {
   ) {}
 
   async initiateMpesaStk(dto: InitiateMpesaStkDto, request: RequestContext) {
+    this.assertAmount(dto.amount, false);
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
+    await this.assertNoRecentDuplicate({
+      patientId: patient.id,
+      amount: dto.amount,
+      method: 'mpesa',
+      serviceLine: dto.serviceLine,
+    });
 
     const serviceEntityId = dto.serviceEntityId ?? dto.labRequestId ?? null;
     const labRequest = await this.resolveLabRequest(dto.serviceLine, serviceEntityId, dto.labRequestId);
@@ -76,8 +83,18 @@ export class PaymentsService {
   }
 
   async recordManualPayment(dto: RecordManualPaymentDto, request: RequestContext) {
+    const amount = dto.method === 'waived' ? dto.amount ?? 0 : dto.amount;
+    this.assertAmount(amount, dto.method === 'waived');
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
+    if (amount != null) {
+      await this.assertNoRecentDuplicate({
+        patientId: patient.id,
+        amount,
+        method: dto.method,
+        serviceLine: dto.serviceLine,
+      });
+    }
 
     const serviceEntityId = dto.serviceEntityId ?? dto.labRequestId ?? null;
     const labRequest = await this.resolveLabRequest(dto.serviceLine, serviceEntityId, dto.labRequestId);
@@ -93,7 +110,7 @@ export class PaymentsService {
         serviceDescription: dto.serviceDescription ?? null,
         method: dto.method,
         payerScheme: dto.payerScheme ?? null,
-        amount: dto.amount != null ? String(dto.amount) : null,
+        amount: amount != null ? String(amount) : null,
         currency: 'KES',
         status: 'completed',
         externalReference: dto.reference ?? null,
@@ -110,7 +127,7 @@ export class PaymentsService {
       method: dto.method,
       payerScheme: dto.payerScheme ?? null,
       reference: dto.reference ?? undefined,
-      amount: dto.amount,
+      amount,
       updatedBy: request.user?.sub ?? null,
     });
 
@@ -120,7 +137,7 @@ export class PaymentsService {
         serviceLine: dto.serviceLine,
         serviceEntityId,
         reference: dto.reference,
-        amount: dto.amount,
+        amount,
       });
     }
 
@@ -274,6 +291,40 @@ export class PaymentsService {
         receiptNumber: params.reference ?? null,
         updatedBy: params.updatedBy,
       });
+    }
+  }
+
+  assertAmount(amount: number | undefined, allowZero: boolean) {
+    if (amount == null) {
+      throw new BadRequestException('Amount is required');
+    }
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new BadRequestException('Amount cannot be negative');
+    }
+    if (!allowZero && amount <= 0) {
+      throw new BadRequestException('Amount must be greater than zero');
+    }
+  }
+
+  private async assertNoRecentDuplicate(params: {
+    patientId: string;
+    amount: number;
+    method: string;
+    serviceLine: PaymentServiceLine;
+  }) {
+    const recent = await this.transactions.findOne({
+      where: {
+        patient: { id: params.patientId },
+        method: params.method as PaymentTransaction['method'],
+        serviceLine: params.serviceLine,
+        amount: String(params.amount),
+        createdAt: MoreThan(new Date(Date.now() - 2 * 60 * 1000)),
+      },
+    });
+    if (recent && (recent.status === 'completed' || recent.status === 'initiated')) {
+      throw new BadRequestException(
+        'A matching payment was just recorded. Refresh the cashier desk instead of submitting again.',
+      );
     }
   }
 

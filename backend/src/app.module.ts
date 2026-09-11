@@ -34,8 +34,10 @@ import { MarketingModule } from './marketing/marketing.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ShaModule } from './integration/sha/sha.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
+import { RequestIdMiddleware } from './common/request-id.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
+import { HttpLoggingInterceptor } from './common/http-logging.interceptor';
 
 @Module({
   imports: [
@@ -108,11 +110,12 @@ import { AuditInterceptor } from './core/audit/audit.interceptor';
     AppService,
     { provide: APP_GUARD, useClass: JwtAccessGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_INTERCEPTOR, useClass: HttpLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantMiddleware).forRoutes('*');
+    consumer.apply(RequestIdMiddleware, TenantMiddleware).forRoutes('*');
   }
 }

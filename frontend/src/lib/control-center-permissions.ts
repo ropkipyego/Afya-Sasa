@@ -20,12 +20,15 @@ export function canAccessControlCenterSection(
   permissions: string[],
   section: Exclude<ControlCenterSection, 'home'>,
 ): boolean {
-  const required = permissionForControlCenterSection(section)
   if (section === 'superadmin') {
     return (
       permissions.includes('platform:superadmin') ||
       permissions.includes('platform:tenants')
     )
   }
+  if (section === 'wards') {
+    return permissions.includes('wards:manage') || permissions.includes('beds:manage')
+  }
+  const required = permissionForControlCenterSection(section)
   return permissions.includes(required)
 }

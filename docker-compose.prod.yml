@@ -6,15 +6,19 @@
 
 services:
   postgres:
+    restart: unless-stopped
     ports: []
 
   redis:
+    restart: unless-stopped
     ports: []
 
   minio:
+    restart: unless-stopped
     ports: []
 
   backend:
+    restart: unless-stopped
     ports: []
     environment:
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://127.0.0.1:8080/minio}
@@ -22,9 +26,11 @@ services:
       AFYASASA_ALLOW_DEMO_SEED: "false"
 
   frontend:
+    restart: unless-stopped
     ports: []
 
   nginx:
+    restart: unless-stopped
     ports:
       # Bind locally so host Nginx/Certbot can terminate TLS on :443
       - "127.0.0.1:8080:80"

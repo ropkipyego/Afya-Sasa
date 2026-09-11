@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { RequestContext } from '../common/request-context';
-import { formatHospitalNumber } from '../common/hospital-numbering';
+import { formatHospitalNumber, hospitalNumberLikePattern } from '../common/hospital-numbering';
+import { isMinorPatient, normalizePhoneDigits } from './patient.rules';
 import QRCode from 'qrcode';
 import { Repository, Not, In } from 'typeorm';
 import { Appointment } from '../appointments/appointment.entities';
@@ -114,6 +115,7 @@ export class PatientsService {
 
     if (params.q?.trim()) {
       const term = `%${params.q.trim()}%`;
+      const phoneTail = normalizePhoneDigits(params.q).slice(-9);
       query.andWhere(
         `(
           patient.first_name ILIKE :term OR
@@ -123,8 +125,14 @@ export class PatientsService {
           patient.primary_phone ILIKE :term OR
           patient.secondary_phone ILIKE :term OR
           identifier.value ILIKE :term
+          ${
+            phoneTail.length >= 7
+              ? `OR regexp_replace(coalesce(patient.primary_phone, ''), '\\D', '', 'g') LIKE :qPhoneTail
+                 OR regexp_replace(coalesce(patient.secondary_phone, ''), '\\D', '', 'g') LIKE :qPhoneTail`
+              : ''
+          }
         )`,
-        { term },
+        phoneTail.length >= 7 ? { term, qPhoneTail: `%${phoneTail}` } : { term },
       );
     }
 
@@ -135,22 +143,30 @@ export class PatientsService {
     }
 
     if (params.phone?.trim()) {
+      const phoneTail = normalizePhoneDigits(params.phone).slice(-9);
       query.andWhere(
-        '(patient.primary_phone ILIKE :phone OR patient.secondary_phone ILIKE :phone)',
-        { phone: `%${params.phone.trim()}%` },
+        phoneTail.length >= 7
+          ? `(patient.primary_phone ILIKE :phone OR patient.secondary_phone ILIKE :phone
+              OR regexp_replace(coalesce(patient.primary_phone, ''), '\\D', '', 'g') LIKE :phoneTail
+              OR regexp_replace(coalesce(patient.secondary_phone, ''), '\\D', '', 'g') LIKE :phoneTail)`
+          : '(patient.primary_phone ILIKE :phone OR patient.secondary_phone ILIKE :phone)',
+        phoneTail.length >= 7
+          ? { phone: `%${params.phone.trim()}%`, phoneTail: `%${phoneTail}` }
+          : { phone: `%${params.phone.trim()}%` },
       );
     }
 
     const [items, total] = await query.getManyAndCount();
 
     return {
-      items,
+      items: items.map((patient) => this.toSearchItem(patient)),
       meta: { page, pageSize, total },
     };
   }
 
   async create(dto: CreatePatientDto, request: RequestContext) {
-    const identifiers = dto.identifiers ?? [];
+    this.assertCreateRules(dto);
+    const identifiers = (dto.identifiers ?? []).filter((row) => row.value?.trim());
     if (identifiers.length) {
       await this.ensureNoDuplicateIdentifier(identifiers);
     }
@@ -186,7 +202,9 @@ export class PatientsService {
           updatedBy: request.user?.sub ?? null,
         }),
       ),
-      nextOfKin: (dto.nextOfKin ?? []).map((nextOfKin, index) => ({
+      nextOfKin: (dto.nextOfKin ?? [])
+        .filter((row) => row.name?.trim() && row.relationship?.trim() && row.primaryPhone?.trim())
+        .map((nextOfKin, index) => ({
         ...nextOfKin,
         secondaryPhone: nextOfKin.secondaryPhone ?? null,
         email: nextOfKin.email ?? null,
@@ -257,6 +275,11 @@ export class PatientsService {
     delete safeDemographics.patientNo;
     delete safeDemographics.qrCode;
     delete safeDemographics.id;
+    for (const key of ['firstName', 'lastName', 'primaryPhone', 'dateOfBirth'] as const) {
+      if (safeDemographics[key] !== undefined && !String(safeDemographics[key]).trim()) {
+        throw new BadRequestException(`${key} cannot be blank`);
+      }
+    }
     await this.patients.update(id, {
       ...safeDemographics,
       updatedBy: request.user?.sub ?? null,
@@ -735,31 +758,36 @@ export class PatientsService {
         )
       : [];
 
-    const phoneMatches = await this.patients.find({
-      where: [
-        { primaryPhone: dto.primaryPhone },
-        { secondaryPhone: dto.primaryPhone },
-      ],
-      take: 10,
-    });
+    const phoneTail = normalizePhoneDigits(dto.primaryPhone).slice(-9);
+    const phoneMatches =
+      phoneTail.length >= 7
+        ? await this.patients
+            .createQueryBuilder('patient')
+            .where('patient.deleted_at IS NULL')
+            .andWhere(
+              `(regexp_replace(coalesce(patient.primary_phone, ''), '\\D', '', 'g') LIKE :phoneTail
+                OR regexp_replace(coalesce(patient.secondary_phone, ''), '\\D', '', 'g') LIKE :phoneTail)`,
+              { phoneTail: `%${phoneTail}` },
+            )
+            .take(10)
+            .getMany()
+        : [];
 
-    const nameDobMatches = dto.dateOfBirth
-      ? await this.patients
-          .createQueryBuilder('patient')
-          .where('patient.deleted_at IS NULL')
-          .andWhere('patient.date_of_birth = :dob', { dob: dto.dateOfBirth })
-          .andWhere(
-            `(lower(patient.last_name) = lower(:lastName)
-              OR patient.primary_phone = :phone
-              OR patient.secondary_phone = :phone)`,
-            {
-              lastName: dto.lastName,
-              phone: dto.primaryPhone,
-            },
-          )
-          .take(10)
-          .getMany()
-      : [];
+    const nameDobMatches =
+      dto.dateOfBirth && dto.firstName && dto.lastName
+        ? await this.patients
+            .createQueryBuilder('patient')
+            .where('patient.deleted_at IS NULL')
+            .andWhere('patient.date_of_birth = :dob', { dob: dto.dateOfBirth.slice(0, 10) })
+            .andWhere('lower(patient.first_name) = lower(:firstName)', {
+              firstName: dto.firstName.trim(),
+            })
+            .andWhere('lower(patient.last_name) = lower(:lastName)', {
+              lastName: dto.lastName.trim(),
+            })
+            .take(10)
+            .getMany()
+        : [];
 
     const nationalId = identifiers.find((id) => id.type === 'national_id')?.value;
     const nationalIdMatches = nationalId
@@ -1017,16 +1045,70 @@ export class PatientsService {
         relations: { patient: true },
       });
       if (duplicate) {
+        const existingNo = duplicate.patient?.patientNo;
         throw new ConflictException(
-          `Duplicate patient identifier: ${identifier.type}`,
+          existingNo
+            ? `A patient with this ${identifier.type.replace(/_/g, ' ')} already exists (${existingNo}).`
+            : `A patient with this ${identifier.type.replace(/_/g, ' ')} already exists.`,
         );
       }
     }
   }
 
   private async generatePatientNumber(): Promise<string> {
-    const total = await this.patients.count();
-    return formatHospitalNumber('patient', total + 1);
+    const year = new Date().getFullYear();
+    const like = hospitalNumberLikePattern('patient', year);
+    const latest = await this.patients
+      .createQueryBuilder('patient')
+      .withDeleted()
+      .select('patient.patient_no', 'patientNo')
+      .where('patient.patient_no LIKE :like', { like })
+      .orderBy('patient.patient_no', 'DESC')
+      .limit(1)
+      .getRawOne<{ patientNo?: string }>();
+    const lastSeq = Number(String(latest?.patientNo ?? '').split('-').pop());
+    const next = Number.isFinite(lastSeq) && lastSeq > 0 ? lastSeq + 1 : 1;
+    return formatHospitalNumber('patient', next, year);
+  }
+
+  assertCreateRules(dto: CreatePatientDto) {
+    if (!dto.firstName?.trim() || !dto.lastName?.trim()) {
+      throw new BadRequestException('First name and last name are required');
+    }
+    if (!dto.dateOfBirth?.trim()) {
+      throw new BadRequestException('Date of birth is required');
+    }
+    if (!dto.primaryPhone?.trim()) {
+      throw new BadRequestException('Phone number is required');
+    }
+    if (isMinorPatient(dto.dateOfBirth)) {
+      const guardian = (dto.nextOfKin ?? []).find(
+        (row) => row.name?.trim() && row.relationship?.trim() && row.primaryPhone?.trim(),
+      );
+      if (!guardian) {
+        throw new BadRequestException(
+          'Guardian name, relationship, and phone are required for a minor. The child remains the patient.',
+        );
+      }
+    }
+  }
+
+  private toSearchItem(patient: Patient) {
+    return {
+      id: patient.id,
+      patientNo: patient.patientNo,
+      firstName: patient.firstName,
+      middleName: patient.middleName,
+      lastName: patient.lastName,
+      dateOfBirth: patient.dateOfBirth,
+      gender: patient.gender,
+      primaryPhone: patient.primaryPhone,
+      createdAt: patient.createdAt,
+      identifiers: (patient.identifiers ?? []).map((row) => ({
+        type: row.type,
+        value: row.value,
+      })),
+    };
   }
 
   private filterBySecondarySearch(

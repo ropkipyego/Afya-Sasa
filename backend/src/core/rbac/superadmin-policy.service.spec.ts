@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import type { RequestContext } from '../../common/request-context';
@@ -155,6 +155,30 @@ describe('SuperadminPolicyService', () => {
         false,
       ),
     ).rejects.toThrow(/Only a superadmin can activate or deactivate/);
+  });
+
+  it('rejects assigning an empty role list', async () => {
+    await expect(
+      service.assertCanAssignRoles(actor(['superadmin']), ADMIN_USER_ID, []),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('blocks deactivating the current account', async () => {
+    mockUserHasRole(false);
+    const request = actor(['administrator']);
+    request.user!.sub = ADMIN_USER_ID;
+
+    await expect(
+      service.assertCanChangeUserActive(request, ADMIN_USER_ID, false),
+    ).rejects.toThrow(/cannot deactivate your own account/);
+  });
+
+  it('blocks administrator from unlocking a superadmin account', async () => {
+    mockUserHasRole(true);
+
+    await expect(
+      service.assertCanUnlockUser(actor(['administrator']), SUPERADMIN_USER_ID),
+    ).rejects.toThrow(/Only a superadmin can unlock/);
   });
 
   it('blocks non-superadmin from editing administrator role permissions', async () => {

@@ -105,15 +105,37 @@ export function MarGrid({
                   return (
                     <td key={slot} className="px-3 py-3 text-center">
                       {dose ? (
-                        <span
-                          className={clsx(
-                            'inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold',
-                            statusTone[dose.status] ?? statusTone.scheduled,
-                          )}
-                          title={dose.status}
-                        >
-                          {statusIcon[dose.status] ?? '○'}
-                        </span>
+                        <div className="space-y-1">
+                          <span
+                            className={clsx(
+                              'inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold',
+                              statusTone[dose.status] ?? statusTone.scheduled,
+                            )}
+                            title={dose.status.replace('_', ' ')}
+                          >
+                            {statusIcon[dose.status] ?? '○'}
+                          </span>
+                          <p className="text-[10px] font-semibold uppercase text-slate-500">
+                            {dose.status.replace('_', ' ')}
+                          </p>
+                          {dose.status === 'scheduled' && onUpdateStatus ? (
+                            <div className="flex flex-wrap justify-center gap-1">
+                              {chartActions.map((action) => (
+                                <Button
+                                  key={action.status}
+                                  type="button"
+                                  variant="ghost"
+                                  className="px-1.5 py-0.5 text-[10px]"
+                                  loading={updatingId === dose.id}
+                                  disabled={updatingId === dose.id}
+                                  onClick={() => onUpdateStatus(dose.id, action.status)}
+                                >
+                                  {action.label}
+                                </Button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}

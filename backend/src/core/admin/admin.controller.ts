@@ -83,8 +83,8 @@ export class AdminController {
 
   @Post('users/:id/unlock')
   @RequirePermissions('users:manage')
-  unlockUser(@Param('id') id: string) {
-    return this.adminService.unlockUser(id);
+  unlockUser(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.adminService.unlockUser(id, request);
   }
 
   @Post('users/:id/reset-password')

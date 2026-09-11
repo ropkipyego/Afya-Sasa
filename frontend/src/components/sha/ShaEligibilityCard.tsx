@@ -6,6 +6,7 @@ import {
   SHA_IDENTIFICATION_TYPES,
   checkShaEligibility,
   getLatestShaEligibility,
+  getShaCoverage,
   getShaStatus,
   type ShaEligibilityCheck,
 } from '../../lib/sha'
@@ -33,6 +34,11 @@ export function ShaEligibilityCard({
   const { data: latest } = useQuery({
     queryKey: ['sha-eligibility', patientId],
     queryFn: () => getLatestShaEligibility(patientId!),
+    enabled: Boolean(patientId),
+  })
+  const { data: coverage } = useQuery({
+    queryKey: ['sha-coverage', patientId],
+    queryFn: () => getShaCoverage(patientId!),
     enabled: Boolean(patientId),
   })
 
@@ -76,6 +82,23 @@ export function ShaEligibilityCard({
           </p>
         </div>
       </div>
+
+      {coverage ? (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          {coverage.verificationState === 'verified'
+            ? 'Last SHA HIE check is on file (verified eligibility).'
+            : coverage.verificationState === 'practice_only'
+              ? 'Last check was practice mode only — not live SHA verification.'
+              : coverage.verificationState === 'unavailable'
+                ? 'Live SHA verification is unavailable. IDs below are recorded on the patient file only.'
+                : coverage.identifiersOnFile.length
+                  ? 'Insurance IDs are recorded on the patient file. They are not a live eligibility result.'
+                  : 'No SHA/member ID is on this patient file yet.'}
+          {coverage.identifiersOnFile.length
+            ? ` On file: ${coverage.identifiersOnFile.map((row) => row.type.replace(/_/g, ' ')).join(', ')}.`
+            : ''}
+        </p>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <SelectField

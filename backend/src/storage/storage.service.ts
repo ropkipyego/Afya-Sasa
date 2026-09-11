@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { assertAllowedUpload } from './storage.constants';
+import { mimeFromFilename } from '../common/simple-pdf';
 
 @Injectable()
 export class StorageService {
@@ -137,6 +138,14 @@ export class StorageService {
   }
 
   async getObjectBuffer(key: string, tenantCode?: string): Promise<Buffer> {
+    const { buffer } = await this.getObject(key, tenantCode);
+    return buffer;
+  }
+
+  async getObject(
+    key: string,
+    tenantCode?: string,
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
     const normalisedKey = this.tenantKey(key, tenantCode);
     const response = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: normalisedKey }),
@@ -149,7 +158,12 @@ export class StorageService {
     for await (const chunk of body as AsyncIterable<Uint8Array>) {
       chunks.push(chunk);
     }
-    return Buffer.concat(chunks);
+    const filename = normalisedKey.split('/').pop() ?? 'download';
+    return {
+      buffer: Buffer.concat(chunks),
+      contentType: response.ContentType || mimeFromFilename(filename),
+      filename,
+    };
   }
 
   private tenantKey(key: string, tenantCode?: string, folder?: string) {

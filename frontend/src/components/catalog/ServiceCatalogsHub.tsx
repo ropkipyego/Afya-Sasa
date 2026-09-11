@@ -65,7 +65,7 @@ const CARDS: ImportCard[] = [
   {
     id: 'marketing',
     title: 'Marketing sites & activities',
-    description: 'Outreach sites and activity types. Daily report uses these as dropdowns — not free text.',
+    description: 'Optional site and service suggestions. Marketers can still type a new facility or activity.',
     template: '/templates/marketing-catalog-import-template.csv',
     endpoint: '/marketing/catalog/import',
     countQuery: {

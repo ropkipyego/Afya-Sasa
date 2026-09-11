@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Save, Search } from 'lucide-react'
 import { Alert, Button, Card, Field, Input, PageHeader } from '../../ui'
-import { formDataFromElement } from '../../../lib/form-utils'
+import { formDataFromElement, submitFormMutation } from '../../../lib/form-utils'
 import { apiRequest } from '../../../lib/api'
 import { notify } from '../../../lib/notify'
 import { useAuthStore } from '../../../lib/auth-store'
@@ -25,7 +25,13 @@ export function RolesPermissionsPanel() {
   const [permissionSearch, setPermissionSearch] = useState('')
   const [draftPermissionIds, setDraftPermissionIds] = useState<string[]>([])
 
-  const { data: roles = [] } = useQuery({
+  const {
+    data: roles = [],
+    isLoading: rolesLoading,
+    isError: rolesError,
+    error: rolesQueryError,
+    refetch: refetchRoles,
+  } = useQuery({
     queryKey: ['admin-roles'],
     queryFn: () => apiRequest<RoleItem[]>('/admin/roles'),
   })
@@ -71,6 +77,9 @@ export function RolesPermissionsPanel() {
       await queryClient.invalidateQueries({ queryKey: ['admin-roles'] })
       notify('Role created', 'Assign permissions below.', 'success')
     },
+    onError: (error: Error) => {
+      notify('Could not create role', error.message, 'critical')
+    },
   })
 
   const savePermissions = useMutation({
@@ -83,6 +92,9 @@ export function RolesPermissionsPanel() {
       setDraftPermissionIds([])
       await queryClient.invalidateQueries({ queryKey: ['admin-roles'] })
       notify('Permissions saved', `${selectedRole?.label} updated.`, 'success')
+    },
+    onError: (error: Error) => {
+      notify('Could not save permissions', error.message, 'critical')
     },
   })
 
@@ -115,21 +127,36 @@ export function RolesPermissionsPanel() {
         <form
           className="mt-6 space-y-4"
           onSubmit={(event) => {
-            event.preventDefault()
-            createRole.mutate(event.currentTarget)
-            event.currentTarget.reset()
+            if (createRole.isPending) {
+              event.preventDefault()
+              return
+            }
+            submitFormMutation(createRole, event)
           }}
         >
           <Field name="name" label="Role key" required placeholder="senior_lab_officer" />
           <Field name="label" label="Display label" required placeholder="Senior laboratory officer" />
           <Field name="description" label="Description" />
-          <Button type="submit" loading={createRole.isPending}>
-            Create role
+          <Button type="submit" loading={createRole.isPending} disabled={createRole.isPending}>
+            {createRole.isPending ? 'Saving…' : 'Create role'}
           </Button>
         </form>
+        {createRole.error ? <Alert tone="error" className="mt-3">{createRole.error.message}</Alert> : null}
 
         <div className="mt-8">
           <h4 className="font-bold">Existing roles</h4>
+          {rolesLoading ? (
+            <p className="mt-3 text-sm text-slate-500">Loading roles...</p>
+          ) : rolesError ? (
+            <div className="mt-3 space-y-3">
+              <Alert tone="error">
+                {rolesQueryError instanceof Error ? rolesQueryError.message : 'Unable to load roles.'}
+              </Alert>
+              <Button type="button" variant="secondary" onClick={() => refetchRoles()}>
+                Retry
+              </Button>
+            </div>
+          ) : (
           <div className="mt-3 space-y-2">
             {roles.map((role) => (
               <button
@@ -151,7 +178,9 @@ export function RolesPermissionsPanel() {
                 </p>
               </button>
             ))}
+            {!roles.length ? <p className="text-sm text-slate-500">No roles configured yet.</p> : null}
           </div>
+          )}
         </div>
       </Card>
 
@@ -236,7 +265,7 @@ export function RolesPermissionsPanel() {
               type="button"
               className="mt-4"
               loading={savePermissions.isPending}
-              disabled={selectedRoleLocked}
+              disabled={selectedRoleLocked || savePermissions.isPending}
               onClick={() => savePermissions.mutate()}
             >
               <Save className="h-4 w-4" />

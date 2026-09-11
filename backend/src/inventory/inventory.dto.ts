@@ -33,6 +33,20 @@ export class CreateInventoryItemDto {
   @IsOptional()
   @IsBoolean()
   trackBatch?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minLevel?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  maxLevel?: number;
 }
 
 export class ReceiveStockDto {

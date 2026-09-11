@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { ArrowLeft, Sparkles, UserPlus } from 'lucide-react'
-import { Button, Card, PageHeader } from '../ui'
+import { Button, Card, PageHeader, Alert } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
@@ -67,7 +67,7 @@ export function WardDashboard({
     onError: (error: Error) => notify('Cannot free bed', error.message, 'critical'),
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['ward-census', wardId],
     queryFn: () =>
       apiRequest<{
@@ -77,6 +77,10 @@ export function WardDashboard({
         available: number
         reserved?: number
         cleaning?: number
+        maintenance?: number
+        inactive?: number
+        physicalBeds?: number
+        configuredCapacity?: number
         census: CensusRow[]
       }>(`/inpatient/wards/${wardId}/census`),
     refetchInterval: 20_000,
@@ -88,13 +92,26 @@ export function WardDashboard({
     return data.census.filter((row) => row.patient?.id === searchPatient.id)
   }, [data?.census, searchPatient])
 
-  const occupancyPct = data ? Math.round((data.occupied / Math.max(data.capacity, 1)) * 100) : 0
+  const occupancyPct = data
+    ? Math.round((data.occupied / Math.max(data.physicalBeds ?? data.capacity, 1)) * 100)
+    : 0
   const avgLos = useMemo(() => {
     const occupied = (data?.census ?? []).filter((r) => r.admission)
     if (!occupied.length) return 0
     const total = occupied.reduce((sum, r) => sum + calcLosDays(r.admission!.admittedAt), 0)
     return Math.round(total / occupied.length)
   }, [data?.census])
+
+  if (isError) {
+    return (
+      <Card className="space-y-4 p-8">
+        <Alert tone="error">{error instanceof Error ? error.message : 'Unable to load this ward.'}</Alert>
+        <Button type="button" variant="secondary" onClick={() => refetch()}>
+          Retry
+        </Button>
+      </Card>
+    )
+  }
 
   if (isLoading || !data) {
     return (
@@ -108,8 +125,8 @@ export function WardDashboard({
     )
   }
 
-  const reserved = data.census.filter((r) => r.bed.status === 'reserved').length
-  const cleaning = data.census.filter((r) => r.bed.status === 'cleaning').length
+  const reserved = data.reserved ?? data.census.filter((r) => r.bed.status === 'reserved').length
+  const cleaning = data.cleaning ?? data.census.filter((r) => r.bed.status === 'cleaning').length
 
   return (
     <div className="workspace-shell animate-fade-in pb-10">
@@ -123,7 +140,7 @@ export function WardDashboard({
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-        <WardMetric label="Capacity" value={data.capacity} />
+        <WardMetric label="Physical beds" value={data.physicalBeds ?? data.capacity} />
         <WardMetric label="Occupied" value={data.occupied} tone="border-red-200 bg-red-50/50" />
         <WardMetric label="Available" value={data.available} tone="border-emerald-200 bg-emerald-50/50" />
         <WardMetric label="Reserved" value={reserved} tone="border-sky-200 bg-sky-50/50" />
@@ -131,6 +148,13 @@ export function WardDashboard({
         <WardMetric label="Occupancy" value={`${occupancyPct}%`} />
         <WardMetric label="Avg stay" value={`${avgLos}d`} />
       </div>
+      {data.configuredCapacity !== undefined &&
+      data.physicalBeds !== undefined &&
+      data.configuredCapacity !== data.physicalBeds ? (
+        <p className="text-sm text-amber-800">
+          Configured capacity: {data.configuredCapacity} · Physical bed records: {data.physicalBeds}
+        </p>
+      ) : null}
 
       <Card className="p-5 md:p-6">
         <p className="mb-3 text-sm font-semibold text-slate-700">Find patient on this ward</p>
@@ -139,6 +163,7 @@ export function WardDashboard({
 
       <section className="space-y-4">
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Bed board</h3>
+        {data.census.length ? (
         <div className="bed-card-grid">
           {filteredCensus.map((row, index) => {
             const isOccupied = Boolean(row.admission && row.patient)
@@ -223,6 +248,11 @@ export function WardDashboard({
             )
           })}
         </div>
+        ) : (
+          <p className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500">
+            No beds configured for this ward.
+          </p>
+        )}
       </section>
     </div>
   )

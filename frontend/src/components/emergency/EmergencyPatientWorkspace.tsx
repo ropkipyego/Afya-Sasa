@@ -436,8 +436,8 @@ export function EmergencyPatientWorkspace({
             className="mt-4 space-y-4"
             onSubmit={(e) => {
               e.preventDefault()
-              addMedication.mutate(e.currentTarget)
-              e.currentTarget.reset()
+              const form = e.currentTarget
+              addMedication.mutate(form, { onSuccess: () => form.reset() })
             }}
           >
             <Field name="medication" label="Medication" required placeholder="e.g. Paracetamol" />

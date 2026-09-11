@@ -119,6 +119,41 @@ export class ShaService {
     });
   }
 
+  async coverageForPatient(patientId: string) {
+    const patient = await this.ensurePatient(patientId);
+    const latest = await this.checks.findOne({
+      where: { patientId },
+      order: { createdAt: 'DESC' },
+    });
+    const mode = this.resolvedMode();
+    const identifiersOnFile = (patient.identifiers ?? [])
+      .filter((row) => IDENTIFIER_PRIORITY.includes(row.type) || row.type === 'sha')
+      .map((row) => ({ type: row.type, value: row.value, verified: row.verified }));
+    return {
+      mode,
+      liveVerificationAvailable: mode === 'live',
+      identifiersOnFile,
+      latestCheck: latest
+        ? {
+            outcome: latest.outcome,
+            source: latest.source,
+            statusDesc: latest.statusDesc,
+            createdAt: latest.createdAt,
+            schemes: latest.schemes,
+          }
+        : null,
+      verificationState: latest
+        ? latest.source === 'live'
+          ? 'verified'
+          : latest.source === 'stub'
+            ? 'practice_only'
+            : 'recorded'
+        : mode === 'disconnected'
+          ? 'unavailable'
+          : 'not_verified',
+    };
+  }
+
   async check(dto: CheckShaEligibilityDto, request: RequestContext) {
     const resolved = await this.resolveIdentity(dto);
     const mode = this.resolvedMode();

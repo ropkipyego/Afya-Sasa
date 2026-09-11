@@ -5,6 +5,7 @@ import { Alert, Button, Field, SelectField } from '../ui'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { normalizeClinicalCatalog } from '../../lib/clinical-catalog'
 import { collectPayment, type PaymentServiceLine, type PaymentTransactionRow } from '../../lib/payments'
+import { formatApiError } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { printPaymentReceipt } from '../../lib/print-payment-receipt'
@@ -52,7 +53,10 @@ export function PaymentCheckoutPanel({
   const pay = useMutation({
     mutationFn: async () => {
       const parsedAmount = Number(amount)
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
+        throw new Error('Amount cannot be negative.')
+      }
+      if (paymentMethod !== 'waived' && parsedAmount <= 0) {
         throw new Error('Enter a valid amount in KES.')
       }
       if (paymentMethod === 'insurance' && !payerScheme) {
@@ -105,7 +109,8 @@ export function PaymentCheckoutPanel({
       }
       onSuccess?.({ method: paymentMethod, message })
     },
-    onError: (error: Error) => notify('Payment failed', error.message, 'critical'),
+    onError: (error: Error) =>
+      notify('Payment failed', formatApiError(error, 'Unable to record the payment.'), 'critical'),
   })
 
   const showInsurance = paymentMethod === 'insurance'
@@ -185,9 +190,20 @@ export function PaymentCheckoutPanel({
       ) : null}
 
       {resultMessage ? <Alert tone="success">{resultMessage}</Alert> : null}
-      {pay.error ? <Alert tone="error">{(pay.error as Error).message}</Alert> : null}
+      {pay.error ? (
+        <Alert tone="error">{formatApiError(pay.error, 'Unable to record the payment.')}</Alert>
+      ) : null}
 
-      <Button type="button" loading={pay.isPending} onClick={() => pay.mutate()} className="w-full">
+      <Button
+        type="button"
+        loading={pay.isPending}
+        disabled={pay.isPending}
+        onClick={() => {
+          if (pay.isPending) return
+          pay.mutate()
+        }}
+        className="w-full"
+      >
         {showMpesa ? (
           <>
             <Smartphone className="h-4 w-4" />

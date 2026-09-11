@@ -483,6 +483,16 @@ export class LaboratoryService {
       },
     });
     if (!item) throw new NotFoundException('Lab request item not found');
+    if (item.request?.status === 'verified') {
+      throw new BadRequestException('This request is already verified. Finalized results cannot be changed.');
+    }
+    const verifiedExisting = await this.results.findOne({
+      where: { requestItem: { id: item.id } },
+      order: { createdAt: 'DESC' },
+    });
+    if (verifiedExisting?.verifiedAt) {
+      throw new BadRequestException('A verified result already exists for this test and cannot be changed.');
+    }
 
     const sample = dto.sampleId ? await this.samples.findOne({ where: { id: dto.sampleId } }) : null;
     const parameter = dto.parameterId
@@ -524,6 +534,9 @@ export class LaboratoryService {
         flag = 'critically_high';
       }
       isCritical = flag === 'critically_low' || flag === 'critically_high';
+    }
+    if (!referenceRange) {
+      referenceRange = 'Not established';
     }
 
     const result = await this.results.save(

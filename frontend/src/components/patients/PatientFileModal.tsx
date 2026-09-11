@@ -12,6 +12,7 @@ import { printPatientCard } from '../../lib/print-patient-card'
 import { formatKes } from '../../lib/clinical-catalog'
 import { notify } from '../../lib/notify'
 import { calcAge, formatPatientName } from '../../lib/patient-utils'
+import { useAuthStore } from '../../lib/auth-store'
 
 type PatientFile = {
   id: string
@@ -35,6 +36,7 @@ type PatientFile = {
   nextOfKin?: { name: string; relationship: string; primaryPhone: string; isEmergencyContact?: boolean }[]
   allergies?: { allergen: string; severity: string }[]
   chronicConditions?: { name: string; status: string }[]
+  createdAt?: string
 }
 
 type JourneyStatus = {
@@ -42,7 +44,16 @@ type JourneyStatus = {
   encounterStatus?: string | null
 }
 
-type FileTab = 'summary' | 'timeline' | 'payments' | 'documents'
+type FileTab = 'overview' | 'demographics' | 'visits' | 'history' | 'documents'
+
+type EncounterRow = {
+  id: string
+  encounterNo?: string
+  status: string
+  startedAt: string
+  visitType?: string
+  departmentName?: string | null
+}
 
 export function PatientFileModal({
   patientId,
@@ -63,7 +74,10 @@ export function PatientFileModal({
 }) {
   const queryClient = useQueryClient()
   const { data: catalog } = useClinicalCatalog()
-  const [tab, setTab] = useState<FileTab>('summary')
+  const canEditPatient = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('patients:update')),
+  )
+  const [tab, setTab] = useState<FileTab>('overview')
   const [printing, setPrinting] = useState(false)
   const [editing, setEditing] = useState(false)
 
@@ -82,10 +96,16 @@ export function PatientFileModal({
         events: { type: string; occurredAt: string; title: string; summary: string }[]
       }>(`/patients/${patientId}/timeline`),
   })
+  const { data: encounters = [], isError: encountersError } = useQuery({
+    queryKey: ['patient-encounters', patientId],
+    queryFn: () => apiRequest<EncounterRow[]>(`/opd/encounters?patientId=${patientId}`),
+    enabled: tab === 'visits',
+    retry: false,
+  })
   const { data: payments = [] } = useQuery({
     queryKey: ['patient-payments', patientId],
     queryFn: () => listPatientPayments(patientId),
-    enabled: tab === 'payments',
+    enabled: tab === 'overview',
   })
   const { data: documents = [], isError: documentsError } = useQuery({
     queryKey: ['patient-documents', patientId],
@@ -143,10 +163,12 @@ export function PatientFileModal({
           <div className="flex flex-wrap items-center gap-2">
             {patient && !editing ? (
               <>
-                <Button type="button" variant="secondary" onClick={() => setEditing(true)}>
-                  <UserRoundPen className="h-4 w-4" />
-                  Edit Patient
-                </Button>
+                {canEditPatient ? (
+                  <Button type="button" variant="secondary" onClick={() => setEditing(true)}>
+                    <UserRoundPen className="h-4 w-4" />
+                    Edit Patient
+                  </Button>
+                ) : null}
                 {onQuickCheckIn ? (
                   <Button
                     type="button"
@@ -202,9 +224,10 @@ export function PatientFileModal({
           <div className="flex gap-2 overflow-x-auto border-b border-slate-800 bg-slate-900/80 px-5 py-2 sm:px-6">
             {(
               [
-                ['summary', 'Summary'],
-                ['timeline', `Timeline (${events.length})`],
-                ['payments', 'Payments'],
+                ['overview', 'Overview'],
+                ['demographics', 'Demographics'],
+                ['visits', 'Visits'],
+                ['history', 'History'],
                 ['documents', 'Documents'],
               ] as const
             ).map(([id, label]) => (
@@ -239,49 +262,28 @@ export function PatientFileModal({
             />
           ) : (
             <>
-              {tab === 'summary' ? (
+              {tab === 'overview' ? (
                 <div className="space-y-6">
                   {age < 18 ? (
                     <Alert tone="info" title="Minor patient">
-                      This file is the child. Guardian or next of kin stays on this record — do not
-                      register the guardian as a second patient.
+                      This file is the child. Guardian details stay on this record — do not register the
+                      guardian as a second patient.
                     </Alert>
                   ) : null}
-
-                  <section>
-                    <PageHeader title="Demographics" description="Read-only. Use Edit Patient to change these details." />
-                    <Card className="mt-3 p-5">
-                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <ReadOnlyField label="Patient name" value={formatPatientName(patient)} />
-                        <ReadOnlyField label="MRN / Patient number" value={patient.patientNo} />
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card className="p-4">
+                      <p className="text-xs font-bold uppercase text-slate-500">Identity</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <ReadOnlyField label="Name" value={formatPatientName(patient)} />
+                        <ReadOnlyField label="MRN" value={patient.patientNo} />
                         <ReadOnlyField label="Age / DOB" value={`${age} yrs · ${patient.dateOfBirth?.slice(0, 10) || '—'}`} />
                         <ReadOnlyField label="Sex" value={patient.gender} />
                         <ReadOnlyField label="Phone" value={patient.primaryPhone} />
-                        <ReadOnlyField label="Alternative phone" value={patient.secondaryPhone} />
-                        <ReadOnlyField label="Email" value={patient.email} />
-                        <ReadOnlyField label="Blood group" value={patient.bloodGroup} />
-                        <ReadOnlyField label="Nationality" value={patient.nationality} />
-                        <ReadOnlyField label="Marital status" value={patient.maritalStatus} />
-                        <ReadOnlyField label="Occupation" value={patient.occupation} />
-                        <ReadOnlyField label="Religion" value={patient.religion} />
-                        <ReadOnlyField label="County" value={patient.county} />
-                        <ReadOnlyField label="Sub county" value={patient.subCounty} />
+                        <ReadOnlyField
+                          label="Registered"
+                          value={patient.createdAt ? new Date(patient.createdAt).toLocaleString() : '—'}
+                        />
                       </div>
-                    </Card>
-                  </section>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Card className="p-4">
-                      <p className="text-xs font-bold uppercase text-slate-500">Identifiers</p>
-                      {patient.identifiers?.length ? (
-                        patient.identifiers.map((row) => (
-                          <p key={`${row.type}-${row.value}`} className="mt-2 text-sm">
-                            {row.type.replace(/_/g, ' ')}: {row.value}
-                          </p>
-                        ))
-                      ) : (
-                        <p className="mt-2 text-sm text-slate-500">None recorded</p>
-                      )}
                     </Card>
                     <Card className="p-4">
                       <p className="text-xs font-bold uppercase text-slate-500">
@@ -297,11 +299,110 @@ export function PatientFileModal({
                       ) : (
                         <p className="mt-2 text-sm text-slate-500">
                           {age < 18
-                            ? 'No guardian recorded. Add next of kin from Records, not by creating another patient.'
+                            ? 'No guardian recorded. Use Edit Patient / Records — do not create another patient.'
                             : 'None recorded'}
                         </p>
                       )}
                     </Card>
+                    <Card className="border-red-100 p-4">
+                      <p className="text-xs font-bold uppercase text-red-700">Allergies / alerts</p>
+                      {patient.allergies?.length ? (
+                        patient.allergies.map((row) => (
+                          <p key={row.allergen} className="mt-2 text-sm font-medium text-red-800">
+                            {row.allergen} · {row.severity}
+                          </p>
+                        ))
+                      ) : (
+                        <p className="mt-2 text-sm text-slate-500">None recorded</p>
+                      )}
+                    </Card>
+                    <Card className="p-4">
+                      <p className="text-xs font-bold uppercase text-slate-500">Recent cashier records</p>
+                      {payments.length ? (
+                        payments.slice(0, 3).map((row) => (
+                          <p key={row.id} className="mt-2 text-sm">
+                            {row.serviceDescription || row.serviceLine || 'Payment'} · {formatKes(row.amount)}
+                          </p>
+                        ))
+                      ) : (
+                        <p className="mt-2 text-sm text-slate-500">None on file</p>
+                      )}
+                    </Card>
+                  </div>
+                </div>
+              ) : null}
+
+              {tab === 'demographics' ? (
+                <section>
+                  <PageHeader title="Demographics" description="Read-only here. Use Edit Patient to change these details. Clinical history is not changed by a demographic edit." />
+                  <Card className="mt-3 p-5">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      <ReadOnlyField label="Patient name" value={formatPatientName(patient)} />
+                      <ReadOnlyField label="MRN / Patient number" value={patient.patientNo} />
+                      <ReadOnlyField label="Age / DOB" value={`${age} yrs · ${patient.dateOfBirth?.slice(0, 10) || '—'}`} />
+                      <ReadOnlyField label="Sex" value={patient.gender} />
+                      <ReadOnlyField label="Phone" value={patient.primaryPhone} />
+                      <ReadOnlyField label="Alternative phone" value={patient.secondaryPhone} />
+                      <ReadOnlyField label="Email" value={patient.email} />
+                      <ReadOnlyField label="Blood group" value={patient.bloodGroup} />
+                      <ReadOnlyField label="Nationality" value={patient.nationality} />
+                      <ReadOnlyField label="Marital status" value={patient.maritalStatus} />
+                      <ReadOnlyField label="Occupation" value={patient.occupation} />
+                      <ReadOnlyField label="Religion" value={patient.religion} />
+                      <ReadOnlyField label="County" value={patient.county} />
+                      <ReadOnlyField label="Sub county" value={patient.subCounty} />
+                      <ReadOnlyField
+                        label="Registered"
+                        value={patient.createdAt ? new Date(patient.createdAt).toLocaleString() : '—'}
+                      />
+                    </div>
+                  </Card>
+                  <Card className="mt-4 p-4">
+                    <p className="text-xs font-bold uppercase text-slate-500">Identifiers</p>
+                    {patient.identifiers?.length ? (
+                      patient.identifiers.map((row) => (
+                        <p key={`${row.type}-${row.value}`} className="mt-2 text-sm">
+                          {row.type.replace(/_/g, ' ')}: {row.value}
+                        </p>
+                      ))
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-500">None recorded</p>
+                    )}
+                  </Card>
+                </section>
+              ) : null}
+
+              {tab === 'visits' ? (
+                <Card className="p-5">
+                  <PageHeader title="Encounters / visits" description="Existing OPD visits for this patient. Newest first." />
+                  {encountersError ? (
+                    <Alert tone="info">Visits are unavailable for this account.</Alert>
+                  ) : encounters.length ? (
+                    <div className="divide-y divide-slate-100">
+                      {encounters.map((row) => (
+                        <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                          <div>
+                            <p className="font-semibold">{row.encounterNo || row.id}</p>
+                            <p className="text-xs text-slate-500">
+                              {row.departmentName || 'OPD'} · {row.visitType || 'visit'} ·{' '}
+                              {new Date(row.startedAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <p className="text-sm font-medium capitalize text-slate-700">
+                            {row.status.replace(/_/g, ' ')}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Alert tone="info">No OPD encounters on file yet.</Alert>
+                  )}
+                </Card>
+              ) : null}
+
+              {tab === 'history' ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
                     <Card className="border-red-100 p-4">
                       <p className="text-xs font-bold uppercase text-red-700">Allergies / alerts</p>
                       {patient.allergies?.length ? (
@@ -327,38 +428,12 @@ export function PatientFileModal({
                       )}
                     </Card>
                   </div>
+                  <PatientTimeline
+                    events={events}
+                    title="Clinical timeline"
+                    description="Existing encounters, investigations, admissions, and documents — nothing is invented here."
+                  />
                 </div>
-              ) : null}
-
-              {tab === 'timeline' ? (
-                <PatientTimeline
-                  events={events}
-                  title="Clinical timeline"
-                  description="Computed from live encounters, orders, admissions, and payments — not the history stub."
-                />
-              ) : null}
-
-              {tab === 'payments' ? (
-                <Card className="p-5">
-                  <PageHeader title="Payments" description="Existing cashier records for this patient." />
-                  {payments.length ? (
-                    <div className="divide-y divide-slate-100">
-                      {payments.map((row) => (
-                        <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-                          <div>
-                            <p className="font-semibold">{row.serviceDescription || row.serviceLine || 'Payment'}</p>
-                            <p className="text-xs text-slate-500">
-                              {row.method} · {row.status} · {new Date(row.createdAt).toLocaleString()}
-                            </p>
-                          </div>
-                          <p className="font-bold text-slate-900">{formatKes(row.amount)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <Alert tone="info">No payments recorded yet.</Alert>
-                  )}
-                </Card>
               ) : null}
 
               {tab === 'documents' ? (

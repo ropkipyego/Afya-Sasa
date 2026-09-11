@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,41 +12,62 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+
+function trimString({ value }: { value: unknown }) {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+function trimOptionalString({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : undefined;
+}
 
 export class CreateUserDto {
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Employee number is required' })
   employeeNo!: string;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'First name is required' })
   firstName!: string;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Last name is required' })
   lastName!: string;
 
   @ApiProperty()
-  @IsEmail()
+  @Transform(trimString)
+  @IsEmail({}, { message: 'A valid email is required' })
   email!: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   phone?: string;
 
   @ApiProperty()
   @IsString()
-  @MinLength(10)
+  @MinLength(10, { message: 'Temporary password must be at least 10 characters' })
   temporaryPassword!: string;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
+  @IsUUID('all', { each: true, message: 'Each role must be a valid id' })
   roleIds?: string[];
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   specialisation?: string;
@@ -61,7 +83,8 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
 export class AssignRolesDto {
   @ApiProperty({ type: [String] })
   @IsArray()
-  @ArrayNotEmpty()
+  @ArrayNotEmpty({ message: 'At least one role is required' })
+  @IsUUID('all', { each: true, message: 'Each role must be a valid id' })
   roleIds!: string[];
 }
 

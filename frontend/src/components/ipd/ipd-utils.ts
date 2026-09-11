@@ -24,12 +24,67 @@ export const ipdStatusLabels: Record<IpdClinicalStatus, string> = {
   available: 'Available',
 }
 
+/**
+ * Canonical bed statuses — keep in lockstep with backend/src/inpatient/inpatient.constants.ts
+ *
+ * occupied is admission-driven and must not be offered as a direct status action.
+ * cleaning is retained because production demo.beds currently uses it for housekeeping.
+ */
+export const BED_STATUSES = [
+  'available',
+  'occupied',
+  'reserved',
+  'maintenance',
+  'inactive',
+  'cleaning',
+] as const
+
+export type BedStatus = (typeof BED_STATUSES)[number]
+
+export const BED_STATUSES_SETTABLE = [
+  'available',
+  'reserved',
+  'maintenance',
+  'inactive',
+  'cleaning',
+] as const
+
+export const BED_STATUS_LABELS: Record<BedStatus, string> = {
+  available: 'Available',
+  occupied: 'Occupied',
+  reserved: 'Reserved',
+  maintenance: 'Maintenance',
+  inactive: 'Inactive',
+  cleaning: 'Cleaning',
+}
+
+export const WARD_TYPES = [
+  'general',
+  'icu',
+  'hdu',
+  'maternity',
+  'paediatric',
+  'surgical',
+  'medical',
+  'isolation',
+] as const
+
+export const BED_TYPES = [
+  'standard',
+  'icu',
+  'isolation',
+  'paediatric',
+  'maternity',
+  'cardiac',
+] as const
+
 export const bedStatusStyles: Record<string, string> = {
   occupied: 'border-l-red-500 bg-red-50/40',
   available: 'border-l-emerald-500 bg-emerald-50/30',
   reserved: 'border-l-sky-500 bg-sky-50/30',
   cleaning: 'border-l-violet-500 bg-violet-50/30',
   maintenance: 'border-l-slate-400 bg-slate-50',
+  inactive: 'border-l-slate-500 bg-slate-100',
 }
 
 export const bedCardStyles: Record<string, string> = {
@@ -38,6 +93,7 @@ export const bedCardStyles: Record<string, string> = {
   reserved: 'border-sky-300 bg-sky-50/60',
   cleaning: 'border-violet-300 bg-violet-50/50',
   maintenance: 'border-slate-300 bg-slate-50',
+  inactive: 'border-slate-400 bg-slate-100',
 }
 
 export function calcLosDays(admittedAt: string | Date): number {

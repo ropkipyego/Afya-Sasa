@@ -64,6 +64,15 @@ export function InventoryOverview({
     refetchInterval: 20_000,
   })
 
+  const { data: configuredLowStock = [] } = useQuery({
+    queryKey: ['inventory-low-stock'],
+    queryFn: () =>
+      apiRequest<Array<{ id: string; name: string; unit: string; qtyOnHand: number; minLevel?: string | null }>>(
+        '/inventory/alerts/low-stock',
+      ),
+    retry: false,
+  })
+
   const openReqs = requisitions.filter((r) => !['completed', 'cancelled'].includes(r.status))
   const moving = transfers.filter((t) => t.status === 'pending' || t.status === 'in_transit')
 
@@ -85,11 +94,15 @@ export function InventoryOverview({
         })
       }
     }
+    const fallback = [...qtyByItem.values()].filter((row) => row.qty <= LOW_STOCK).sort((a, b) => a.qty - b.qty)
     return {
-      lowStock: [...qtyByItem.values()].filter((row) => row.qty <= LOW_STOCK).sort((a, b) => a.qty - b.qty),
+      lowStock:
+        configuredLowStock.length > 0
+          ? configuredLowStock.map((row) => ({ name: row.name, unit: row.unit, qty: row.qtyOnHand }))
+          : fallback,
       expiring: soon.sort((a, b) => a.expiryDate.localeCompare(b.expiryDate)),
     }
-  }, [storeBalances])
+  }, [configuredLowStock, storeBalances])
 
   if (storeLoading || reqLoading) {
     return (
@@ -123,7 +136,11 @@ export function InventoryOverview({
           value={lowStock.length}
           icon={AlertTriangle}
           tone="border-amber-200 bg-gradient-to-br from-amber-50 to-white text-amber-950"
-          hint={`≤${LOW_STOCK} units at ${store?.name ?? 'main store'}`}
+          hint={
+            configuredLowStock.length
+              ? 'Below configured minimum level'
+              : `≤${LOW_STOCK} units at ${store?.name ?? 'main store'}`
+          }
         />
         <LabStatCard
           label="Expiring at store"

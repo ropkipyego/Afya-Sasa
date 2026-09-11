@@ -22,9 +22,14 @@ export async function fetchClinicalFileBlob(storagePath: string): Promise<Blob> 
     body: JSON.stringify({ key: storagePath }),
   })
   if (!response.ok) {
+    if (response.status === 404) throw new Error('Document was not found.')
+    if (response.status === 403) throw new Error('You do not have permission to open this document.')
+    if (response.status === 401) throw new Error('Your session expired. Sign in again.')
     throw new Error('Unable to retrieve file. Please try again.')
   }
-  return response.blob()
+  const buffer = await response.arrayBuffer()
+  const type = response.headers.get('Content-Type') || 'application/octet-stream'
+  return new Blob([buffer], { type })
 }
 
 export async function uploadClinicalFile(

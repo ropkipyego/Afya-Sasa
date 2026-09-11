@@ -241,8 +241,8 @@ export function TheatreWorkspace() {
               className="space-y-3 rounded-2xl border border-slate-200 p-4"
               onSubmit={(e) => {
                 e.preventDefault()
-                addNote.mutate(e.currentTarget)
-                e.currentTarget.reset()
+                const form = e.currentTarget
+                addNote.mutate(form, { onSuccess: () => form.reset() })
               }}
             >
               <p className="text-sm font-semibold">Surgery note</p>

@@ -1,8 +1,9 @@
 import { type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ArrowRight, BedDouble, Settings, Stethoscope } from 'lucide-react'
-import { Button, Card, PageHeader } from '../ui'
+import { Alert, Button, Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { useAuthStore } from '../../lib/auth-store'
 import { wardTypeLabel } from './ipd-utils'
 
 type DashboardData = {
@@ -25,6 +26,8 @@ type DashboardData = {
     capacity: number
     occupied: number
     available: number
+    physicalBeds?: number
+    configuredCapacity?: number
     criticalPatients: number | null
     dueForReview: number
   }[]
@@ -76,11 +79,26 @@ export function IpdDashboard({
   onAdmit: () => void
   wardTypeFilter?: 'icu' | 'hdu'
 }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['ipd-dashboard'],
     queryFn: () => apiRequest<DashboardData>('/inpatient/dashboard'),
     refetchInterval: 30_000,
   })
+  const canManageSetup = useAuthStore((state) => {
+    const permissions = state.user?.permissions ?? []
+    return permissions.includes('wards:manage') || permissions.includes('beds:manage')
+  })
+
+  if (isError) {
+    return (
+      <Card className="space-y-4 p-8">
+        <Alert tone="error">{error instanceof Error ? error.message : 'Unable to load the inpatient dashboard.'}</Alert>
+        <Button type="button" variant="secondary" onClick={() => refetch()}>
+          Retry
+        </Button>
+      </Card>
+    )
+  }
 
   if (isLoading || !data) {
     return (
@@ -114,9 +132,11 @@ export function IpdDashboard({
               <Button variant="secondary" onClick={onNursing}>
                 <Stethoscope className="h-4 w-4" /> Nursing center
               </Button>
-              <Button variant="secondary" onClick={onSetup}>
-                <Settings className="h-4 w-4" /> Ward setup
-              </Button>
+              {canManageSetup ? (
+                <Button variant="secondary" onClick={onSetup}>
+                  <Settings className="h-4 w-4" /> Ward setup
+                </Button>
+              ) : null}
               <Button onClick={onAdmit}>
                 <BedDouble className="h-4 w-4" /> Admit patient
               </Button>
@@ -172,8 +192,12 @@ export function IpdDashboard({
 
       <section className="space-y-6">
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Ward summary</h3>
+        {wardSummaries.length ? (
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {wardSummaries.map((ward) => (
+          {wardSummaries.map((ward) => {
+            const physical = ward.physicalBeds ?? ward.capacity
+            const configured = ward.configuredCapacity
+            return (
             <button
               key={ward.id}
               type="button"
@@ -191,8 +215,8 @@ export function IpdDashboard({
               </div>
               <div className="mt-6 grid grid-cols-3 gap-3 text-center">
                 <div className="rounded-xl bg-slate-50 py-3">
-                  <p className="text-xs text-slate-500">Capacity</p>
-                  <p className="mt-1 text-lg font-bold">{ward.capacity}</p>
+                  <p className="text-xs text-slate-500">Physical beds</p>
+                  <p className="mt-1 text-lg font-bold">{physical}</p>
                 </div>
                 <div className="rounded-xl bg-red-50 py-3">
                   <p className="text-xs text-red-600">Occupied</p>
@@ -203,14 +227,25 @@ export function IpdDashboard({
                   <p className="mt-1 text-lg font-bold text-emerald-800">{ward.available}</p>
                 </div>
               </div>
+              {configured !== undefined && configured !== physical ? (
+                <p className="mt-3 text-xs text-amber-800">
+                  Configured capacity: {configured} · Physical bed records: {physical}
+                </p>
+              ) : null}
               <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold text-slate-500">
                 <span className="flex items-center gap-2">
                   <Activity className="h-4 w-4" /> {ward.dueForReview} review due
                 </span>
               </div>
             </button>
-          ))}
+            )
+          })}
         </div>
+        ) : (
+          <p className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-500">
+            No wards configured yet.
+          </p>
+        )}
       </section>
     </div>
   )

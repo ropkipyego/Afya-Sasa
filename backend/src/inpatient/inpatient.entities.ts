@@ -49,7 +49,7 @@ export class Bed extends SoftDeleteClinicalEntity {
   type!: 'standard' | 'icu' | 'isolation' | 'paediatric' | 'maternity' | 'cardiac';
 
   @Column({ type: 'varchar' })
-  status!: 'available' | 'reserved' | 'occupied' | 'maintenance' | 'cleaning';
+  status!: 'available' | 'reserved' | 'occupied' | 'maintenance' | 'inactive' | 'cleaning';
 
   @Column({ type: 'int',  default: 1 })
   version!: number;
@@ -91,7 +91,7 @@ export class Admission extends SoftDeleteClinicalEntity {
   type!: 'elective' | 'emergency' | 'transfer';
 
   @Column({ type: 'varchar',  default: 'active' })
-  status!: 'active' | 'discharged';
+  status!: 'active' | 'discharged' | 'cancelled';
 
   @Column({ name: 'discharged_at', type: 'timestamptz', nullable: true })
   dischargedAt!: Date | null;

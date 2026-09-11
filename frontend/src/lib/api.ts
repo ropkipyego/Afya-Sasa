@@ -10,6 +10,32 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
+export class ApiRequestError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+  }
+}
+
+export function getApiErrorStatus(error: unknown): number | undefined {
+  if (error instanceof ApiRequestError) return error.status
+  return undefined
+}
+
+export function formatApiError(error: unknown, fallback: string): string {
+  const status = getApiErrorStatus(error)
+  const message = error instanceof Error ? error.message : fallback
+  if (status === 401) return 'Your session expired. Sign in again.'
+  if (status === 403) return 'You do not have permission for this action.'
+  if (status === 404) return 'The requested record was not found.'
+  if (status === 409 || status === 400) return message
+  if (status && status >= 500) return fallback
+  return message
+}
+
 const OFFLINE_GET_MAP: Array<{ match: RegExp; key: OfflineCacheKey }> = [
   { match: /^\/admin\/clinical-catalog/, key: 'clinical-catalog' },
   { match: /^\/admin\/settings/, key: 'admin-settings' },
@@ -78,7 +104,7 @@ export async function apiRequest<T>(
         : Array.isArray(error.message)
           ? error.message.join(', ')
           : error.error?.message ?? 'Request failed'
-    throw new Error(message)
+    throw new ApiRequestError(message, response.status)
   }
 
   if (response.status === 204) {

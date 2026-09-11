@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -38,7 +39,7 @@ import {
 import { RealtimeService } from '../../realtime/realtime.service';
 import { TokenRevocationService } from '../auth/token-revocation.service';
 import { SuperadminPolicyService } from '../rbac/superadmin-policy.service';
-import { ADMINISTRATOR_ROLE_NAME } from '../rbac/rbac.constants';
+import { ADMINISTRATOR_ROLE_NAME, SUPERADMIN_ROLE_NAME } from '../rbac/rbac.constants';
 
 @Injectable()
 export class AdminService {
@@ -88,28 +89,38 @@ export class AdminService {
     if (existing) {
       throw new ConflictException('A user with this email already exists');
     }
-
-    const user = await this.users.save(
-      this.users.create({
-        employeeNo: dto.employeeNo,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        email: dto.email.toLowerCase(),
-        phone: dto.phone ?? null,
-        specialisation: dto.specialisation?.trim() || null,
-        passwordHash: await bcrypt.hash(dto.temporaryPassword, 12),
-        active: true,
-        forcePasswordChange: true,
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
-
-    if (dto.roleIds?.length) {
-      await this.replaceUserRoles(user.id, dto.roleIds, request);
+    const existingEmployee = await this.users.findOne({
+      where: { employeeNo: dto.employeeNo },
+    });
+    if (existingEmployee) {
+      throw new ConflictException('A user with this employee number already exists');
     }
 
-    return this.toUserResponse(user);
+    try {
+      const user = await this.users.save(
+        this.users.create({
+          employeeNo: dto.employeeNo,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          email: dto.email.toLowerCase(),
+          phone: dto.phone ?? null,
+          specialisation: dto.specialisation?.trim() || null,
+          passwordHash: await bcrypt.hash(dto.temporaryPassword, 12),
+          active: true,
+          forcePasswordChange: true,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+
+      if (dto.roleIds?.length) {
+        await this.replaceUserRoles(user.id, dto.roleIds, request);
+      }
+
+      return this.toUserResponse(user);
+    } catch (error) {
+      throw this.userWriteError(error);
+    }
   }
 
   async updateUser(id: string, dto: UpdateUserDto, request: RequestContext) {
@@ -131,11 +142,18 @@ export class AdminService {
       patch.passwordHash = await bcrypt.hash(dto.temporaryPassword, 12);
       patch.forcePasswordChange = true;
     }
-    await this.users.update(id, patch);
-    if (dto.roleIds) {
-      await this.replaceUserRoles(id, dto.roleIds, request);
+    try {
+      await this.users.update(id, patch);
+      if (dto.roleIds !== undefined) {
+        if (!dto.roleIds.length) {
+          throw new BadRequestException('At least one role is required');
+        }
+        await this.replaceUserRoles(id, dto.roleIds, request);
+      }
+      return this.toUserResponse(await this.getUser(id));
+    } catch (error) {
+      throw this.userWriteError(error);
     }
-    return this.toUserResponse(await this.getUser(id));
   }
 
   async setUserActive(id: string, active: boolean, request: RequestContext) {
@@ -155,6 +173,13 @@ export class AdminService {
     request: RequestContext,
   ) {
     await this.getUser(id);
+    const targetIsSuperadmin = await this.superadminPolicy.userHasRole(
+      id,
+      SUPERADMIN_ROLE_NAME,
+    );
+    if (targetIsSuperadmin && !this.superadminPolicy.isActorSuperadmin(request)) {
+      throw new ForbiddenException('Only a superadmin can reset this account password');
+    }
     await this.users.update(id, {
       passwordHash: await bcrypt.hash(temporaryPassword, 12),
       forcePasswordChange: true,
@@ -167,7 +192,8 @@ export class AdminService {
     return this.toUserResponse(await this.getUser(id));
   }
 
-  async unlockUser(id: string) {
+  async unlockUser(id: string, request: RequestContext) {
+    await this.superadminPolicy.assertCanUnlockUser(request, id);
     await this.getUser(id);
     await this.users.update(id, {
       failedLoginAttempts: 0,
@@ -872,6 +898,9 @@ export class AdminService {
     roleIds: string[],
     request: RequestContext,
   ) {
+    if (!roleIds.length) {
+      throw new BadRequestException('At least one role is required');
+    }
     await this.superadminPolicy.assertCanAssignRoles(request, userId, roleIds);
     const roles = await this.roles.findBy({ id: In(roleIds) });
     if (roles.length !== roleIds.length) {
@@ -977,5 +1006,28 @@ export class AdminService {
       throw new NotFoundException('Role not found');
     }
     return role;
+  }
+
+  private userWriteError(error: unknown): Error {
+    if (
+      error instanceof BadRequestException ||
+      error instanceof ConflictException ||
+      error instanceof ForbiddenException ||
+      error instanceof NotFoundException
+    ) {
+      return error;
+    }
+    if (error instanceof QueryFailedError) {
+      const code = (error as QueryFailedError & { driverError?: { code?: string } })
+        .driverError?.code;
+      if (code === '23505') {
+        return new ConflictException(
+          'A user with this email or employee number already exists',
+        );
+      }
+    }
+    return error instanceof Error
+      ? error
+      : new BadRequestException('Could not save the user account');
   }
 }

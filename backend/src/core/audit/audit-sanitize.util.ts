@@ -7,6 +7,12 @@ const REDACTED_KEYS = new Set([
   'token',
   'refreshtoken',
   'accesstoken',
+  'authorization',
+  'jwt',
+  'secret',
+  'clientsecret',
+  'client_secret',
+  'passkey',
 ]);
 
 export function sanitizeAuditPayload(

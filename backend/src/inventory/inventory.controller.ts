@@ -39,6 +39,12 @@ export class InventoryController {
     });
   }
 
+  @Get('alerts/low-stock')
+  @RequirePermissions('inventory:read', 'pharmacy:read')
+  listLowStock() {
+    return this.inventoryService.listLowStock();
+  }
+
   @Get('items')
   @RequirePermissions(
     'inventory:read',

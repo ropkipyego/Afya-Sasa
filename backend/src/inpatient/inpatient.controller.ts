@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
@@ -101,7 +102,10 @@ export class InpatientController {
 
   @Get('admissions')
   @RequirePermissions('admissions:read')
-  listAdmissions(@Query('status') status?: 'active' | 'discharged', @Query('wardId') wardId?: string) {
+  listAdmissions(
+    @Query('status') status?: 'active' | 'discharged' | 'cancelled',
+    @Query('wardId') wardId?: string,
+  ) {
     return this.inpatientService.listAdmissions(status, wardId);
   }
 
@@ -139,5 +143,20 @@ export class InpatientController {
   @RequirePermissions('admissions:discharge')
   dischargeAdmission(@Param('id') id: string, @Body() dto: DischargeAdmissionDto, @Req() request: RequestContext) {
     return this.inpatientService.dischargeAdmission(id, dto, request);
+  }
+
+  @Post('admissions/:id/cancel')
+  @RequirePermissions('admissions:discharge')
+  cancelAdmission(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.inpatientService.cancelAdmission(id, request);
+  }
+
+  @Get('admissions/:id/discharge-summary/pdf')
+  @RequirePermissions('discharge_summaries:read', 'admissions:read')
+  async dischargeSummaryPdf(@Param('id') id: string, @Res() response: Response) {
+    const file = await this.inpatientService.dischargeSummaryPdf(id);
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
+    response.send(file.buffer);
   }
 }

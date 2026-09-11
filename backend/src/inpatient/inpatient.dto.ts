@@ -1,20 +1,38 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { BED_STATUSES, BED_TYPES, WARD_TYPES } from './inpatient.constants';
+
+function trimString({ value }: { value: unknown }) {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+function trimOptionalString({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : undefined;
+}
 
 export class CreateWardDto {
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Ward name is required' })
   name!: string;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Ward code is required' })
   code!: string;
 
-  @ApiProperty({ enum: ['general', 'icu', 'hdu', 'maternity', 'paediatric', 'surgical', 'medical', 'isolation'] })
-  @IsIn(['general', 'icu', 'hdu', 'maternity', 'paediatric', 'surgical', 'medical', 'isolation'])
-  type!: 'general' | 'icu' | 'hdu' | 'maternity' | 'paediatric' | 'surgical' | 'medical' | 'isolation';
+  @ApiProperty({ enum: WARD_TYPES })
+  @IsIn([...WARD_TYPES])
+  type!: (typeof WARD_TYPES)[number];
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   floor?: string;
@@ -29,22 +47,26 @@ export class UpdateWardDto extends PartialType(CreateWardDto) {
 
 export class CreateBedDto {
   @ApiProperty()
-  @IsString()
+  @Transform(trimString)
+  @IsUUID('all', { message: 'A valid ward is required' })
+  @IsNotEmpty({ message: 'Ward is required' })
   wardId!: string;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Bed number is required' })
   bedNo!: string;
 
-  @ApiProperty({ enum: ['standard', 'icu', 'isolation', 'paediatric', 'maternity', 'cardiac'] })
-  @IsIn(['standard', 'icu', 'isolation', 'paediatric', 'maternity', 'cardiac'])
-  type!: 'standard' | 'icu' | 'isolation' | 'paediatric' | 'maternity' | 'cardiac';
+  @ApiProperty({ enum: BED_TYPES })
+  @IsIn([...BED_TYPES])
+  type!: (typeof BED_TYPES)[number];
 }
 
 export class UpdateBedStatusDto {
-  @ApiProperty({ enum: ['available', 'reserved', 'occupied', 'maintenance', 'cleaning'] })
-  @IsIn(['available', 'reserved', 'occupied', 'maintenance', 'cleaning'])
-  status!: 'available' | 'reserved' | 'occupied' | 'maintenance' | 'cleaning';
+  @ApiProperty({ enum: BED_STATUSES })
+  @IsIn([...BED_STATUSES])
+  status!: (typeof BED_STATUSES)[number];
 }
 
 export class CreateAdmissionDto {

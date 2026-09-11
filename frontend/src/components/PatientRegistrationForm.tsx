@@ -17,7 +17,8 @@ import {
 import { PatientSearchBrowse } from './PatientSearchAutocomplete'
 import { identifierFieldLabel } from '../lib/clinical-catalog'
 import { useClinicalCatalog } from '../hooks/useClinicalCatalog'
-import { apiRequest } from '../lib/api'
+import { apiRequest, getApiErrorStatus } from '../lib/api'
+import { calcAge } from '../lib/patient-utils'
 import { formDataFromElement } from '../lib/form-utils'
 import { printPatientCard } from '../lib/print-patient-card'
 import { notify } from '../lib/notify'
@@ -91,9 +92,22 @@ function flattenDuplicateCandidates(result: DuplicateCheckResult): DuplicateCand
   return Array.from(map.values())
 }
 
+function registrationError(error: unknown, fallback: string) {
+  const status = getApiErrorStatus(error)
+  const message = error instanceof Error ? error.message : fallback
+  if (status === 400) return message
+  if (status === 401) return 'Your session expired. Sign in again.'
+  if (status === 403) return 'You do not have permission to register or update patients.'
+  if (status === 404) return 'Patient was not found.'
+  if (status === 409) return message
+  if (status === 500 || status === 502 || status === 503) return fallback
+  return message
+}
+
 function buildRegistrationPayload(
   formElement: HTMLFormElement,
   birthInputMode: 'dob' | 'age',
+  requireGuardian: boolean,
 ): Record<string, unknown> {
   const form = formDataFromElement(formElement)
   const kinName = form.get('kinName')?.toString().trim()
@@ -121,13 +135,23 @@ function buildRegistrationPayload(
     throw new Error('Enter the patient date of birth or age.')
   }
 
+  const firstName = String(form.get('firstName') ?? '').trim()
+  const lastName = String(form.get('lastName') ?? '').trim()
+  const primaryPhone = String(form.get('primaryPhone') ?? '').trim()
+  if (!firstName || !lastName) {
+    throw new Error('First name and last name are required.')
+  }
+  if (!primaryPhone) {
+    throw new Error('Enter a contact phone. For a minor this is usually the guardian’s number.')
+  }
+
   const payload: Record<string, unknown> = {
-    firstName: form.get('firstName'),
-    middleName: form.get('middleName') || undefined,
-    lastName: form.get('lastName'),
+    firstName,
+    middleName: form.get('middleName')?.toString().trim() || undefined,
+    lastName,
     dateOfBirth,
     gender: form.get('gender'),
-    primaryPhone: form.get('primaryPhone'),
+    primaryPhone,
     secondaryPhone: form.get('secondaryPhone') || undefined,
     email: form.get('email') || undefined,
     bloodGroup: form.get('bloodGroup') || undefined,
@@ -146,13 +170,21 @@ function buildRegistrationPayload(
     ],
   }
 
+  const kinRelationship = form.get('kinRelationship')?.toString().trim()
+  const kinPhone = form.get('kinPhone')?.toString().trim()
+  if (requireGuardian && (!kinName || !kinRelationship || !kinPhone)) {
+    throw new Error('Guardian name, relationship, and phone are required for a minor.')
+  }
   if (kinName) {
+    if (!kinRelationship || !kinPhone) {
+      throw new Error('Enter guardian relationship and phone, or clear the guardian name.')
+    }
     payload.nextOfKin = [
       {
         name: kinName,
-        relationship: form.get('kinRelationship'),
-        primaryPhone: form.get('kinPhone'),
-        idNumber: form.get('kinIdNumber') || undefined,
+        relationship: kinRelationship,
+        primaryPhone: kinPhone,
+        idNumber: form.get('kinIdNumber')?.toString().trim() || undefined,
         isEmergencyContact: true,
       },
     ]
@@ -185,12 +217,12 @@ function buildRegistrationPayload(
 function buildDemographicUpdatePayload(formElement: HTMLFormElement): Record<string, unknown> {
   const form = formDataFromElement(formElement)
   return {
-    firstName: form.get('firstName'),
-    middleName: form.get('middleName') || undefined,
-    lastName: form.get('lastName'),
+    firstName: String(form.get('firstName') ?? '').trim(),
+    middleName: String(form.get('middleName') ?? '').trim() || undefined,
+    lastName: String(form.get('lastName') ?? '').trim(),
     dateOfBirth: form.get('dateOfBirth'),
     gender: form.get('gender'),
-    primaryPhone: form.get('primaryPhone'),
+    primaryPhone: String(form.get('primaryPhone') ?? '').trim(),
     secondaryPhone: form.get('secondaryPhone') || undefined,
     email: form.get('email') || undefined,
     bloodGroup: form.get('bloodGroup') || undefined,
@@ -225,6 +257,15 @@ export function PatientRegistrationForm({
   const [printingCard, setPrintingCard] = useState(false)
   const [identifierType, setIdentifierType] = useState('national_id')
   const [birthInputMode, setBirthInputMode] = useState<'dob' | 'age'>('dob')
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [ageYears, setAgeYears] = useState('')
+  const estimatedAge =
+    birthInputMode === 'dob' && dateOfBirth
+      ? calcAge(dateOfBirth)
+      : birthInputMode === 'age' && ageYears !== ''
+        ? Number(ageYears)
+        : Number.NaN
+  const isMinor = Number.isFinite(estimatedAge) && estimatedAge >= 0 && estimatedAge < 18
   const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([])
   const [duplicateReasons, setDuplicateReasons] = useState<string[]>([])
   const [duplicateCheckWarning, setDuplicateCheckWarning] = useState<string | null>(null)
@@ -237,6 +278,9 @@ export function PatientRegistrationForm({
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+    onError: (error: Error) => {
+      notify('Could not register patient', registrationError(error, 'Unable to register the patient.'), 'critical')
+    },
     onSuccess: (patient) => {
       setMessage(`Registered ${patient.patientNo}. SMS queued.`)
       setRegisteredPatient(patient)
@@ -437,7 +481,8 @@ export function PatientRegistrationForm({
         onSubmit={async (event) => {
           event.preventDefault()
           try {
-            const payload = buildRegistrationPayload(event.currentTarget, birthInputMode)
+            if (mutation.isPending) return
+            const payload = buildRegistrationPayload(event.currentTarget, birthInputMode, isMinor)
             await createAfterChecks(payload, false)
           } catch (error) {
             notify(
@@ -494,7 +539,22 @@ export function PatientRegistrationForm({
                 </button>
               </div>
               {birthInputMode === 'dob' ? (
-                <Field name="dateOfBirth" label="Date of birth" type="date" required />
+                <Field
+                  name="dateOfBirth"
+                  label="Date of birth"
+                  type="date"
+                  required
+                  value={dateOfBirth}
+                  onChange={(event) => {
+                    setDateOfBirth(event.target.value)
+                    if (event.target.value && calcAge(event.target.value) < 18) {
+                      setIdentifierType((current) =>
+                        current === 'national_id' ? 'birth_certificate' : current,
+                      )
+                    }
+                  }}
+                  hint={dateOfBirth ? `Age ${calcAge(dateOfBirth)} years` : undefined}
+                />
               ) : (
                 <Field
                   name="ageYears"
@@ -506,8 +566,22 @@ export function PatientRegistrationForm({
                   placeholder="e.g. 42"
                   hint="The system estimates the date of birth from today's date."
                   required
+                  value={ageYears}
+                  onChange={(event) => {
+                    setAgeYears(event.target.value)
+                    if (Number(event.target.value) < 18) {
+                      setIdentifierType((current) =>
+                        current === 'national_id' ? 'birth_certificate' : current,
+                      )
+                    }
+                  }}
                 />
               )}
+              {isMinor ? (
+                <p className="mt-2 text-sm font-medium text-amber-800">
+                  This is a minor. The child is the patient — record the parent/guardian below, not as a second registration.
+                </p>
+              ) : null}
             </div>
           </FormSection>
         </section>
@@ -586,17 +660,38 @@ export function PatientRegistrationForm({
           <Field name="religion" label="Religion" />
         </CollapsibleSection>
 
-        <CollapsibleSection title="Next of kin" description="Guardian or emergency contact — required for minors, optional otherwise">
-          <Field name="kinName" label="Contact name" />
-          <Field name="kinRelationship" label="Relationship" placeholder="Parent, guardian, spouse" />
-          <Field name="kinPhone" label="Contact phone" />
-          <Field
-            name="kinIdNumber"
-            label="Next-of-kin ID number"
-            placeholder="National ID, passport, or other ID"
-            hint="Stored on this patient file. Do not register the guardian as a second patient."
-          />
-        </CollapsibleSection>
+        <section
+          className={`space-y-5 rounded-2xl border p-6 ${
+            isMinor ? 'border-amber-200 bg-amber-50/70' : 'border-slate-200 bg-white'
+          }`}
+        >
+          <div className="border-b border-slate-200/80 pb-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-teal-700">
+              {isMinor ? 'Guardian / parent' : 'Next of kin'}
+            </p>
+            <p className="mt-1 text-sm text-slate-600">
+              {isMinor
+                ? 'Required. Stored on the child’s file. Do not create a second patient for the guardian.'
+                : 'Optional emergency contact.'}
+            </p>
+          </div>
+          <FormSection title="" columns={2}>
+            <Field name="kinName" label={isMinor ? 'Guardian name' : 'Contact name'} required={isMinor} />
+            <Field
+              name="kinRelationship"
+              label="Relationship"
+              placeholder="Parent, guardian, spouse"
+              required={isMinor}
+            />
+            <Field name="kinPhone" label={isMinor ? 'Guardian phone' : 'Contact phone'} required={isMinor} />
+            <Field
+              name="kinIdNumber"
+              label={isMinor ? 'Guardian ID number' : 'Next-of-kin ID number'}
+              placeholder="National ID, passport, or other ID"
+              hint="Stays on this patient file."
+            />
+          </FormSection>
+        </section>
 
         <CollapsibleSection title="Medical alerts" description="Allergies and chronic conditions — optional">
           <Field name="allergyName" label="Allergy (if any)" placeholder="e.g. Penicillin" />
@@ -648,8 +743,10 @@ export function PatientRegistrationForm({
               <Button
                 type="button"
                 variant="danger"
+                disabled={mutation.isPending}
                 onClick={() => {
                   if (!pendingPayload) return
+                  if (mutation.isPending) return
                   setAcknowledgedDuplicates(true)
                   mutation.mutate(pendingPayload)
                 }}
@@ -679,14 +776,20 @@ export function PatientRegistrationForm({
           </Alert>
         ) : null}
 
-        {mutation.error ? <Alert tone="error">{mutation.error.message}</Alert> : null}
+        {mutation.error ? (
+          <Alert tone="error">{registrationError(mutation.error, 'Unable to register the patient.')}</Alert>
+        ) : null}
         {message ? <Alert tone="success">{message}</Alert> : null}
         <FormActions>
           <Button type="button" variant="secondary" onClick={() => setStep(0)}>
             Back to search
           </Button>
-          <Button type="submit" loading={mutation.isPending} disabled={duplicateCandidates.length > 0}>
-            Register patient
+          <Button
+            type="submit"
+            loading={mutation.isPending}
+            disabled={mutation.isPending || duplicateCandidates.length > 0}
+          >
+            {mutation.isPending ? 'Saving…' : 'Register patient'}
           </Button>
         </FormActions>
       </ClinicalForm>
@@ -720,7 +823,8 @@ function PatientEditForm({
       await queryClient.invalidateQueries({ queryKey: ['recent-patients'] })
       onComplete?.()
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) =>
+      setError(registrationError(err, 'Unable to save the patient details.')),
   })
 
   return (
@@ -734,6 +838,7 @@ function PatientEditForm({
         className="mt-6 space-y-8"
         onSubmit={(event) => {
           event.preventDefault()
+          if (mutation.isPending) return
           setError(null)
           mutation.mutate(buildDemographicUpdatePayload(event.currentTarget))
         }}
@@ -807,8 +912,8 @@ function PatientEditForm({
           <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit" loading={mutation.isPending}>
-            Save changes
+          <Button type="submit" loading={mutation.isPending} disabled={mutation.isPending}>
+            {mutation.isPending ? 'Saving…' : 'Save changes'}
           </Button>
         </FormActions>
       </ClinicalForm>

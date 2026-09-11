@@ -106,10 +106,30 @@ export class InventoryService {
         unit: dto.unit.trim(),
         trackBatch,
         active: true,
+        minLevel: dto.minLevel != null ? String(dto.minLevel) : null,
+        maxLevel: dto.maxLevel != null ? String(dto.maxLevel) : null,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),
     );
+  }
+
+  async listLowStock() {
+    const items = await this.items.find({ where: { active: true } });
+    const batches = await this.batches.find({ relations: { item: true, location: true } });
+    return items
+      .map((item) => {
+        const min = item.minLevel != null ? Number(item.minLevel) : null;
+        const qty = batches
+          .filter((batch) => batch.item.id === item.id)
+          .reduce((sum, batch) => sum + Number(batch.qtyOnHand), 0);
+        return {
+          ...item,
+          qtyOnHand: qty,
+          belowMinimum: min != null && Number.isFinite(min) && qty < min,
+        };
+      })
+      .filter((row) => row.belowMinimum);
   }
 
   async locationBalances(locationId: string) {

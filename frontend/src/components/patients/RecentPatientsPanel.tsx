@@ -83,29 +83,39 @@ export function RecentPatientsPanel({
   }, [encounters, todayKey])
 
   const patients = useMemo(() => {
+    const activityAt = new Map<string, string>()
     const byId = new Map<string, RecentPatient>()
-    for (const encounter of checkInByPatient.values()) {
-      if (encounter.patient?.id) {
-        byId.set(encounter.patient.id, {
-          ...toRecentPatient(encounter.patient),
-          createdAt: encounter.patient.createdAt || encounter.startedAt,
-        })
+
+    const newestEncounters = [...encounters].sort(
+      (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    )
+    for (const encounter of newestEncounters) {
+      const patient = encounter.patient
+      if (!patient?.id || byId.has(patient.id)) continue
+      byId.set(patient.id, {
+        ...toRecentPatient(patient),
+        createdAt: patient.createdAt || encounter.startedAt,
+      })
+      activityAt.set(patient.id, encounter.startedAt)
+    }
+
+    for (const patient of data?.items ?? []) {
+      if (nairobiDayKey(patient.createdAt) !== todayKey) continue
+      if (!byId.has(patient.id)) byId.set(patient.id, patient)
+      const existing = activityAt.get(patient.id)
+      if (!existing || new Date(patient.createdAt) > new Date(existing)) {
+        activityAt.set(patient.id, patient.createdAt)
       }
     }
-    for (const patient of data?.items ?? []) {
-      if (!byId.has(patient.id)) byId.set(patient.id, patient)
-    }
+
     return [...byId.values()]
       .sort((a, b) => {
-        const aToday = checkInByPatient.has(a.id) || nairobiDayKey(a.createdAt) === todayKey ? 1 : 0
-        const bToday = checkInByPatient.has(b.id) || nairobiDayKey(b.createdAt) === todayKey ? 1 : 0
-        if (aToday !== bToday) return bToday - aToday
-        const aVisit = checkInByPatient.get(a.id)?.startedAt ?? a.createdAt
-        const bVisit = checkInByPatient.get(b.id)?.startedAt ?? b.createdAt
-        return new Date(bVisit).getTime() - new Date(aVisit).getTime()
+        const aAt = activityAt.get(a.id) ?? a.createdAt
+        const bAt = activityAt.get(b.id) ?? b.createdAt
+        return new Date(bAt).getTime() - new Date(aAt).getTime()
       })
       .slice(0, limit)
-  }, [checkInByPatient, data?.items, limit, todayKey])
+  }, [data?.items, encounters, limit, todayKey])
 
   const todayCount = patients.filter(
     (patient) => checkInByPatient.has(patient.id) || nairobiDayKey(patient.createdAt) === todayKey,
@@ -185,9 +195,10 @@ export function RecentPatientsPanel({
                           type="button"
                           variant="secondary"
                           className="px-2 py-1.5 text-xs"
+                          disabled={Boolean(visit)}
                           onClick={() => onQuickCheckIn(patient)}
                         >
-                          Quick Check-In
+                          {visit ? 'Already in' : 'Quick Check-In'}
                         </Button>
                       </div>
                     </td>

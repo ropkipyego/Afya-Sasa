@@ -6,13 +6,25 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import type { Gender, IdentifierType } from './patient.entities';
+
+function trimString({ value }: { value: unknown }) {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+function trimOptionalString({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : undefined;
+}
 
 export class PatientIdentifierDto {
   @ApiProperty({
@@ -42,7 +54,9 @@ export class PatientIdentifierDto {
   type!: IdentifierType;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Identifier value is required' })
   value!: string;
 
   @ApiPropertyOptional()
@@ -58,35 +72,45 @@ export class PatientIdentifierDto {
 
 export class PatientNextOfKinDto {
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Guardian / next-of-kin name is required' })
   name!: string;
 
   @ApiPropertyOptional({
     description: 'National ID, passport, or another identity number',
   })
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   idNumber?: string;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Guardian / next-of-kin relationship is required' })
   relationship!: string;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Guardian / next-of-kin phone is required' })
   primaryPhone!: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   secondaryPhone?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsEmail()
   email?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   address?: string;
@@ -160,20 +184,26 @@ export class PatientChronicConditionDto {
 
 export class CreatePatientDto {
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'First name is required' })
   firstName!: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   middleName?: string;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Last name is required' })
   lastName!: string;
 
   @ApiProperty()
-  @IsDateString()
+  @Transform(trimString)
+  @IsDateString({}, { message: 'Date of birth is required' })
   dateOfBirth!: string;
 
   @ApiProperty({ enum: ['female', 'male', 'intersex', 'unknown'] })
@@ -181,50 +211,61 @@ export class CreatePatientDto {
   gender!: Gender;
 
   @ApiProperty()
+  @Transform(trimString)
   @IsString()
+  @IsNotEmpty({ message: 'Phone number is required' })
   primaryPhone!: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   secondaryPhone?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsEmail()
   email?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   bloodGroup?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   county?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   subCounty?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   nationality?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   maritalStatus?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   occupation?: string;
 
   @ApiPropertyOptional()
+  @Transform(trimOptionalString)
   @IsOptional()
   @IsString()
   religion?: string;

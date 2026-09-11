@@ -75,7 +75,7 @@ export const navigation: NavItem[] = [
 
   { group: 'Supply', label: 'Inventory & Store', icon: Package, permission: 'inventory:read', shortLabel: 'Store' },
 
-  { group: 'Marketing', label: 'Marketing', icon: Megaphone, permission: 'appointments:read', shortLabel: 'Outreach' },
+  { group: 'Marketing', label: 'Marketing', icon: Megaphone, permission: 'marketing:read', shortLabel: 'Outreach' },
 
   // Reports
   { group: 'Reports', label: 'Reports', icon: LayoutDashboard, permission: 'reports:read' },
@@ -115,7 +115,7 @@ export const workflowDescriptions: Record<string, string> = {
   'Patient Registry': 'Browse all registered patients with age-band filters and basic demographics.',
   Finance: 'Finance desk — cashier, revenue, and SHA. Not Front Office. Same payment engine, not a new billing system.',
   Payments: 'Hospital-wide cashier — M-Pesa STK, cash, card, insurance, and QuickBooks for any service.',
-  Marketing: 'Outreach desk — clinic follow-ups from Next visit, plus daily facility-visit reports.',
+  Marketing: 'Record daily outreach activities, track follow-ups, and review team performance.',
   Laboratory: 'Lab overview, sample worklist, and clinician results inbox.',
   Radiology: 'Imaging overview and reporting worklist.',
   Emergency: 'ED command center — triage, bays, observation, disposition.',

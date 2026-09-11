@@ -24,7 +24,7 @@ import {
   formatKes,
 } from '../../lib/clinical-catalog'
 import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
-import { apiRequest } from '../../lib/api'
+import { apiRequest, getApiErrorStatus } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 
@@ -115,7 +115,22 @@ export function OpdCheckInWorkspace({
       void queryClient.invalidateQueries({ queryKey: ['recent-patients-encounters'] })
       void queryClient.invalidateQueries({ queryKey: ['triage-queue'] })
     },
-    onError: (error: Error) => setFormError(error.message),
+    onError: (error: Error) => {
+      const status = getApiErrorStatus(error)
+      if (status === 401) {
+        setFormError('Your session expired. Sign in again.')
+        return
+      }
+      if (status === 403) {
+        setFormError('You do not have permission to check in patients.')
+        return
+      }
+      if (status === 404) {
+        setFormError('Patient was not found. Search again before checking in.')
+        return
+      }
+      setFormError(error.message)
+    },
   })
 
   return (
@@ -327,12 +342,17 @@ export function OpdCheckInWorkspace({
               Vitals and chief complaint are captured at triage — not at reception.
             </p>
             <ClinicalForm
-              onSubmit={(event) =>
+              onSubmit={(event) => {
+                if (createEncounter.isPending) {
+                  event.preventDefault()
+                  return
+                }
                 submitClinicalForm(createEncounter, event, {
+                  resetOnSuccess: false,
                   validate: () => (selected ? null : 'Select a patient.'),
                   onValidationError: setFormError,
                 })
-              }
+              }}
             >
               <input type="hidden" name="clinicName" value={visitDraft.clinicName} />
               <input type="hidden" name="visitType" value={visitDraft.visitType} />
@@ -343,11 +363,16 @@ export function OpdCheckInWorkspace({
                 <Alert tone="success">Patient checked in successfully.</Alert>
               ) : null}
               <FormActions>
-                <Button type="button" variant="secondary" onClick={() => setStep(1)}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={createEncounter.isPending}
+                  onClick={() => setStep(1)}
+                >
                   Back
                 </Button>
-                <Button type="submit" loading={createEncounter.isPending}>
-                  Confirm check-in
+                <Button type="submit" loading={createEncounter.isPending} disabled={createEncounter.isPending}>
+                  {createEncounter.isPending ? 'Checking in…' : 'Confirm check-in'}
                 </Button>
               </FormActions>
             </ClinicalForm>

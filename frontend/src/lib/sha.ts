@@ -65,8 +65,26 @@ export function getShaStatus() {
   return apiRequest<ShaStatus>('/sha/status')
 }
 
+export type ShaCoverage = {
+  mode: 'live' | 'stub' | 'disconnected'
+  liveVerificationAvailable: boolean
+  identifiersOnFile: { type: string; value: string; verified?: boolean }[]
+  latestCheck: {
+    outcome: ShaEligibilityCheck['outcome']
+    source: ShaEligibilityCheck['source']
+    statusDesc?: string | null
+    createdAt?: string
+    schemes?: ShaScheme[]
+  } | null
+  verificationState: 'verified' | 'practice_only' | 'recorded' | 'unavailable' | 'not_verified'
+}
+
 export function getLatestShaEligibility(patientId: string) {
   return apiRequest<ShaEligibilityCheck | null>(`/sha/eligibility/patient/${patientId}`)
+}
+
+export function getShaCoverage(patientId: string) {
+  return apiRequest<ShaCoverage>(`/sha/coverage/patient/${patientId}`)
 }
 
 export function checkShaEligibility(payload: {

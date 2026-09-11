@@ -31,6 +31,7 @@ import { VitalsTrendPanel } from './VitalsTrendPanel'
 import { ClinicalInvestigationOrders } from '../investigations/ClinicalInvestigationOrders'
 import { calcLosDays } from './ipd-utils'
 import { apiRequest } from '../../lib/api'
+import { useAuthStore } from '../../lib/auth-store'
 import { formDataFromElement, optionalNumber, submitClinicalForm } from '../../lib/form-utils'
 import { notify } from '../../lib/notify'
 import { viewClinicalFile } from '../../lib/clinical-upload'
@@ -763,6 +764,7 @@ export function PatientWorkspace({
           )}
           {activeTab === 'documents' && (
             <DocumentsTab
+              admissionId={admissionId}
               summaries={dischargeSummaries}
               labs={patientLabs}
               radiology={patientRadiology}
@@ -1187,12 +1189,35 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+async function downloadDischargeSummaryPdf(admissionId: string) {
+  const { tenant, accessToken } = useAuthStore.getState()
+  const apiBase = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+  const response = await fetch(`${apiBase}/inpatient/admissions/${admissionId}/discharge-summary/pdf`, {
+    headers: {
+      'X-Tenant': tenant,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  })
+  if (!response.ok) {
+    throw new Error(response.status === 404 ? 'No discharge summary PDF is available.' : 'Could not download the summary.')
+  }
+  const blob = new Blob([await response.arrayBuffer()], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `discharge-summary-${admissionId}.pdf`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function DocumentsTab({
+  admissionId,
   summaries,
   labs,
   radiology,
   labAttachments,
 }: {
+  admissionId: string
   summaries: { id: string; status: string; finalDiagnosis: string; createdAt: string }[]
   labs: { requestNo: string; status: string }[]
   radiology: { requestNo: string; status: string }[]
@@ -1203,7 +1228,10 @@ function DocumentsTab({
       name: `Discharge summary — ${s.finalDiagnosis}`,
       date: s.createdAt,
       status: s.status,
-      action: null as (() => void) | null,
+      action: () =>
+        downloadDischargeSummaryPdf(admissionId).catch((error) =>
+          notify('Download failed', error instanceof Error ? error.message : 'Could not download PDF.', 'critical'),
+        ),
     })),
     ...labs.filter((l) => l.status === 'verified').map((l) => ({
       name: `Lab report — ${l.requestNo}`,
