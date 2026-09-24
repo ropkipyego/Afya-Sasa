@@ -16,6 +16,7 @@ import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSea
 import { PatientContextHeader } from '../PatientContextHeader'
 import { PaymentCheckoutPanel } from '../payments/PaymentCheckoutPanel'
 import { apiRequest } from '../../lib/api'
+import { formatKes } from '../../lib/clinical-catalog'
 import { notify } from '../../lib/notify'
 
 type CatalogTest = {
@@ -23,11 +24,13 @@ type CatalogTest = {
   name: string
   code: string
   isPanel: boolean
+  sell?: number
 }
 
 type LabRequestResponse = {
   id: string
   requestNo?: string
+  billingAmount?: string | null
 }
 
 const steps = ['Patient', 'Tests & notes', 'Payment', 'Done']
@@ -51,6 +54,14 @@ export function LabWalkInDesk() {
 
   const tests = useMemo(() => catalogTests.filter((t) => !t.isPanel), [catalogTests])
   const panels = useMemo(() => catalogTests.filter((t) => t.isPanel), [catalogTests])
+  const selectedTotal = useMemo(
+    () =>
+      selectedTestIds.reduce((sum, id) => {
+        const test = catalogTests.find((row) => row.id === id)
+        return sum + Number(test?.sell ?? 0)
+      }, 0),
+    [catalogTests, selectedTestIds],
+  )
 
   const filteredTests = useMemo(() => {
     const q = testQuery.trim().toLowerCase()
@@ -86,6 +97,7 @@ export function LabWalkInDesk() {
           notes: notes || undefined,
           orderableTestIds: selectedTestIds,
           walkInSource,
+          billingAmount: selectedTotal > 0 ? selectedTotal : undefined,
         }),
       })
     },
@@ -184,9 +196,9 @@ export function LabWalkInDesk() {
                     <span className="font-medium text-slate-800">
                       {test.isPanel ? `${test.name} (panel)` : test.name}
                     </span>
-                    {test.code ? (
-                      <span className="ml-auto text-xs text-slate-400">{test.code}</span>
-                    ) : null}
+                    <span className="ml-auto text-xs font-semibold text-teal-800">
+                      {Number(test.sell ?? 0) > 0 ? formatKes(test.sell) : 'No price configured'}
+                    </span>
                   </label>
                 )
               })}
@@ -208,6 +220,12 @@ export function LabWalkInDesk() {
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Fasting status, referring clinician, special handling"
             />
+            {selectedTestIds.length ? (
+              <p className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
+                {selectedTestIds.length} test{selectedTestIds.length === 1 ? '' : 's'} selected · catalog
+                total <strong>{formatKes(selectedTotal)}</strong>
+              </p>
+            ) : null}
             <FormActions>
               <Button type="button" variant="secondary" onClick={() => setStep(0)}>
                 Back
@@ -236,6 +254,13 @@ export function LabWalkInDesk() {
               serviceLine="laboratory"
               serviceEntityId={lastRequest.id}
               serviceDescription={orderSummary}
+              defaultAmount={
+                lastRequest.billingAmount && Number(lastRequest.billingAmount) > 0
+                  ? String(lastRequest.billingAmount)
+                  : selectedTotal > 0
+                    ? String(selectedTotal)
+                    : undefined
+              }
               submitLabel="Send M-Pesa STK / record payment"
               receiptPatient={{
                 name: `${patient.firstName} ${patient.lastName}`,

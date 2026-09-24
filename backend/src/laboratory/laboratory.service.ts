@@ -208,7 +208,7 @@ export class LaboratoryService {
         paymentStatus,
         paymentReference: dto.paymentReference ?? null,
         mpesaPhone: dto.mpesaPhone ?? null,
-        billingAmount: dto.billingAmount != null ? String(dto.billingAmount) : null,
+        billingAmount: await this.resolveBillingAmount(dto.billingAmount, orderableCatalogTests, request),
         walkInSource: dto.walkInSource ?? null,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
@@ -911,6 +911,22 @@ export class LaboratoryService {
     }
 
     return summary;
+  }
+
+  private async resolveBillingAmount(
+    explicit: number | undefined,
+    orderableTests: OrderableLabTest[],
+    request: RequestContext,
+  ) {
+    if (explicit != null && Number.isFinite(Number(explicit))) {
+      return String(explicit);
+    }
+    if (!orderableTests.length) return null;
+    const sum = await this.catalogService.sumSellPrices(
+      orderableTests.map((test) => test.code),
+      request,
+    );
+    return sum > 0 ? String(sum) : null;
   }
 
   private async generateRequestNo() {

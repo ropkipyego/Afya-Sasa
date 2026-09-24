@@ -8,6 +8,7 @@ import { LabResultsEntry } from './LabResultsEntry'
 import { ResultsInbox } from './ResultsInbox'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { LabHero } from './lab-ui'
+import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
 import { apiRequest } from '../../lib/api'
 
 type LabTab = 'overview' | 'walkin' | 'worklist' | 'results' | 'upload'
@@ -35,6 +36,7 @@ export function LabModule({ initialTab = 'worklist' }: { initialTab?: LabTab }) 
 
   return (
     <div className="lab-workspace workspace-shell animate-fade-in">
+      <DepartmentWorkspaceHeader department="Laboratory" />
       <LabHero
         title="Laboratory"
         description="Order tests, track specimens through the bench, enter structured results with reference-range flagging, and release verified reports to clinicians."

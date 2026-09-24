@@ -38,6 +38,9 @@ export class InventoryItem extends SoftDeleteClinicalEntity {
   @Column({ type: 'varchar' })
   category!: InventoryCategory;
 
+  @Column({ type: 'varchar', name: 'drug_class', nullable: true })
+  drugClass!: string | null;
+
   @Column({ type: 'varchar' })
   unit!: string;
 

@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Input } from '../ui'
 import type { ControlCenterSection } from './HospitalControlCenter'
 import {
@@ -8,6 +9,7 @@ import {
   filterControlCenterCards,
 } from './control-center-sections'
 import { canAccessControlCenterSection } from '../../lib/control-center-permissions'
+import { apiRequest } from '../../lib/api'
 
 export function ControlCenterHome({
   permissions,
@@ -17,6 +19,21 @@ export function ControlCenterHome({
   onOpen: (section: Exclude<ControlCenterSection, 'home'>) => void
 }) {
   const [query, setQuery] = useState('')
+
+  const canReadOps = permissions.includes('reports:read')
+  const { data: ops } = useQuery({
+    queryKey: ['operations-dashboard', 'control-center'],
+    queryFn: () =>
+      apiRequest<{
+        patientsToday: number
+        admissions: number
+        pendingLabs: number
+        pendingRadiology: number
+        emergencyCases: number
+      }>('/reports/operations'),
+    enabled: canReadOps,
+    refetchInterval: 30_000,
+  })
 
   const cards = useMemo(
     () =>
@@ -28,6 +45,18 @@ export function ControlCenterHome({
 
   return (
     <div className="space-y-8">
+      {canReadOps && ops ? (
+        <section>
+          <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">Today</h3>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <TodayTile label="OPD visits" value={ops.patientsToday} />
+            <TodayTile label="Admissions" value={ops.admissions} />
+            <TodayTile label="Lab pending" value={ops.pendingLabs} />
+            <TodayTile label="Radiology pending" value={ops.pendingRadiology} />
+            <TodayTile label="Emergency" value={ops.emergencyCases} />
+          </div>
+        </section>
+      ) : null}
       <div className="relative max-w-xl">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <Input
@@ -76,6 +105,15 @@ export function ControlCenterHome({
       {!cards.length ? (
         <p className="py-16 text-center text-sm text-slate-500">No configuration areas match your search.</p>
       ) : null}
+    </div>
+  )
+}
+
+function TodayTile({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
     </div>
   )
 }

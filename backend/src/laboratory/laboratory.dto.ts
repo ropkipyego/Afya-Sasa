@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsIn, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 
 export class CreateLabPanelDto {
   @ApiProperty()
@@ -228,4 +228,12 @@ export class EnterLabPanelResultsDto {
   @ValidateNested({ each: true })
   @Type(() => EnterLabPanelResultValueDto)
   results!: EnterLabPanelResultValueDto[];
+}
+
+export class UpdateLabTestPricingDto {
+  @ApiProperty({ example: 800 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  sell!: number;
 }

@@ -6,6 +6,7 @@ import { Admission } from '../inpatient/inpatient.entities';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
+import { TenantSettings } from '../core/core.entities';
 import {
   LabAttachment,
   LabPanel,
@@ -48,6 +49,7 @@ import { LabCatalogService } from './lab-catalog.service';
       OrderableLabTest,
       LabTestParameter,
       LabReferenceRange,
+      TenantSettings,
     ]),
   ],
   controllers: [LaboratoryController, LabCatalogController],

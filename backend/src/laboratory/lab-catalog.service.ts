@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
+import { TenantSettings } from '../core/core.entities';
 import { seedLabCatalog } from './data/lab-catalog.seed-runner';
 import {
   LabDepartment,
@@ -11,6 +12,13 @@ import {
   SpecimenType,
 } from './lab-catalog.entities';
 import type { PatientDemographics, ParameterResultInput, SeedReferenceRange } from './lab-catalog.types';
+import {
+  aliasLabCatalogHeader,
+  normalizeLabName,
+  parseLabSell,
+  readLabTestPricing,
+  type LabTestPrice,
+} from './lab-pricing';
 import {
   calculateDerivedResults,
   flagResultsForPatient,
@@ -31,6 +39,7 @@ export class LabCatalogService {
     @InjectRepository(OrderableLabTest) private readonly orderableTests: Repository<OrderableLabTest>,
     @InjectRepository(LabTestParameter) private readonly parameters: Repository<LabTestParameter>,
     @InjectRepository(LabReferenceRange) private readonly referenceRanges: Repository<LabReferenceRange>,
+    @InjectRepository(TenantSettings) private readonly settings: Repository<TenantSettings>,
   ) {}
 
   listDepartments() {
@@ -41,8 +50,8 @@ export class LabCatalogService {
     return this.specimens.find({ where: { active: true }, order: { name: 'ASC' } });
   }
 
-  listOrderableTests(includeParameters = false) {
-    return this.orderableTests.find({
+  async listOrderableTests(includeParameters = false, request?: RequestContext) {
+    const rows = await this.orderableTests.find({
       where: { active: true },
       relations: includeParameters
         ? {
@@ -53,10 +62,15 @@ export class LabCatalogService {
         : { department: true, specimen: true },
       order: { name: 'ASC' },
     });
+    const pricing = await this.readPricingMap(request);
+    return rows.map((row) => ({
+      ...row,
+      sell: pricing[row.code]?.sell ?? 0,
+    }));
   }
 
-  async getOrderableTest(code: string) {
-    return this.orderableTests.findOne({
+  async getOrderableTest(code: string, request?: RequestContext) {
+    const test = await this.orderableTests.findOne({
       where: { code, active: true },
       relations: {
         department: true,
@@ -64,6 +78,84 @@ export class LabCatalogService {
         parameters: { referenceRanges: true },
       },
     });
+    if (!test) return null;
+    const pricing = await this.readPricingMap(request);
+    return { ...test, sell: pricing[test.code]?.sell ?? 0 };
+  }
+
+  async sumSellPrices(codes: string[], request?: RequestContext) {
+    const pricing = await this.readPricingMap(request);
+    return codes.reduce((sum, code) => sum + (pricing[code.toUpperCase()]?.sell ?? 0), 0);
+  }
+
+  async updateTestPricing(code: string, sell: number, request: RequestContext) {
+    const test = await this.orderableTests.findOne({ where: { code: code.toUpperCase(), active: true } });
+    if (!test) throw new NotFoundException('Laboratory test not found');
+    await this.writePricing(test.code, { sell }, request);
+    return { ...test, sell };
+  }
+
+  async importPrices(csv: string, request: RequestContext) {
+    const rows = parseCsv(csv);
+    if (!rows.length) {
+      throw new BadRequestException('CSV is empty or missing a header row.');
+    }
+
+    const tests = await this.orderableTests.find({ where: { active: true } });
+    const byCode = new Map(tests.map((test) => [test.code.toUpperCase(), test]));
+    const byName = new Map<string, OrderableLabTest[]>();
+    for (const test of tests) {
+      const key = normalizeLabName(test.name);
+      const bucket = byName.get(key) ?? [];
+      bucket.push(test);
+      byName.set(key, bucket);
+    }
+
+    const priced: Record<string, LabTestPrice> = {};
+    const summary = {
+      priced: 0,
+      matched: [] as string[],
+      unmatched: [] as string[],
+      ambiguous: [] as string[],
+      errors: [] as string[],
+    };
+
+    for (const [index, row] of rows.entries()) {
+      const line = index + 2;
+      const name = (row.name ?? row.test ?? '').trim();
+      const code = (row.code ?? '').trim().toUpperCase();
+      const sell = parseLabSell(row);
+      if (sell == null) {
+        summary.errors.push(`Line ${line}: sell/rate/price is required.`);
+        continue;
+      }
+      if (!code && !name) {
+        summary.errors.push(`Line ${line}: code or test name is required.`);
+        continue;
+      }
+
+      let match = code ? byCode.get(code) : undefined;
+      if (!match && name) {
+        const candidates = byName.get(normalizeLabName(name)) ?? [];
+        if (candidates.length > 1) {
+          summary.ambiguous.push(`${name} (${candidates.map((row) => row.code).join(', ')})`);
+          continue;
+        }
+        match = candidates[0];
+      }
+      if (!match) {
+        summary.unmatched.push(code || name);
+        continue;
+      }
+      priced[match.code] = { sell };
+      summary.matched.push(`${match.code} · ${match.name} · ${sell}`);
+    }
+
+    if (Object.keys(priced).length) {
+      await this.writePricingMap(priced, request);
+      summary.priced = Object.keys(priced).length;
+    }
+    return summary;
   }
 
   async ensureSeeded() {
@@ -131,6 +223,7 @@ export class LabCatalogService {
       testsUpdated: 0,
       testsSkipped: 0,
       parametersCreated: 0,
+      priced: 0,
       errors: [] as string[],
     };
 
@@ -231,6 +324,12 @@ export class LabCatalogService {
           summary.testsCreated += 1;
         }
 
+        const sell = parseLabSell(row);
+        if (sell != null) {
+          await this.writePricing(code, { sell }, request);
+          summary.priced += 1;
+        }
+
         const parameterCode = (row.parameter_code ?? '').trim().toUpperCase();
         const parameterName = (row.parameter_name ?? row.parameter ?? '').trim();
         if (parameterCode && parameterName) {
@@ -288,6 +387,39 @@ export class LabCatalogService {
 
     return summary;
   }
+
+  private async readPricingMap(request?: RequestContext): Promise<Record<string, LabTestPrice>> {
+    const settings = await this.loadSettings(request);
+    return readLabTestPricing((settings?.clinicalCatalog as Record<string, unknown> | undefined) ?? null);
+  }
+
+  private async writePricing(code: string, price: LabTestPrice, request: RequestContext) {
+    await this.writePricingMap({ [code.toUpperCase()]: price }, request);
+  }
+
+  private async writePricingMap(prices: Record<string, LabTestPrice>, request: RequestContext) {
+    const settings = await this.loadSettings(request);
+    if (!settings) {
+      throw new BadRequestException('Hospital settings are missing — cannot save laboratory prices.');
+    }
+    const catalog = { ...(settings.clinicalCatalog ?? {}) } as Record<string, unknown>;
+    catalog.labTestPricing = {
+      ...readLabTestPricing(catalog),
+      ...Object.fromEntries(
+        Object.entries(prices).map(([code, price]) => [code.toUpperCase(), price]),
+      ),
+    };
+    await this.settings.update(settings.id, {
+      clinicalCatalog: catalog as never,
+      updatedBy: request.user?.sub ?? null,
+    });
+  }
+
+  private async loadSettings(request?: RequestContext) {
+    const tenantId = request?.tenant?.id;
+    if (!tenantId) return null;
+    return this.settings.findOne({ where: { tenant: { id: tenantId } } });
+  }
 }
 
 function parseCsv(csv: string): Array<Record<string, string>> {
@@ -297,7 +429,7 @@ function parseCsv(csv: string): Array<Record<string, string>> {
     .map((line) => line.trim())
     .filter(Boolean);
   if (lines.length < 2) return [];
-  const headers = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const headers = splitCsvLine(lines[0]).map((h) => aliasLabCatalogHeader(h));
   return lines.slice(1).map((line) => {
     const values = splitCsvLine(line);
     const row: Record<string, string> = {};

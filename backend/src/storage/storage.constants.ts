@@ -9,6 +9,8 @@ export const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   'image/gif',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ]);
 
 export const ALLOWED_UPLOAD_EXTENSIONS = new Set([
@@ -20,13 +22,15 @@ export const ALLOWED_UPLOAD_EXTENSIONS = new Set([
   '.gif',
   '.doc',
   '.docx',
+  '.xls',
+  '.xlsx',
 ]);
 
 export function assertAllowedUpload(input: { contentType: string; fileSize?: number; filename?: string }) {
   const contentType = input.contentType.toLowerCase().split(';')[0]?.trim() ?? '';
   if (!ALLOWED_UPLOAD_MIME_TYPES.has(contentType)) {
     throw new Error(
-      `File type not allowed: ${contentType || 'unknown'}. Use PDF, JPEG, PNG, WebP, GIF, or Word documents.`,
+      `File type not allowed: ${contentType || 'unknown'}. Use PDF, JPEG, PNG, WebP, GIF, Word, or Excel (.xlsx).`,
     );
   }
   if (input.fileSize != null && input.fileSize > MAX_UPLOAD_BYTES) {

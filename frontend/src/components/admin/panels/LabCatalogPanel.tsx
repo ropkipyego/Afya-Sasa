@@ -4,7 +4,9 @@ import { Download, Upload } from 'lucide-react'
 import { Alert, Button, Card, ClinicalForm, Field, FormActions, FormSection, PageHeader, SelectField } from '../../ui'
 import { formDataFromElement, submitClinicalForm } from '../../../lib/form-utils'
 import { apiRequest } from '../../../lib/api'
+import { formatConfiguredPrice } from '../../../lib/clinical-catalog'
 import { notify } from '../../../lib/notify'
+import { readSpreadsheetAsCsv, SPREADSHEET_UPLOAD_ACCEPT } from '../../../lib/spreadsheet-import'
 
 type LabPanel = { id: string; name: string; code: string; category: string; description?: string | null }
 type LabTest = {
@@ -22,6 +24,7 @@ type CatalogTest = {
   name: string
   code: string
   isPanel: boolean
+  sell?: number
   standardTatMinutes?: number
   department?: { name: string; code: string }
   specimen?: { name: string; code: string }
@@ -48,10 +51,32 @@ const sampleTypes = [
   'tissue',
 ] as const
 
+function csvCell(value: string | number | undefined) {
+  const text = String(value ?? '')
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function downloadTextFile(filename: string, href: string) {
+  const link = document.createElement('a')
+  link.href = href
+  link.download = filename
+  link.click()
+}
+
+function downloadGeneratedCsv(filename: string, csv: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const href = URL.createObjectURL(blob)
+  downloadTextFile(filename, href)
+  URL.revokeObjectURL(href)
+}
+
 export function LabCatalogPanel() {
   const queryClient = useQueryClient()
   const [importSummary, setImportSummary] = useState<string | null>(null)
   const [lisImportSummary, setLisImportSummary] = useState<string | null>(null)
+  const [priceImportSummary, setPriceImportSummary] = useState<string | null>(null)
+  const [priceDraft, setPriceDraft] = useState<Record<string, string>>({})
+  const [priceQuery, setPriceQuery] = useState('')
   const { data: panels = [], isLoading: panelsLoading } = useQuery({
     queryKey: ['lab-panels'],
     queryFn: () => apiRequest<LabPanel[]>('/laboratory/panels'),
@@ -128,6 +153,7 @@ export function LabCatalogPanel() {
         testsUpdated: number
         testsSkipped: number
         parametersCreated: number
+        priced?: number
         errors: string[]
       }>('/laboratory/catalog/import', {
         method: 'POST',
@@ -135,6 +161,8 @@ export function LabCatalogPanel() {
       }),
     onSuccess: async (summary) => {
       const message = `LIS tests +${summary.testsCreated} updated ${summary.testsUpdated} · parameters +${summary.parametersCreated}${
+        summary.priced ? ` · ${summary.priced} priced` : ''
+      }${
         summary.errors.length ? ` · ${summary.errors.length} row warning(s)` : ''
       }`
       setLisImportSummary(message)
@@ -146,6 +174,43 @@ export function LabCatalogPanel() {
       ])
     },
     onError: (error: Error) => notify('LIS import failed', error.message, 'critical'),
+  })
+
+  const importPrices = useMutation({
+    mutationFn: (csv: string) =>
+      apiRequest<{
+        priced: number
+        matched: string[]
+        unmatched: string[]
+        ambiguous: string[]
+        errors: string[]
+      }>('/laboratory/catalog/prices/import', {
+        method: 'POST',
+        body: JSON.stringify({ csv }),
+      }),
+    onSuccess: async (summary) => {
+      const message = `${summary.priced} prices saved · ${summary.unmatched.length} unmatched · ${summary.ambiguous.length} ambiguous`
+      setPriceImportSummary(
+        [
+          message,
+          summary.unmatched.length ? `Unmatched: ${summary.unmatched.join(', ')}` : '',
+          summary.ambiguous.length ? `Ambiguous: ${summary.ambiguous.join(', ')}` : '',
+          summary.errors.slice(0, 4).join(' · '),
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      )
+      notify(
+        'Lab prices imported',
+        message,
+        summary.unmatched.length || summary.ambiguous.length || summary.errors.length ? 'warning' : 'success',
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['lab-catalog-tests'] }),
+        queryClient.invalidateQueries({ queryKey: ['clinical-order-catalog-tests'] }),
+      ])
+    },
+    onError: (error: Error) => notify('Price import failed', error.message, 'critical'),
   })
 
   const createTest = useMutation({
@@ -172,6 +237,20 @@ export function LabCatalogPanel() {
     },
   })
 
+  const saveSell = useMutation({
+    mutationFn: ({ code, sell }: { code: string; sell: number }) =>
+      apiRequest(`/laboratory/catalog/tests/${encodeURIComponent(code)}/pricing`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sell }),
+      }),
+    onSuccess: async () => {
+      notify('Lab price saved', 'Cashier and walk-in desk now use this amount.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['lab-catalog-tests'] })
+      await queryClient.invalidateQueries({ queryKey: ['clinical-order-catalog-tests'] })
+    },
+    onError: (error: Error) => notify('Could not save price', error.message, 'critical'),
+  })
+
   return (
     <div className="space-y-6">
       <Card className="p-6">
@@ -195,17 +274,24 @@ export function LabCatalogPanel() {
           </Button>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             <Upload className="h-4 w-4" />
-            {importCatalog.isPending ? 'Importing…' : 'Upload filled CSV'}
+            {importCatalog.isPending ? 'Importing…' : 'Upload CSV / Excel'}
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept={SPREADSHEET_UPLOAD_ACCEPT}
               className="hidden"
               onChange={async (e) => {
                 const file = e.target.files?.[0]
-                if (!file) return
-                const csv = await file.text()
-                importCatalog.mutate(csv)
                 e.target.value = ''
+                if (!file) return
+                try {
+                  importCatalog.mutate(await readSpreadsheetAsCsv(file))
+                } catch (error) {
+                  notify(
+                    'Import failed',
+                    error instanceof Error ? error.message : 'Could not read that spreadsheet.',
+                    'critical',
+                  )
+                }
               }}
             />
           </label>
@@ -238,26 +324,101 @@ export function LabCatalogPanel() {
           </Button>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             <Upload className="h-4 w-4" />
-            {importLisCatalog.isPending ? 'Importing…' : 'Upload LIS CSV'}
+            {importLisCatalog.isPending ? 'Importing…' : 'Upload LIS CSV / Excel'}
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept={SPREADSHEET_UPLOAD_ACCEPT}
               className="hidden"
               onChange={async (e) => {
                 const file = e.target.files?.[0]
-                if (!file) return
-                const csv = await file.text()
-                importLisCatalog.mutate(csv)
                 e.target.value = ''
+                if (!file) return
+                try {
+                  importLisCatalog.mutate(await readSpreadsheetAsCsv(file))
+                } catch (error) {
+                  notify(
+                    'Import failed',
+                    error instanceof Error ? error.message : 'Could not read that spreadsheet.',
+                    'critical',
+                  )
+                }
               }}
             />
           </label>
         </div>
         <p className="mt-3 text-xs text-slate-500">
           Columns: code, name, department_code, specimen_code, is_panel, tat_minutes, parameter_code,
-          parameter_name, unit, ref_low, ref_high
+          parameter_name, unit, ref_low, ref_high, sell (or rate / price)
         </p>
         {lisImportSummary ? <Alert tone="info" className="mt-4">{lisImportSummary}</Alert> : null}
+      </Card>
+
+      <Card className="p-6">
+        <PageHeader
+          title="Bulk sell prices"
+          description="Upload the hospital price list against the existing 192 orderable tests. Matched rows save a sell price. Unmatched rows are reported and not created."
+        />
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => downloadTextFile('lab-price-import-template.csv', '/templates/lab-price-import-template.csv')}
+          >
+            <Download className="h-4 w-4" />
+            Download blank format
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() =>
+              downloadTextFile('jalaram-lab-price-list.csv', '/templates/jalaram-lab-price-list.csv')
+            }
+          >
+            <Download className="h-4 w-4" />
+            Download Jalaram price list
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!catalogTests.length}
+            onClick={() => {
+              const rows = ['code,name,sell', ...catalogTests.map((test) =>
+                [csvCell(test.code), csvCell(test.name), csvCell(test.sell ?? '')].join(','),
+              )]
+              downloadGeneratedCsv('lab-catalog-current-prices.csv', rows.join('\n'))
+            }}
+          >
+            <Download className="h-4 w-4" />
+            Download current catalog
+          </Button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Upload className="h-4 w-4" />
+            {importPrices.isPending ? 'Importing…' : 'Upload price CSV / Excel'}
+            <input
+              type="file"
+              accept={SPREADSHEET_UPLOAD_ACCEPT}
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (!file) return
+                try {
+                  importPrices.mutate(await readSpreadsheetAsCsv(file))
+                } catch (error) {
+                  notify(
+                    'Price import failed',
+                    error instanceof Error ? error.message : 'Could not read that spreadsheet.',
+                    'critical',
+                  )
+                }
+              }}
+            />
+          </label>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Format: code, name, sell. Use the catalog code when you have it. Name matching is a fallback. RATE / PRICE / KES / KSH also work. The Jalaram list maps the hospital sheet to existing codes; seven name-only rows stay unmatched until those tests exist in the catalog.
+        </p>
+        {priceImportSummary ? <Alert tone="info" className="mt-4">{priceImportSummary}</Alert> : null}
       </Card>
 
       <Card className="p-8">
@@ -293,6 +454,7 @@ export function LabCatalogPanel() {
                     <p className="text-xs text-slate-500">
                       {panel.code}
                       {panel.standardTatMinutes ? ` · ${Math.round(panel.standardTatMinutes / 60)}h TAT` : ''}
+                      {formatConfiguredPrice(panel.sell) ? ` · ${formatConfiguredPrice(panel.sell)}` : ' · No price configured'}
                     </p>
                   </li>
                 ))}
@@ -316,6 +478,7 @@ export function LabCatalogPanel() {
                     <p className="text-xs text-slate-500">
                       {test.code}
                       {test.department?.name ? ` · ${test.department.name}` : ''}
+                      {formatConfiguredPrice(test.sell) ? ` · ${formatConfiguredPrice(test.sell)}` : ' · No price configured'}
                     </p>
                   </li>
                 ))}
@@ -325,6 +488,79 @@ export function LabCatalogPanel() {
               </ul>
             )}
           </div>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <PageHeader
+          title="Sell prices"
+          description="These are the exact amounts cashier and the walk-in lab desk use. Import a sell/rate column or edit a test here."
+        />
+        <input
+          className="input mt-4"
+          placeholder="Search catalog to set a price…"
+          value={priceQuery}
+          onChange={(e) => setPriceQuery(e.target.value)}
+        />
+        <div className="mt-4 max-h-80 overflow-y-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                <th className="pb-2 pr-3">Test</th>
+                <th className="pb-2 pr-3">Sell (KES)</th>
+                <th className="pb-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {catalogTests
+                .filter((test) => {
+                  const q = priceQuery.trim().toLowerCase()
+                  if (!q) return true
+                  return (
+                    test.name.toLowerCase().includes(q) ||
+                    test.code.toLowerCase().includes(q)
+                  )
+                })
+                .slice(0, 80)
+                .map((test) => (
+                  <tr key={test.id} className="border-b border-slate-100">
+                    <td className="py-2 pr-3">
+                      <p className="font-medium text-slate-900">{test.name}</p>
+                      <p className="text-xs text-slate-500">{test.code}</p>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <Field
+                        name={`sell-${test.code}`}
+                        label=""
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="w-28"
+                        value={priceDraft[test.code] ?? String(test.sell ?? 0)}
+                        onChange={(e) =>
+                          setPriceDraft((current) => ({ ...current, [test.code]: e.target.value }))
+                        }
+                      />
+                    </td>
+                    <td className="py-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        loading={saveSell.isPending}
+                        onClick={() =>
+                          saveSell.mutate({
+                            code: test.code,
+                            sell: Number(priceDraft[test.code] ?? test.sell ?? 0) || 0,
+                          })
+                        }
+                      >
+                        Save
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </div>
       </Card>
 

@@ -35,21 +35,34 @@ export function PaymentDesk() {
   const [amount, setAmount] = useState('')
   const [stockItemId, setStockItemId] = useState('')
   const [stockQty, setStockQty] = useState('1')
+  const [pharmacyCart, setPharmacyCart] = useState<Array<{ itemId: string; qty: string }>>([])
   const [catalogService, setCatalogService] = useState('')
+  const [labTestIds, setLabTestIds] = useState<string[]>([])
+  const [labQuery, setLabQuery] = useState('')
   const [pharmacyOrderId, setPharmacyOrderId] = useState('')
 
   const { data: stockItems = [] } = useQuery({
     queryKey: ['inventory-items', 'cashier'],
     queryFn: () =>
-      apiRequest<Array<{ id: string; sku: string; name: string; unit: string; sell?: number }>>(
-        '/inventory/items',
-      ),
+      apiRequest<
+        Array<{
+          id: string
+          sku: string
+          name: string
+          unit: string
+          sell?: number
+          drugClass?: string
+        }>
+      >('/inventory/items'),
     enabled: serviceLine === 'pharmacy',
   })
 
   const { data: labTests = [] } = useQuery({
-    queryKey: ['lab-tests', 'cashier'],
-    queryFn: () => apiRequest<Array<{ id: string; name: string; code: string }>>('/laboratory/tests'),
+    queryKey: ['lab-catalog-tests', 'cashier'],
+    queryFn: () =>
+      apiRequest<Array<{ id: string; name: string; code: string; isPanel?: boolean; sell?: number }>>(
+        '/laboratory/catalog/tests',
+      ),
     enabled: serviceLine === 'laboratory',
     retry: false,
   })
@@ -91,23 +104,35 @@ export function PaymentDesk() {
   }, [clinicName, mappedFee, serviceLine])
 
   useEffect(() => {
-    if (serviceLine !== 'pharmacy') return
-    const item = stockItems.find((row) => row.id === stockItemId)
-    if (!item) return
-    const qty = Number(stockQty)
-    const unitPrice = Number(item.sell ?? 0)
-    if (Number.isFinite(qty) && qty > 0 && unitPrice > 0) {
-      setAmount(String(Math.round(unitPrice * qty * 100) / 100))
-    }
-    setServiceDescription(`${item.name} × ${stockQty || 1} ${item.unit}`)
-  }, [serviceLine, stockItemId, stockQty, stockItems])
+    if (serviceLine !== 'pharmacy' || pharmacyOrderId) return
+    const lines = pharmacyCart
+      .map((line) => {
+        const item = stockItems.find((row) => row.id === line.itemId)
+        const qty = Number(line.qty)
+        if (!item || !Number.isFinite(qty) || qty <= 0) return null
+        return { item, qty }
+      })
+      .filter((row): row is { item: (typeof stockItems)[number]; qty: number } => Boolean(row))
+    if (!lines.length) return
+    const total = lines.reduce((sum, row) => sum + Number(row.item.sell ?? 0) * row.qty, 0)
+    setAmount(String(Math.round(total * 100) / 100))
+    setServiceDescription(
+      lines.map((row) => `${row.item.name} × ${row.qty} ${row.item.unit}`).join(', '),
+    )
+  }, [serviceLine, pharmacyCart, pharmacyOrderId, stockItems])
+
+  useEffect(() => {
+    if (serviceLine !== 'laboratory') return
+    const selected = labTests.filter((row) => labTestIds.includes(row.id))
+    if (!selected.length) return
+    const total = selected.reduce((sum, row) => sum + Number(row.sell ?? 0), 0)
+    if (total > 0) setAmount(String(Math.round(total * 100) / 100))
+    setServiceDescription(selected.map((row) => row.name).join(', '))
+  }, [serviceLine, labTestIds, labTests])
 
   useEffect(() => {
     if (!catalogService) return
-    if (serviceLine === 'laboratory') {
-      const test = labTests.find((row) => row.id === catalogService)
-      if (test) setServiceDescription(test.name)
-    }
+    if (serviceLine === 'laboratory') return
     if (serviceLine === 'radiology') {
       const study = radStudies.find((row) => row.code === catalogService)
       if (study) setServiceDescription(study.name)
@@ -178,6 +203,11 @@ export function PaymentDesk() {
                       setStockItemId('')
                       setStockQty('1')
                       setPharmacyOrderId('')
+                      setPharmacyCart([])
+                    }
+                    if (e.target.value !== 'laboratory') {
+                      setLabTestIds([])
+                      setLabQuery('')
                     }
                     setCatalogService('')
                   }}
@@ -216,20 +246,63 @@ export function PaymentDesk() {
                 )}
               </div>
               {serviceLine === 'laboratory' ? (
-                <SelectField
-                  name="labTest"
-                  label="Laboratory test"
-                  value={catalogService}
-                  onChange={(e) => setCatalogService(e.target.value)}
-                  hint="From the laboratory catalog import."
-                >
-                  <option value="">Select test…</option>
-                  {labTests.map((test) => (
-                    <option key={test.id} value={test.id}>
-                      {test.name}
-                    </option>
-                  ))}
-                </SelectField>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Laboratory tests
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      {labTests.length} catalog tests · tick every test on the bill
+                    </span>
+                  </label>
+                  <input
+                    className="input"
+                    placeholder="Search FBC, malaria, LFT…"
+                    value={labQuery}
+                    onChange={(e) => setLabQuery(e.target.value)}
+                  />
+                  <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                    {labTests
+                      .filter((test) => {
+                        const q = labQuery.trim().toLowerCase()
+                        if (!q) return true
+                        return (
+                          test.name.toLowerCase().includes(q) ||
+                          (test.code ?? '').toLowerCase().includes(q)
+                        )
+                      })
+                      .map((test) => {
+                        const checked = labTestIds.includes(test.id)
+                        return (
+                          <label
+                            key={test.id}
+                            className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-2.5 text-sm last:border-b-0 hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-slate-300 text-teal-600"
+                              checked={checked}
+                              onChange={() =>
+                                setLabTestIds((current) =>
+                                  current.includes(test.id)
+                                    ? current.filter((id) => id !== test.id)
+                                    : [...current, test.id],
+                                )
+                              }
+                            />
+                            <span className="font-medium text-slate-800">
+                              {test.isPanel ? `${test.name} (panel)` : test.name}
+                            </span>
+                            <span className="ml-auto text-xs font-semibold text-teal-800">
+                              {Number(test.sell ?? 0) > 0 ? formatKes(test.sell) : 'No price configured'}
+                            </span>
+                          </label>
+                        )
+                      })}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Amount is the exact sum of the selected catalog prices. Set missing prices in
+                    Admin → Laboratory catalog.
+                  </p>
+                </div>
               ) : null}
               {serviceLine === 'radiology' ? (
                 <SelectField
@@ -293,30 +366,91 @@ export function PaymentDesk() {
                 </SelectField>
               ) : null}
               {serviceLine === 'pharmacy' ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <SelectField
-                    name="stockItemId"
-                    label="Stock item"
-                    value={stockItemId}
-                    onChange={(e) => setStockItemId(e.target.value)}
-                    hint="Selling price comes from Inventory → Prices."
-                  >
-                    <option value="">Select priced item…</option>
-                    {stockItems.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} — {formatKes(item.sell)} / {item.unit}
-                      </option>
-                    ))}
-                  </SelectField>
-                  <Field
-                    name="stockQty"
-                    label="Quantity"
-                    type="number"
-                    min={0.01}
-                    step="any"
-                    value={stockQty}
-                    onChange={(e) => setStockQty(e.target.value)}
-                  />
+                <div className="space-y-3">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <SelectField
+                      name="stockItemId"
+                      label="Stock item"
+                      value={stockItemId}
+                      onChange={(e) => setStockItemId(e.target.value)}
+                      hint="Add as many drugs as were dispensed. Selling price comes from Inventory → Prices."
+                    >
+                      <option value="">Select priced item…</option>
+                      {stockItems.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} — {formatKes(item.sell)} / {item.unit}
+                        </option>
+                      ))}
+                    </SelectField>
+                    <Field
+                      name="stockQty"
+                      label="Quantity"
+                      type="number"
+                      min={0.01}
+                      step="any"
+                      value={stockQty}
+                      onChange={(e) => setStockQty(e.target.value)}
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={!stockItemId}
+                        onClick={() => {
+                          if (!stockItemId) return
+                          setPharmacyCart((current) => {
+                            const existing = current.find((line) => line.itemId === stockItemId)
+                            if (existing) {
+                              const nextQty = Number(existing.qty) + Number(stockQty || 1)
+                              return current.map((line) =>
+                                line.itemId === stockItemId
+                                  ? { ...line, qty: String(nextQty) }
+                                  : line,
+                              )
+                            }
+                            return [...current, { itemId: stockItemId, qty: stockQty || '1' }]
+                          })
+                          setStockItemId('')
+                          setStockQty('1')
+                        }}
+                      >
+                        Add drug
+                      </Button>
+                    </div>
+                  </div>
+                  {pharmacyCart.length ? (
+                    <ul className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                      {pharmacyCart.map((line) => {
+                        const item = stockItems.find((row) => row.id === line.itemId)
+                        return (
+                          <li key={line.itemId} className="flex items-center justify-between gap-3">
+                            <span>
+                              {item?.name ?? 'Item'} × {line.qty} {item?.unit ?? ''}
+                              {item?.sell != null
+                                ? ` · ${formatKes(Number(item.sell) * Number(line.qty || 0))}`
+                                : ''}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="px-2 py-1 text-xs"
+                              onClick={() =>
+                                setPharmacyCart((current) =>
+                                  current.filter((row) => row.itemId !== line.itemId),
+                                )
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Add every dispensed drug. The amount is the sum of each line.
+                    </p>
+                  )}
                 </div>
               ) : null}
               {serviceLine === 'consultation' && clinicName ? (
@@ -380,6 +514,10 @@ export function PaymentDesk() {
                   setServiceDescription('')
                   setClinicName('')
                   setPharmacyOrderId('')
+                  setPharmacyCart([])
+                  setLabTestIds([])
+                  setLabQuery('')
+                  setCatalogService('')
                 }}
               />
             </>

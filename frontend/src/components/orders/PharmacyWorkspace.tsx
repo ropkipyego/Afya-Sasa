@@ -115,9 +115,11 @@ export function PharmacyWorkspace() {
 
   const stockByItem = useMemo(() => {
     const map = new Map<string, { qty: number; batchNo?: string; expiry?: string | null }>()
+    const today = new Date().toISOString().slice(0, 10)
     for (const batch of balances?.batches ?? []) {
       const qty = Number(batch.qtyOnHand)
       if (!Number.isFinite(qty) || qty <= 0) continue
+      if (batch.expiryDate && batch.expiryDate < today) continue
       const current = map.get(batch.item.id)
       map.set(batch.item.id, {
         qty: (current?.qty ?? 0) + qty,
@@ -364,14 +366,42 @@ export function PharmacyWorkspace() {
                         />
                       </div>
                     )}
+                    {!draft.rejected && remaining === 0 ? (
+                      <p className="mt-2 text-sm font-medium text-rose-700">
+                        Medication has already been fully dispensed.
+                      </p>
+                    ) : null}
                     {!draft.rejected && item && Number.isFinite(qty) && remaining != null && qty > remaining ? (
                       <p className="mt-2 text-sm font-medium text-rose-700">
-                        Cannot issue more than the remaining prescribed quantity ({remaining}).
+                        Quantity exceeds remaining prescription quantity ({remaining}).
                       </p>
                     ) : null}
                     {!draft.rejected && item && Number.isFinite(qty) && (stock?.qty ?? 0) < qty ? (
                       <p className="mt-2 text-sm font-medium text-rose-700">
-                        Not enough usable stock. Need {qty}, have {stock?.qty ?? 0}.
+                        Insufficient stock. Need {qty}, have {stock?.qty ?? 0} usable.
+                      </p>
+                    ) : null}
+                    {!draft.rejected && stock?.expiry && stock.expiry < new Date().toISOString().slice(0, 10) ? (
+                      <p className="mt-2 text-sm font-medium text-rose-700">
+                        Expired batch cannot be dispensed.
+                      </p>
+                    ) : null}
+                    {!draft.rejected &&
+                    stock?.expiry &&
+                    stock.expiry >= new Date().toISOString().slice(0, 10) &&
+                    new Date(stock.expiry).getTime() - Date.now() < 30 * 86_400_000 ? (
+                      <p className="mt-2 text-sm font-medium text-amber-800">
+                        Batch expires within 30 days ({stock.expiry}).
+                      </p>
+                    ) : null}
+                    {!draft.rejected && stock && stock.qty > 0 && stock.qty <= 5 ? (
+                      <p className="mt-2 text-sm font-medium text-amber-800">
+                        Only {stock.qty} units remain on the FEFO batch.
+                      </p>
+                    ) : null}
+                    {!draft.rejected && item && Number.isFinite(qty) && qty > 0 && (stock?.qty ?? 0) >= qty ? (
+                      <p className="mt-2 text-sm font-medium text-emerald-800">
+                        Batch available. Quantity is within usable stock.
                       </p>
                     ) : null}
                   </div>
@@ -391,7 +421,31 @@ export function PharmacyWorkspace() {
 
             {confirmOpen ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                Confirm once. This deducts stock, writes the ledger, and keeps the prescription open if any quantity remains.
+                <p className="font-semibold">Confirm dispensing</p>
+                <p className="mt-1">
+                  {active.first.patient
+                    ? `${active.first.patient.firstName} ${active.first.patient.lastName}`
+                    : 'Unknown patient'}
+                </p>
+                <ul className="mt-2 list-disc pl-5">
+                  {selectedLines.map((draft) => {
+                    const item = items.find((row) => row.id === draft.itemId)
+                    const stock = draft.itemId ? stockByItem.get(draft.itemId) : undefined
+                    return (
+                      <li key={draft.clinicalOrderId}>
+                        {item?.name ?? 'Item'} × {draft.quantity}
+                        {stock?.batchNo ? ` · batch ${stock.batchNo}` : ''}
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p className="mt-2 font-semibold">
+                  Estimated total {totals.amount > 0 ? `KES ${totals.amount.toFixed(2)}` : 'no catalogue prices'}
+                </p>
+                <p className="mt-1">
+                  This deducts stock and writes {selectedLines.length} ledger movement
+                  {selectedLines.length === 1 ? '' : 's'}. Expired lots cannot be issued.
+                </p>
               </div>
             ) : null}
 

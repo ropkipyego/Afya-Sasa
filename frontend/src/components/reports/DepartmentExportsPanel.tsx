@@ -6,19 +6,26 @@ import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { formatApiError } from '../../lib/api'
 
-export function DepartmentExportsPanel() {
+export function DepartmentExportsPanel({ initialDataset }: { initialDataset?: string } = {}) {
   const permissions = useAuthStore((state) => state.user?.permissions ?? [])
   const allowed = useMemo(
     () => DEPARTMENT_EXPORTS.filter((row) => permissions.includes(row.permission)),
     [permissions],
   )
-  const [dataset, setDataset] = useState(allowed[0]?.dataset ?? 'opd')
+  const [dataset, setDataset] = useState(initialDataset && allowed.some((row) => row.dataset === initialDataset)
+    ? initialDataset
+    : allowed[0]?.dataset ?? 'opd')
   const [format, setFormat] = useState<'csv' | 'xlsx'>('xlsx')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const selected = allowed.find((row) => row.dataset === dataset)
   const run = async () => {
+    const range = from && to ? ` for ${from} to ${to}` : from ? ` from ${from}` : to ? ` to ${to}` : ''
+    if (!window.confirm(`Export ${selected?.label ?? dataset} records${range} as ${format.toUpperCase()}? The server will audit this download.`)) {
+      return
+    }
     setBusy(true)
     try {
       await downloadDepartmentExport({ dataset, format, from: from || undefined, to: to || undefined })

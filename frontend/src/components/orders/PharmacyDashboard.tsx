@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Clock, Package, Pill, ShoppingBag, Timer } from 'lucide-react'
+import { Clock, Package, Pill, ShoppingBag, Timer } from 'lucide-react'
 import { apiRequest } from '../../lib/api'
 import { formatPatientNoShort } from '../../lib/patient-utils'
 import { LabQueueItem, LabSection, LabStatCard, waitLabel } from '../investigations/lab-ui'
@@ -41,8 +41,14 @@ function startOfToday() {
 
 export function PharmacyDashboard({
   onOpenDispense,
+  onOpenStockTake,
+  onOpenReceive,
+  onOpenProducts,
 }: {
   onOpenDispense?: () => void
+  onOpenStockTake?: () => void
+  onOpenReceive?: () => void
+  onOpenProducts?: () => void
 }) {
   const { data: orders = [], isLoading: ordersLoading } = useQuery({
     queryKey: ['clinical-orders', 'pharmacy'],
@@ -68,6 +74,7 @@ export function PharmacyDashboard({
   })
 
   const pending = orders.filter((order) => order.status !== 'dispensed' && order.status !== 'cancelled')
+  const partial = pending.filter((order) => order.status === 'partially_dispensed')
   const urgent = pending.filter((order) => order.priority === 'stat' || order.priority === 'urgent')
   const todayStart = startOfToday().getTime()
   const dispensedToday = orders.filter(
@@ -123,20 +130,34 @@ export function PharmacyDashboard({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white" onClick={onOpenDispense}>
+          Open pharmacy queue
+        </button>
+        <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenStockTake}>
+          New stock take
+        </button>
+        <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenReceive}>
+          Receive stock
+        </button>
+        <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenProducts}>
+          Products
+        </button>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <LabStatCard
           label="Awaiting dispense"
           value={pending.length}
           icon={Pill}
           tone="border-teal-200/80 bg-gradient-to-br from-teal-50 to-white text-teal-950"
-          hint="Prescriptions still on the bench"
+          hint={urgent.length ? `${urgent.length} STAT/urgent` : 'Prescriptions still on the bench'}
         />
         <LabStatCard
-          label="Priority"
-          value={urgent.length}
-          icon={AlertTriangle}
+          label="Partial prescriptions"
+          value={partial.length}
+          icon={Clock}
           tone="border-amber-200 bg-gradient-to-br from-amber-50 to-white text-amber-950"
-          hint="STAT and urgent scripts"
+          hint="Some lines already issued"
         />
         <LabStatCard
           label="Dispensed today"

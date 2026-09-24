@@ -5,6 +5,7 @@ import { Alert, Button, Card, ClinicalForm, Field, FormActions, FormSection, Pag
 import { formDataFromElement, submitClinicalForm } from '../../../lib/form-utils'
 import { apiRequest } from '../../../lib/api'
 import { notify } from '../../../lib/notify'
+import { readSpreadsheetAsCsv, SPREADSHEET_UPLOAD_ACCEPT } from '../../../lib/spreadsheet-import'
 
 type Modality = { id: string; name: string; code: string }
 type Study = {
@@ -94,17 +95,24 @@ export function RadiologyCatalogPanel() {
           </Button>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             <Upload className="h-4 w-4" />
-            {importCatalog.isPending ? 'Importing…' : 'Upload filled CSV'}
+            {importCatalog.isPending ? 'Importing…' : 'Upload CSV / Excel'}
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept={SPREADSHEET_UPLOAD_ACCEPT}
               className="hidden"
               onChange={async (e) => {
                 const file = e.target.files?.[0]
-                if (!file) return
-                const csv = await file.text()
-                importCatalog.mutate(csv)
                 e.target.value = ''
+                if (!file) return
+                try {
+                  importCatalog.mutate(await readSpreadsheetAsCsv(file))
+                } catch (error) {
+                  notify(
+                    'Import failed',
+                    error instanceof Error ? error.message : 'Could not read that spreadsheet.',
+                    'critical',
+                  )
+                }
               }}
             />
           </label>

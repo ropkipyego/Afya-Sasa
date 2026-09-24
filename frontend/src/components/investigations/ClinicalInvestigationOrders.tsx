@@ -11,6 +11,7 @@ import {
   TextareaField,
 } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { formatKes } from '../../lib/clinical-catalog'
 import { notify } from '../../lib/notify'
 
 export type InvestigationOrderContext = {
@@ -29,6 +30,7 @@ type CatalogTest = {
   name: string
   code: string
   isPanel: boolean
+  sell?: number
   standardTatMinutes?: number
   department?: { name: string; code: string }
   specimen?: { name: string; code: string }
@@ -299,9 +301,9 @@ export function ClinicalInvestigationOrders({
                         onChange={() => toggleTest(test.id)}
                       />
                       <span className="font-medium text-slate-800">{test.name}</span>
-                      {test.code ? (
-                        <span className="ml-auto text-xs text-slate-400">{test.code}</span>
-                      ) : null}
+                      <span className="ml-auto text-xs font-semibold text-teal-800">
+                        {Number(test.sell ?? 0) > 0 ? formatKes(test.sell) : test.code || ''}
+                      </span>
                     </label>
                   )
                 })}

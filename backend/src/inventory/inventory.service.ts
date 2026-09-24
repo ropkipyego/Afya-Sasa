@@ -10,6 +10,7 @@ import {
   prescriptionGroupId,
   remainingQuantity,
 } from '../clinical-order/pharmacy-prescription';
+import { classifyDrug } from './drug-class';
 import { TenantSettings } from '../core/core.entities';
 import { PaymentsService } from '../payments/payments.service';
 import {
@@ -98,7 +99,8 @@ export class InventoryService {
     const pricing = await this.readPricingMap(params?.request);
     return rows.map((item) => {
       const price = pricing[item.sku] ?? { cost: 0, markup: 0, sell: 0 };
-      return { ...item, cost: price.cost, markup: price.markup, sell: price.sell };
+      const drugClass = item.drugClass ?? classifyDrug(item.name, item.category);
+      return { ...item, ...price, drugClass };
     });
   }
 
@@ -115,6 +117,7 @@ export class InventoryService {
         sku: dto.sku.trim().toUpperCase(),
         name: dto.name.trim(),
         category: dto.category,
+        drugClass: classifyDrug(dto.name, dto.category),
         unit: dto.unit.trim(),
         trackBatch,
         active: true,
@@ -1227,11 +1230,11 @@ export class InventoryService {
 
     for (const [index, row] of rows.entries()) {
       const line = index + 2;
-      const sku = (row.sku ?? '').trim().toUpperCase();
       const name = (row.name ?? '').trim();
-      const unit = (row.unit ?? 'unit').trim() || 'unit';
+      const unit = (row.unit ?? inferUnit(name)).trim() || 'unit';
+      const sku = ((row.sku ?? '').trim() || skuFromName(name)).toUpperCase();
       if (!sku || !name) {
-        summary.errors.push(`Line ${line}: sku and name are required.`);
+        summary.errors.push(`Line ${line}: item name is required.`);
         continue;
       }
       if (seenSku.has(sku)) {
@@ -1239,7 +1242,8 @@ export class InventoryService {
         continue;
       }
       seenSku.add(sku);
-      const category = normalizeInventoryCategory(row.category);
+      const category = normalizeInventoryCategory(row.category, name);
+      const drugClass = (row.drug_class ?? row.class ?? classifyDrug(name, category)).trim() || classifyDrug(name, category);
       const identity = `${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}|${unit.toLowerCase()}|${category}`;
       if (seenIdentity.has(identity)) {
         summary.duplicates.push(`Line ${line}: ${name} ${unit} looks like a duplicate product in this file.`);
@@ -1259,7 +1263,9 @@ export class InventoryService {
       }
 
       if (previewOnly) {
-        const existing = await this.items.findOne({ where: { sku } });
+        const existing =
+          (await this.items.findOne({ where: { sku } })) ??
+          (await this.items.findOne({ where: { name } }));
         if (existing) summary.updated += 1;
         else summary.created += 1;
         continue;
@@ -1268,11 +1274,15 @@ export class InventoryService {
       try {
         let item = await this.items.findOne({ where: { sku } });
         if (!item) {
+          item = await this.items.findOne({ where: { name } });
+        }
+        if (!item) {
           item = await this.items.save(
             this.items.create({
               sku,
               name,
               category,
+              drugClass,
               unit,
               trackBatch: parseBool(row.track_batch) ?? category === 'pharmaceutical',
               active: true,
@@ -1284,6 +1294,7 @@ export class InventoryService {
         } else {
           item.name = name;
           item.category = category;
+          item.drugClass = drugClass;
           item.unit = (row.unit ?? item.unit).trim() || item.unit;
           if (row.track_batch != null && row.track_batch !== '') {
             item.trackBatch = parseBool(row.track_batch) ?? item.trackBatch;
@@ -1294,7 +1305,7 @@ export class InventoryService {
         }
 
         const cost = Number(row.cost ?? row.cost_price ?? '');
-        const sell = Number(row.sell ?? row.selling_price ?? '');
+        const sell = Number(row.sell ?? row.selling_price ?? row.rate ?? '');
         const markup = Number(row.markup ?? row.markup_percent ?? '');
         if ([cost, sell, markup].some((value) => Number.isFinite(value) && value !== 0) || row.sell === '0') {
           if ([cost, sell, markup].some((value) => Number.isFinite(value) && value < 0)) {
@@ -1307,7 +1318,7 @@ export class InventoryService {
             sell: Number.isFinite(sell) ? sell : 0,
             preferSell: Number.isFinite(sell) && sell > 0,
           });
-          await this.writePricing(sku, price, request);
+          await this.writePricing(item.sku, price, request);
           summary.priced += 1;
         }
 
@@ -1427,15 +1438,36 @@ function resolvePrice(input: ItemPrice & { preferSell?: boolean }): ItemPrice {
   };
 }
 
-function normalizeInventoryCategory(value?: string): InventoryCategory {
+function normalizeInventoryCategory(value?: string, name?: string): InventoryCategory {
   const raw = (value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
-  if (raw === 'pharmaceutical' || raw === 'pharmacy' || raw === 'medicine' || raw === 'drug') {
+  if (raw === 'pharmaceutical' || raw === 'pharmacy' || raw === 'medicine' || raw === 'drug' || raw === 'drugs') {
     return 'pharmaceutical';
   }
   if (raw === 'medical_consumable' || raw === 'consumable' || raw === 'consumables') {
     return 'medical_consumable';
   }
-  return 'non_medical';
+  if (raw === 'non_medical' || raw === 'non-medical') return 'non_medical';
+  if (classifyDrug(name ?? '', 'pharmaceutical') === 'medical_consumable') {
+    return 'medical_consumable';
+  }
+  return 'pharmaceutical';
+}
+
+export function skuFromName(name: string) {
+  const compact = name.toUpperCase().replace(/[^A-Z0-9]+/g, '').slice(0, 18);
+  return compact || 'ITEM';
+}
+
+function inferUnit(name: string) {
+  const lower = name.toLowerCase();
+  if (/\b(tab|tablet)s?\b/.test(lower)) return 'tablet';
+  if (/\b(cap|capsule)s?\b/.test(lower)) return 'capsule';
+  if (/\b(syrup|suspension|ml)\b/.test(lower)) return 'bottle';
+  if (/\b(inj|injection|amp)\b/.test(lower)) return 'ampoule';
+  if (/\b(cream|ointment|gel)\b/.test(lower)) return 'tube';
+  if (/\b(pair|glove)s?\b/.test(lower)) return 'pair';
+  if (/\b(box|pack)\b/.test(lower)) return 'box';
+  return 'unit';
 }
 
 export function isExpiredBatch(expiryDate?: string | Date | null, now = new Date()) {
@@ -1452,14 +1484,14 @@ function parseBool(value?: string) {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'y';
 }
 
-function parseInventoryCsv(csv: string): Array<Record<string, string>> {
+export function parseInventoryCsv(csv: string): Array<Record<string, string>> {
   const lines = csv
     .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
   if (lines.length < 2) return [];
-  const headers = splitCsvLine(lines[0]).map((header) => header.trim().toLowerCase().replace(/\s+/g, '_'));
+  const headers = splitCsvLine(lines[0]).map((header) => aliasInventoryHeader(header));
   return lines.slice(1).map((line) => {
     const cells = splitCsvLine(line);
     const row: Record<string, string> = {};
@@ -1468,6 +1500,33 @@ function parseInventoryCsv(csv: string): Array<Record<string, string>> {
     });
     return row;
   });
+}
+
+export function aliasInventoryHeader(header: string) {
+  const key = header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const aliases: Record<string, string> = {
+    name_of_the_item: 'name',
+    item_name: 'name',
+    item: 'name',
+    medicine: 'name',
+    drug: 'name',
+    qty: 'opening_qty',
+    quantity: 'opening_qty',
+    qty_on_hand: 'opening_qty',
+    rate: 'sell',
+    selling_price: 'sell',
+    unit_price: 'sell',
+    price: 'sell',
+    batch: 'batch_no',
+    batch_no: 'batch_no',
+    batch_number: 'batch_no',
+    expiry_date: 'expiry',
+    exp: 'expiry',
+    class: 'drug_class',
+    therapeutic_class: 'drug_class',
+    category_name: 'category',
+  };
+  return aliases[key] ?? key;
 }
 
 function splitCsvLine(line: string) {

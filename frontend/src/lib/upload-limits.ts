@@ -2,16 +2,29 @@
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 export const ALLOWED_UPLOAD_ACCEPT =
-  '.pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,application/pdf,image/*'
+  '.pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,application/pdf,image/*,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const ALLOWED_MIME_PREFIXES = ['image/']
 const ALLOWED_MIME_EXACT = new Set([
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ])
 
-const ALLOWED_EXTENSIONS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif', '.doc', '.docx'])
+const ALLOWED_EXTENSIONS = new Set([
+  '.pdf',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+])
 
 export function validateClinicalUploadFile(file: File): void {
   if (file.size > MAX_UPLOAD_BYTES) {
@@ -20,7 +33,7 @@ export function validateClinicalUploadFile(file: File): void {
 
   const ext = file.name.includes('.') ? `.${file.name.split('.').pop()!.toLowerCase()}` : ''
   if (ext && !ALLOWED_EXTENSIONS.has(ext)) {
-    throw new Error(`File type not allowed: ${ext}. Use PDF, images, or Word documents.`)
+    throw new Error(`File type not allowed: ${ext}. Use PDF, images, Word, or Excel (.xlsx).`)
   }
 
   const mime = (file.type || '').toLowerCase()

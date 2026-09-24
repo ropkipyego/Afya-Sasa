@@ -3,6 +3,7 @@ import { Download, Upload } from 'lucide-react'
 import { Button, Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { readSpreadsheetAsCsv, SPREADSHEET_UPLOAD_ACCEPT } from '../../lib/spreadsheet-import'
 
 type ImportCard = {
   id: string
@@ -41,8 +42,8 @@ const CARDS: ImportCard[] = [
   {
     id: 'inventory',
     title: 'Pharmacy & store',
-    description: 'SKUs, cost, markup, sell. Opening quantity is held until a confirmed stock-take — this upload does not change live stock.',
-    template: '/templates/inventory-stock-import-template.csv',
+    description: 'Hospital stock sheet: NAME OF THE ITEM, QTY, RATE, BATCH NO., EXPIRY. This upload updates the catalogue only. Live quantity posts from Pharmacy or Inventory → Stock take.',
+    template: '/templates/jalaram-stock-take-import-template.csv',
     endpoint: '/inventory/items/import',
     countQuery: {
       key: ['inventory-items'],
@@ -157,15 +158,24 @@ function CatalogImportCard({ card, onDone }: { card: ImportCard; onDone: () => v
         </Button>
         <label className="inline-flex cursor-pointer items-center rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700">
           <Upload className="mr-1.5 h-4 w-4" />
-          {importFile.isPending ? 'Importing…' : 'Upload CSV'}
+          {importFile.isPending ? 'Importing…' : 'Upload CSV / Excel'}
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept={SPREADSHEET_UPLOAD_ACCEPT}
             className="hidden"
             onChange={async (event) => {
               const file = event.target.files?.[0]
               event.target.value = ''
-              if (file) importFile.mutate(await file.text())
+              if (!file) return
+              try {
+                importFile.mutate(await readSpreadsheetAsCsv(file))
+              } catch (error) {
+                notify(
+                  `${card.title} import failed`,
+                  error instanceof Error ? error.message : 'Could not read that spreadsheet.',
+                  'critical',
+                )
+              }
             }}
           />
         </label>

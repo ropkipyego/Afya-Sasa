@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Field, SelectField, TextareaField } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { drugClassLabel } from '../../lib/drug-class'
 import { notify } from '../../lib/notify'
 
 type CatalogItem = {
@@ -9,6 +10,7 @@ type CatalogItem = {
   sku: string
   name: string
   unit: string
+  drugClass?: string | null
 }
 
 type DraftLine = {
@@ -136,7 +138,7 @@ export function PrescriptionForm({
             <option value="">Free-text medication…</option>
             {items.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name} ({item.sku})
+                {item.name} ({item.sku}) · {drugClassLabel(item.drugClass)}
               </option>
             ))}
           </SelectField>

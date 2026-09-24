@@ -301,3 +301,10 @@ export function formatKes(amount?: number | string | null) {
   if (!Number.isFinite(value)) return 'KES 0'
   return `KES ${value.toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
 }
+
+/** Selling price for catalogs. Zero/missing is not a real hospital fee. */
+export function formatConfiguredPrice(amount?: number | string | null) {
+  const value = Number(amount)
+  if (!Number.isFinite(value) || value <= 0) return null
+  return formatKes(value)
+}

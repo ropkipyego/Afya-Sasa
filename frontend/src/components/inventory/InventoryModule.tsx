@@ -14,10 +14,12 @@ import {
 import { Alert, Button, Card, Field, PageHeader, Select } from '../ui'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { apiRequest } from '../../lib/api'
+import { drugClassLabel } from '../../lib/drug-class'
 import { notify } from '../../lib/notify'
 import { InventoryOverview } from './InventoryOverview'
 import { ProcurementPanel } from './ProcurementPanel'
 import { InventoryPricesPanel } from './InventoryPricesPanel'
+import { StockTakeWorkspace } from './StockTakeWorkspace'
 
 type InventoryLocation = {
   id: string
@@ -31,6 +33,7 @@ type InventoryItem = {
   sku: string
   name: string
   category: 'pharmaceutical' | 'medical_consumable' | 'non_medical'
+  drugClass?: string | null
   unit: string
 }
 
@@ -66,6 +69,7 @@ type Tab =
   | 'overview'
   | 'stock'
   | 'prices'
+  | 'stocktake'
   | 'requisitions'
   | 'procurement'
   | 'transfers'
@@ -102,6 +106,7 @@ export function InventoryModule() {
           { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="h-4 w-4" /> },
           { id: 'stock', label: 'Stock', icon: <Boxes className="h-4 w-4" /> },
           { id: 'prices', label: 'Prices', icon: <Percent className="h-4 w-4" /> },
+          { id: 'stocktake', label: 'Stock take', icon: <ClipboardCheck className="h-4 w-4" /> },
           { id: 'requisitions', label: 'Requisitions', icon: <Truck className="h-4 w-4" /> },
           { id: 'procurement', label: 'Buying list', icon: <ShoppingCart className="h-4 w-4" /> },
           { id: 'transfers', label: 'Transfers', icon: <ArrowRightLeft className="h-4 w-4" /> },
@@ -112,6 +117,7 @@ export function InventoryModule() {
       {tab === 'overview' ? <InventoryOverview onOpen={setTab} /> : null}
       {tab === 'stock' ? <StockPanel /> : null}
       {tab === 'prices' ? <InventoryPricesPanel /> : null}
+      {tab === 'stocktake' ? <StockTakeWorkspace /> : null}
       {tab === 'requisitions' ? <RequisitionsPanel /> : null}
       {tab === 'procurement' ? (
         <ProcurementPanel
@@ -254,7 +260,10 @@ function StockPanel() {
             <tbody>
               {batches.map((batch) => (
                 <tr key={batch.id} className="border-b border-slate-100">
-                  <td className="py-3 pr-4 font-medium text-slate-900">{batch.item.name}</td>
+                  <td className="py-3 pr-4">
+                    <p className="font-medium text-slate-900">{batch.item.name}</p>
+                    <p className="text-xs text-slate-500">{drugClassLabel(batch.item.drugClass)}</p>
+                  </td>
                   <td className="py-3 pr-4 font-mono text-xs text-slate-600">{batch.item.sku}</td>
                   <td className="py-3 pr-4">{batch.batchNo ?? '—'}</td>
                   <td className="py-3 pr-4">{batch.expiryDate ?? '—'}</td>

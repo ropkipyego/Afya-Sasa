@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CreditCard, Landmark, ShieldCheck } from 'lucide-react'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
+import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
 import { PaymentDesk } from './PaymentDesk'
 import { FinanceRevenuePanel } from './FinanceRevenuePanel'
 import { FinanceShaPanel } from './FinanceShaPanel'
@@ -12,6 +13,7 @@ export function FinanceModule({ initialTab = 'cashier' }: { initialTab?: Finance
 
   return (
     <div className="workspace-shell animate-fade-in space-y-6">
+      <DepartmentWorkspaceHeader department="Finance / cashier" roleHint="Same payment ledger — no second bill" />
       <WorkspaceTabs
         active={tab}
         onChange={setTab}

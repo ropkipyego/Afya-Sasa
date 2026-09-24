@@ -1,4 +1,4 @@
-code,name,department_code,specimen_code,is_panel,tat_minutes,parameter_code,parameter_name,unit,ref_low,ref_high
-ALB-SERUM,Albumin Serum,CC,SST-YELLOW,false,240,ALB-SERUM,Albumin,g/L,35,50
-FBC,Full Blood Count,HEM,EDTA-PURPLE,true,120,HGB,Haemoglobin,g/dL,12,16
-FBC,Full Blood Count,HEM,EDTA-PURPLE,true,120,WBC,White cell count,10^9/L,4,11
+code,name,department_code,specimen_code,is_panel,tat_minutes,parameter_code,parameter_name,unit,ref_low,ref_high,sell
+ALB-SERUM,Albumin Serum,CC,SST-YELLOW,false,240,ALB-SERUM,Albumin,g/L,35,50,600
+FBC,Full Blood Count,HEM,EDTA-PURPLE,true,120,HGB,Haemoglobin,g/dL,12,16,800
+FBC,Full Blood Count,HEM,EDTA-PURPLE,true,120,WBC,White cell count,10^9/L,4,11,800
