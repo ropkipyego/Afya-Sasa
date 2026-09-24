@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { demoSeedIsAllowed } from '../demo-seed-guard';
 
 export class DemoOperationalSeed1766228400000 implements MigrationInterface {
   name = 'DemoOperationalSeed1766228400000';
@@ -6,7 +7,7 @@ export class DemoOperationalSeed1766228400000 implements MigrationInterface {
   async up(queryRunner: QueryRunner): Promise<void> {
     // Historical local-dev seed. Already-applied installs never re-run this.
     // Fresh installs must opt in — production startup must not insert demo patients.
-    if (process.env.AFYASASA_ALLOW_DEMO_SEED !== 'true') {
+    if (!demoSeedIsAllowed()) {
       return;
     }
 

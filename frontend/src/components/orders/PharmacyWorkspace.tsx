@@ -21,64 +21,73 @@ type PharmacyOrder = {
   priority: string
   orderedAt: string
   patient?: { id?: string; firstName: string; lastName: string; patientNo: string }
+  encounter?: { id?: string } | null
   metadata?: {
+    kind?: string
+    parentOrderId?: string
+    prescriptionGroupId?: string
     medication?: string
     dose?: string
     route?: string
     frequency?: string
     itemId?: string | null
     quantity?: number | string | null
+    quantityPrescribed?: number | string | null
+    quantityDispensed?: number | string | null
+    dispensedQuantity?: number | string | null
     instructions?: string | null
   } | null
 }
 
-type CatalogItem = { id: string; sku: string; name: string; unit: string; category: string }
+type CatalogItem = { id: string; sku: string; name: string; unit: string; category: string; sell?: number }
 type Location = { id: string; code: string; locationType: string }
-type BalanceBatch = { qtyOnHand: string; item: { id: string } }
+type BalanceBatch = { qtyOnHand: string; expiryDate?: string | null; batchNo?: string; item: { id: string } }
 
-function normalizeMedName(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+type LineDraft = {
+  clinicalOrderId: string
+  itemId: string
+  quantity: string
+  rejected: boolean
 }
 
-function metaQty(order: PharmacyOrder) {
-  const qty = Number(order.metadata?.quantity)
-  return Number.isFinite(qty) && qty > 0 ? String(qty) : ''
+function groupId(order: PharmacyOrder) {
+  return String(order.metadata?.prescriptionGroupId ?? order.metadata?.parentOrderId ?? order.id)
+}
+
+function prescribedQty(order: PharmacyOrder) {
+  return Number(order.metadata?.quantityPrescribed ?? order.metadata?.quantity ?? 0)
+}
+
+function dispensedQty(order: PharmacyOrder) {
+  return Number(order.metadata?.quantityDispensed ?? order.metadata?.dispensedQuantity ?? 0)
+}
+
+function remainingQty(order: PharmacyOrder) {
+  const prescribed = prescribedQty(order)
+  if (!Number.isFinite(prescribed) || prescribed <= 0) return null
+  return Math.max(0, prescribed - dispensedQty(order))
 }
 
 function matchCatalogItem(items: CatalogItem[], order: PharmacyOrder) {
   const prescribed = order.metadata?.itemId
-  if (prescribed && items.some((item) => item.id === prescribed)) {
-    return prescribed
-  }
-  const name = normalizeMedName(order.metadata?.medication ?? '')
+  if (prescribed && items.some((item) => item.id === prescribed)) return prescribed
+  const name = (order.metadata?.medication ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
   if (!name) return ''
   const exact = items.find(
-    (item) => normalizeMedName(item.name) === name || normalizeMedName(item.sku) === name,
+    (item) => item.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === name,
   )
-  if (exact) return exact.id
-  const partial = items.filter((item) => {
-    const hay = normalizeMedName(item.name)
-    return hay.includes(name) || name.includes(hay)
-  })
-  return partial.length === 1 ? partial[0].id : ''
+  return exact?.id ?? ''
 }
 
 function scriptLine(order: PharmacyOrder) {
-  return [
-    order.metadata?.medication,
-    order.metadata?.dose,
-    order.metadata?.frequency,
-    order.metadata?.quantity != null ? `qty ${order.metadata.quantity}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  return [order.metadata?.medication, order.metadata?.dose, order.metadata?.frequency].filter(Boolean).join(' · ')
 }
 
 export function PharmacyWorkspace() {
   const queryClient = useQueryClient()
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [itemId, setItemId] = useState('')
-  const [dispenseQty, setDispenseQty] = useState('1')
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<LineDraft[]>([])
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['clinical-orders', 'pharmacy'],
@@ -104,29 +113,57 @@ export function PharmacyWorkspace() {
     enabled: Boolean(pharmacy?.id),
   })
 
-  const pending = orders.filter((o) => o.status !== 'dispensed' && o.status !== 'cancelled')
-  const active = pending.find((o) => o.id === activeId) ?? null
-
   const stockByItem = useMemo(() => {
-    const map = new Map<string, number>()
+    const map = new Map<string, { qty: number; batchNo?: string; expiry?: string | null }>()
     for (const batch of balances?.batches ?? []) {
       const qty = Number(batch.qtyOnHand)
       if (!Number.isFinite(qty) || qty <= 0) continue
-      map.set(batch.item.id, (map.get(batch.item.id) ?? 0) + qty)
+      const current = map.get(batch.item.id)
+      map.set(batch.item.id, {
+        qty: (current?.qty ?? 0) + qty,
+        batchNo: current?.batchNo ?? batch.batchNo,
+        expiry: current?.expiry ?? batch.expiryDate,
+      })
     }
     return map
   }, [balances])
 
-  useEffect(() => {
-    if (!active) return
-    setDispenseQty(metaQty(active))
-    setItemId(matchCatalogItem(items, active))
-  }, [active?.id, items])
+  const groups = useMemo(() => {
+    const map = new Map<string, PharmacyOrder[]>()
+    for (const order of orders) {
+      if (order.metadata?.kind === 'prescription') continue
+      if (order.status === 'cancelled' || remainingQty(order) === 0 || order.status === 'dispensed') continue
+      const id = groupId(order)
+      const list = map.get(id) ?? []
+      list.push(order)
+      map.set(id, list)
+    }
+    return [...map.entries()].map(([id, lines]) => ({
+      id,
+      lines,
+      first: lines[0],
+      waiting: lines.some((line) => line.status !== 'dispensed'),
+    }))
+  }, [orders])
 
-  const selectedItem = items.find((item) => item.id === itemId)
-  const available = itemId ? (stockByItem.get(itemId) ?? 0) : 0
-  const needed = Number(dispenseQty)
-  const stockKnown = Boolean(pharmacy?.id && balances)
+  const active = groups.find((group) => group.id === activeGroupId) ?? null
+
+  useEffect(() => {
+    if (!active) {
+      setDrafts([])
+      setConfirmOpen(false)
+      return
+    }
+    setDrafts(
+      active.lines.map((line) => ({
+        clinicalOrderId: line.id,
+        itemId: matchCatalogItem(items, line),
+        quantity: String(remainingQty(line) ?? (prescribedQty(line) || '')),
+        rejected: false,
+      })),
+    )
+    setConfirmOpen(false)
+  }, [active?.id, items])
 
   const invalidate = async () => {
     await Promise.all([
@@ -137,27 +174,50 @@ export function PharmacyWorkspace() {
     ])
   }
 
+  const selectedLines = drafts.filter((draft) => !draft.rejected)
+  const totals = selectedLines.reduce(
+    (acc, draft) => {
+      const item = items.find((row) => row.id === draft.itemId)
+      const qty = Number(draft.quantity)
+      const unit = Number(item?.sell ?? 0)
+      acc.items += 1
+      acc.qty += Number.isFinite(qty) ? qty : 0
+      acc.amount += Number.isFinite(qty) && unit > 0 ? qty * unit : 0
+      return acc
+    },
+    { items: 0, qty: 0, amount: 0 },
+  )
+
   const dispense = useMutation({
     mutationFn: () => {
       if (!active) throw new Error('Select a prescription.')
-      if (!itemId) throw new Error('Select the stock item to issue.')
-      if (!Number.isFinite(needed) || needed <= 0) throw new Error('Enter how many units to issue.')
-      return apiRequest<{ item?: { name?: string }; quantity?: number }>('/inventory/dispense/pharmacy', {
-        method: 'POST',
-        body: JSON.stringify({
-          clinicalOrderId: active.id,
-          itemId,
-          quantity: needed,
-        }),
+      if (!confirmOpen) throw new Error('Review the confirmation before committing.')
+      const lines = selectedLines.map((draft) => {
+        const qty = Number(draft.quantity)
+        if (!draft.itemId) throw new Error('Select a stock item for every line you will issue.')
+        if (!Number.isFinite(qty) || qty <= 0) throw new Error('Enter a quantity for every issued line.')
+        return { clinicalOrderId: draft.clinicalOrderId, itemId: draft.itemId, quantity: qty }
       })
+      if (!lines.length) throw new Error('Select at least one line to dispense.')
+      return apiRequest<{ billing?: { suggestedAmount?: number | null; description?: string } }>(
+        '/inventory/dispense/prescription',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            confirm: true,
+            prescriptionGroupId: active.id,
+            lines,
+          }),
+        },
+      )
     },
     onSuccess: async (result) => {
       notify(
         'Dispensed',
-        `${result.item?.name ?? selectedItem?.name ?? 'Medication'} · ${result.quantity ?? needed} issued FEFO.`,
+        `${result.billing?.description ?? `${totals.items} line(s)`} issued FEFO. Collect payment on the cashier desk.`,
         'success',
       )
-      setActiveId(null)
+      setActiveGroupId(null)
       await invalidate()
     },
     onError: (e: Error) => notify('Dispense failed', e.message, 'critical'),
@@ -167,31 +227,31 @@ export function PharmacyWorkspace() {
     <div className="space-y-6">
       <LabSection
         title="Prescription queue"
-        description={`${pending.length} awaiting dispense. Click a script, confirm the stock item and quantity, then issue.`}
+        description={`${groups.length} waiting. Open one prescription to process every medication line together.`}
       >
         {isLoading ? (
           <div className="h-48 animate-skeleton rounded-2xl" />
-        ) : pending.length ? (
+        ) : groups.length ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {pending.map((order) => (
+            {groups.map((group) => (
               <LabQueueItem
-                key={order.id}
-                active={activeId === order.id}
-                onClick={() => setActiveId(order.id)}
+                key={group.id}
+                active={activeGroupId === group.id}
+                onClick={() => setActiveGroupId(group.id)}
                 name={
-                  order.patient
-                    ? `${order.patient.firstName} ${order.patient.lastName}`
+                  group.first.patient
+                    ? `${group.first.patient.firstName} ${group.first.patient.lastName}`
                     : 'Unknown patient'
                 }
                 patientNo={
-                  order.patient?.patientNo
-                    ? formatPatientNoShort(order.patient.patientNo)
-                    : order.orderNo
+                  group.first.patient?.patientNo
+                    ? formatPatientNoShort(group.first.patient.patientNo)
+                    : group.first.orderNo
                 }
-                status={order.status}
-                priority={order.priority}
-                wait={waitLabel(order.orderedAt)}
-                subtitle={scriptLine(order) || order.orderNo}
+                status={group.lines.some((line) => line.status === 'partially_dispensed') ? 'partial' : group.first.status}
+                priority={group.first.priority}
+                wait={waitLabel(group.first.orderedAt)}
+                subtitle={`${group.lines.length} line${group.lines.length === 1 ? '' : 's'} · ${group.lines.map((line) => line.metadata?.medication).filter(Boolean).join(', ')}`}
               />
             ))}
           </div>
@@ -204,91 +264,150 @@ export function PharmacyWorkspace() {
         <LabModal
           wide
           title="Dispense prescription"
-          description={`${active.orderNo} — issue from the PHARMACY location using FEFO.`}
-          onClose={() => setActiveId(null)}
+          description={`${active.first.orderNo} — review every line, then confirm once. Stock is deducted only after confirm.`}
+          onClose={() => setActiveGroupId(null)}
         >
           <div className="space-y-5">
             <LabPatientStrip
-              firstName={active.patient?.firstName}
-              lastName={active.patient?.lastName}
+              firstName={active.first.patient?.firstName}
+              lastName={active.first.patient?.lastName}
               patientNo={
-                active.patient?.patientNo ? formatPatientNoShort(active.patient.patientNo) : undefined
+                active.first.patient?.patientNo ? formatPatientNoShort(active.first.patient.patientNo) : undefined
               }
-              status={active.status}
-              priority={active.priority}
-              wait={waitLabel(active.orderedAt)}
+              status={active.first.status}
+              priority={active.first.priority}
+              wait={waitLabel(active.first.orderedAt)}
             />
-            {active.patient?.id ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="px-3 py-2 text-xs"
-                onClick={() => openPatientFile(active.patient!.id!)}
-              >
+            {active.first.patient?.id ? (
+              <Button type="button" variant="ghost" className="px-3 py-2 text-xs" onClick={() => openPatientFile(active.first.patient!.id!)}>
                 Open patient file
               </Button>
             ) : null}
 
-            <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
-              <p className="font-semibold">{active.metadata?.medication ?? 'Medication'}</p>
-              <p className="mt-1 text-teal-900">
-                {[active.metadata?.dose, active.metadata?.route, active.metadata?.frequency]
-                  .filter(Boolean)
-                  .join(' · ') || 'No dose / frequency recorded'}
-              </p>
-              {active.metadata?.instructions ? (
-                <p className="mt-2 text-sm">{active.metadata.instructions}</p>
-              ) : null}
+            <div className="space-y-4">
+              {active.lines.map((line) => {
+                const draft = drafts.find((row) => row.clinicalOrderId === line.id)
+                if (!draft) return null
+                const item = items.find((row) => row.id === draft.itemId)
+                const stock = draft.itemId ? stockByItem.get(draft.itemId) : undefined
+                const qty = Number(draft.quantity)
+                const remaining = remainingQty(line)
+                return (
+                  <div key={line.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{scriptLine(line) || line.orderNo}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Prescribed {prescribedQty(line) || '—'} · already issued {dispensedQty(line)} · remaining{' '}
+                          {remaining ?? '—'}
+                        </p>
+                      </div>
+                      <label className="text-xs font-medium text-slate-600">
+                        <input
+                          type="checkbox"
+                          className="mr-1"
+                          checked={draft.rejected}
+                          onChange={(e) =>
+                            setDrafts((current) =>
+                              current.map((row) =>
+                                row.clinicalOrderId === line.id ? { ...row, rejected: e.target.checked } : row,
+                              ),
+                            )
+                          }
+                        />
+                        Hold line
+                      </label>
+                    </div>
+                    {draft.rejected ? null : (
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <SelectField
+                          name={`item-${line.id}`}
+                          label="Stock item / FEFO batch"
+                          required
+                          value={draft.itemId}
+                          onChange={(e) =>
+                            setDrafts((current) =>
+                              current.map((row) =>
+                                row.clinicalOrderId === line.id ? { ...row, itemId: e.target.value } : row,
+                              ),
+                            )
+                          }
+                        >
+                          <option value="">Select stock item…</option>
+                          {items.map((row) => (
+                            <option key={row.id} value={row.id}>
+                              {row.name} ({row.sku}) · {stockByItem.get(row.id)?.qty ?? 0} {row.unit} · FEFO{' '}
+                              {stockByItem.get(row.id)?.batchNo ?? '—'}
+                            </option>
+                          ))}
+                        </SelectField>
+                        <Field
+                          name={`qty-${line.id}`}
+                          label={item ? `Quantity to dispense (${item.unit})` : 'Quantity to dispense'}
+                          type="number"
+                          min={0.01}
+                          step="any"
+                          required
+                          value={draft.quantity}
+                          onChange={(e) =>
+                            setDrafts((current) =>
+                              current.map((row) =>
+                                row.clinicalOrderId === line.id ? { ...row, quantity: e.target.value } : row,
+                              ),
+                            )
+                          }
+                          hint={
+                            stock
+                              ? `${stock.qty} usable · batch ${stock.batchNo ?? '—'} · expiry ${stock.expiry ?? 'n/a'}`
+                              : 'Select an item to see usable FEFO stock.'
+                          }
+                        />
+                      </div>
+                    )}
+                    {!draft.rejected && item && Number.isFinite(qty) && remaining != null && qty > remaining ? (
+                      <p className="mt-2 text-sm font-medium text-rose-700">
+                        Cannot issue more than the remaining prescribed quantity ({remaining}).
+                      </p>
+                    ) : null}
+                    {!draft.rejected && item && Number.isFinite(qty) && (stock?.qty ?? 0) < qty ? (
+                      <p className="mt-2 text-sm font-medium text-rose-700">
+                        Not enough usable stock. Need {qty}, have {stock?.qty ?? 0}.
+                      </p>
+                    ) : null}
+                  </div>
+                )
+              })}
             </div>
 
-            <SelectField
-              name="itemId"
-              label="Stock item to issue"
-              required
-              value={itemId}
-              onChange={(e) => setItemId(e.target.value)}
-              hint={!pharmacy ? 'Pharmacy location is not configured.' : undefined}
-            >
-              <option value="">Select stock item…</option>
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} ({item.sku}) · {stockByItem.get(item.id) ?? 0} {item.unit} on hand
-                </option>
-              ))}
-            </SelectField>
-
-            <Field
-              name="dispenseQty"
-              label={selectedItem ? `Quantity (${selectedItem.unit})` : 'Quantity to issue'}
-              type="number"
-              min={0.01}
-              step="any"
-              required
-              value={dispenseQty}
-              onChange={(e) => setDispenseQty(e.target.value)}
-              hint={
-                !dispenseQty
-                  ? 'This script has no quantity — enter how many units to issue.'
-                  : itemId
-                    ? `${available} on hand at pharmacy`
-                    : 'Select an item to see stock.'
-              }
-            />
-
-            {itemId && stockKnown && needed > available ? (
-              <p className="text-sm font-medium text-rose-700">
-                Not enough stock. Need {needed}, have {available}. Receive stock or transfer from store first.
+            <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
+              <p className="font-semibold">Dispense summary</p>
+              <p className="mt-1">
+                {totals.items} items · {totals.qty} units · estimated charge KES {totals.amount.toFixed(2)}
               </p>
+              <p className="mt-1 text-teal-900">
+                Stock movements are written per batch. Expired lots cannot be issued.
+              </p>
+            </div>
+
+            {confirmOpen ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                Confirm once. This deducts stock, writes the ledger, and keeps the prescription open if any quantity remains.
+              </div>
             ) : null}
 
-            <Button
-              type="button"
-              loading={dispense.isPending}
-              disabled={!itemId || !needed || needed <= 0 || (stockKnown && needed > available)}
-              onClick={() => dispense.mutate()}
-            >
-              Dispense from pharmacy stock
-            </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button type="button" variant="secondary" onClick={() => setConfirmOpen(true)} disabled={!selectedLines.length}>
+                Review confirmation
+              </Button>
+              <Button
+                type="button"
+                loading={dispense.isPending}
+                disabled={!confirmOpen || dispense.isPending}
+                onClick={() => dispense.mutate()}
+              >
+                Confirm dispensing
+              </Button>
+            </div>
           </div>
         </LabModal>
       ) : null}

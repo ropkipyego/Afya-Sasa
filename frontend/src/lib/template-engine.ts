@@ -1,6 +1,7 @@
 import type { HospitalProfile } from './clinical-catalog'
 import { useAuthStore } from './auth-store'
 import { buildLetterheadHtml, buildStampHtml } from './letterhead'
+import { buildSimplePdfBlob, downloadPdfBlob, htmlToPdfLines } from './simple-pdf'
 
 export type TemplateVariables = Record<string, string | number | undefined | null>
 
@@ -177,7 +178,7 @@ export async function printOrDownloadTemplate(
     )
     return
   }
-  printFromTemplate(templateKey, variables, overrides)
+  downloadPdfFromTemplate(templateKey, variables, overrides)
 }
 
 export function openPrintHtml(html: string, title = 'Document') {
@@ -190,12 +191,21 @@ export function openPrintHtml(html: string, title = 'Document') {
   win.print()
 }
 
-export function printFromTemplate(
+export function downloadPdfFromTemplate(
   templateKey: string,
   variables: TemplateVariables,
   overrides?: Record<string, PrintTemplate>,
 ) {
   const html = renderPrintTemplate(templateKey, variables, overrides)
   const name = overrides?.[templateKey]?.name ?? defaultPrintTemplates[templateKey]?.name ?? 'Document'
-  openPrintHtml(html, name)
+  const blob = buildSimplePdfBlob(name, htmlToPdfLines(html))
+  downloadPdfBlob(blob, `${templateKey}.pdf`)
+}
+
+export function printFromTemplate(
+  templateKey: string,
+  variables: TemplateVariables,
+  overrides?: Record<string, PrintTemplate>,
+) {
+  downloadPdfFromTemplate(templateKey, variables, overrides)
 }

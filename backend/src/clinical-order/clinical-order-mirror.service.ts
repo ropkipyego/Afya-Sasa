@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
@@ -127,18 +127,113 @@ export class ClinicalOrderMirrorService {
         orderedAt: new Date(),
         completedAt: null,
         metadata: {
+          kind: 'line',
+          prescriptionGroupId: id,
           medication: input.medication,
           dose: input.dose ?? null,
           route: input.route ?? null,
           frequency: input.frequency ?? null,
           itemId: input.itemId ?? null,
           quantity: input.quantity ?? null,
+          quantityPrescribed: input.quantity ?? null,
+          quantityDispensed: 0,
           instructions: input.instructions ?? null,
         },
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),
     );
+  }
+
+  async createPharmacyPrescription(
+    input: {
+      patientId: string
+      encounterId?: string | null
+      admissionId?: string | null
+      priority?: string
+      lines: Array<{
+        medication: string
+        dose?: string
+        route?: string
+        frequency?: string
+        itemId?: string
+        quantity: number
+        instructions?: string
+      }>
+    },
+    request: RequestContext,
+  ) {
+    if (!input.lines.length) {
+      throw new BadRequestException('Add at least one medication line.');
+    }
+    const headerId = randomUUID();
+    const stamp = Date.now();
+    const header = await this.orders.save(
+      this.orders.create({
+        id: headerId,
+        orderNo: `RX-${stamp}`,
+        patient: { id: input.patientId } as never,
+        encounter: input.encounterId ? ({ id: input.encounterId } as never) : null,
+        admission: input.admissionId ? ({ id: input.admissionId } as never) : null,
+        orderType: 'pharmacy',
+        sourceModule: 'pharmacy',
+        sourceRecordId: headerId,
+        status: 'requested',
+        priority: input.priority ?? 'routine',
+        orderedBy: request.user?.sub ? ({ id: request.user.sub } as never) : null,
+        orderedAt: new Date(),
+        completedAt: null,
+        metadata: {
+          kind: 'prescription',
+          prescriptionGroupId: headerId,
+          lineCount: input.lines.length,
+        },
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+
+    const lines = [];
+    for (const [index, line] of input.lines.entries()) {
+      const id = randomUUID();
+      lines.push(
+        await this.orders.save(
+          this.orders.create({
+            id,
+            orderNo: `RX-${stamp}-${index + 1}`,
+            patient: { id: input.patientId } as never,
+            encounter: input.encounterId ? ({ id: input.encounterId } as never) : null,
+            admission: input.admissionId ? ({ id: input.admissionId } as never) : null,
+            orderType: 'pharmacy',
+            sourceModule: 'pharmacy',
+            sourceRecordId: id,
+            status: 'requested',
+            priority: input.priority ?? 'routine',
+            orderedBy: request.user?.sub ? ({ id: request.user.sub } as never) : null,
+            orderedAt: new Date(),
+            completedAt: null,
+            metadata: {
+              kind: 'line',
+              parentOrderId: headerId,
+              prescriptionGroupId: headerId,
+              lineNo: index + 1,
+              medication: line.medication,
+              dose: line.dose ?? null,
+              route: line.route ?? null,
+              frequency: line.frequency ?? null,
+              itemId: line.itemId ?? null,
+              quantity: line.quantity,
+              quantityPrescribed: line.quantity,
+              quantityDispensed: 0,
+              instructions: line.instructions ?? null,
+            },
+            createdBy: request.user?.sub ?? null,
+            updatedBy: request.user?.sub ?? null,
+          }),
+        ),
+      );
+    }
+    return { header, lines };
   }
 
   listOrders(filters: {

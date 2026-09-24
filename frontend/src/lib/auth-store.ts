@@ -17,8 +17,10 @@ interface AuthState {
   refreshToken: string | null
   user: UserProfile | null
   hydrated: boolean
+  inactivityWarning: string | null
   setTenant: (tenant: string) => void
   setHydrated: (hydrated: boolean) => void
+  setInactivityWarning: (warning: string | null) => void
   setSession: (session: {
     accessToken: string
     refreshToken?: string
@@ -33,24 +35,28 @@ function readStorage(key: string) {
   return localStorage.getItem(key)
 }
 
+function purgeLegacyTokens() {
+  localStorage.removeItem('afyasasa.accessToken')
+  localStorage.removeItem('afyasasa.refreshToken')
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   tenant: readStorage('afyasasa.tenant') ?? DEFAULT_TENANT,
-  accessToken: readStorage('afyasasa.accessToken'),
+  accessToken: null,
   refreshToken: readStorage('afyasasa.refreshToken'),
   user: readStorage('afyasasa.user')
     ? (JSON.parse(readStorage('afyasasa.user') as string) as UserProfile)
     : null,
   hydrated: false,
+  inactivityWarning: null,
   setTenant: (tenant) => {
     localStorage.setItem('afyasasa.tenant', tenant)
     set({ tenant })
   },
   setHydrated: (hydrated) => set({ hydrated }),
+  setInactivityWarning: (inactivityWarning) => set({ inactivityWarning }),
   setSession: ({ accessToken, refreshToken, user }) => {
-    localStorage.setItem('afyasasa.accessToken', accessToken)
-    if (refreshToken) {
-      localStorage.setItem('afyasasa.refreshToken', refreshToken)
-    }
+    purgeLegacyTokens()
     if (user) {
       localStorage.setItem('afyasasa.user', JSON.stringify(user))
     }
@@ -59,6 +65,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       refreshToken: refreshToken ?? state.refreshToken,
       user: user ?? state.user,
       hydrated: true,
+      inactivityWarning: null,
     }))
   },
   setUser: (user) => {
@@ -66,22 +73,23 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user })
   },
   syncFromStorage: () => {
-    const accessToken = readStorage('afyasasa.accessToken')
-    const refreshToken = readStorage('afyasasa.refreshToken')
     const userRaw = readStorage('afyasasa.user')
     set({
       tenant: readStorage('afyasasa.tenant') ?? DEFAULT_TENANT,
-      accessToken,
-      refreshToken,
       user: userRaw ? (JSON.parse(userRaw) as UserProfile) : null,
       hydrated: true,
     })
   },
   clearSession: () => {
-    localStorage.removeItem('afyasasa.accessToken')
-    localStorage.removeItem('afyasasa.refreshToken')
+    purgeLegacyTokens()
     localStorage.removeItem('afyasasa.user')
     sessionStorage.removeItem('afyasasa.activeScreen')
-    set({ accessToken: null, refreshToken: null, user: null, hydrated: true })
+    set({
+      accessToken: null,
+      refreshToken: null,
+      user: null,
+      hydrated: true,
+      inactivityWarning: null,
+    })
   },
 }))

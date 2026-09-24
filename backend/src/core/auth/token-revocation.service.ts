@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { inactivityTimeoutSeconds } from './session-policy';
 
 @Injectable()
 export class TokenRevocationService implements OnModuleDestroy {
@@ -34,7 +35,37 @@ export class TokenRevocationService implements OnModuleDestroy {
     return issuedAtSeconds * 1000 < Number(invalidatedAt);
   }
 
+  async touchSessionActivity(sessionId: string): Promise<void> {
+    const ttl = Math.max(inactivityTimeoutSeconds() * 2, 300);
+    await this.redis.set(this.activityKey(sessionId), String(Date.now()), 'EX', ttl);
+  }
+
+  async clearSessionActivity(sessionId: string): Promise<void> {
+    await this.redis.del(this.activityKey(sessionId));
+  }
+
+  async isSessionInactive(sessionId: string | undefined, issuedAtSeconds?: number): Promise<boolean> {
+    if (!sessionId) {
+      if (!issuedAtSeconds) return false;
+      return Date.now() - issuedAtSeconds * 1000 > inactivityTimeoutSeconds() * 1000;
+    }
+    try {
+      const lastSeen = await this.redis.get(this.activityKey(sessionId));
+      if (!lastSeen) {
+        await this.touchSessionActivity(sessionId);
+        return false;
+      }
+      return Date.now() - Number(lastSeen) > inactivityTimeoutSeconds() * 1000;
+    } catch {
+      return false;
+    }
+  }
+
   private userKey(userId: string) {
     return `auth:invalidate:${userId}`;
+  }
+
+  private activityKey(sessionId: string) {
+    return `auth:activity:${sessionId}`;
   }
 }

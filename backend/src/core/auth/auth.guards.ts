@@ -53,6 +53,9 @@ export class JwtAccessGuard implements CanActivate {
       ) {
         throw new UnauthorizedException('Session expired — please sign in again');
       }
+      if (await this.tokenRevocation.isSessionInactive(payload.sid, payload.iat)) {
+        throw new UnauthorizedException('Session expired due to inactivity');
+      }
       request.user = payload;
       return true;
     } catch (error) {

@@ -30,7 +30,7 @@ import { MarGrid, type MarEntry } from './MarGrid'
 import { VitalsTrendPanel } from './VitalsTrendPanel'
 import { ClinicalInvestigationOrders } from '../investigations/ClinicalInvestigationOrders'
 import { calcLosDays } from './ipd-utils'
-import { apiRequest } from '../../lib/api'
+import { apiRequest, formatApiError } from '../../lib/api'
 import { useAuthStore } from '../../lib/auth-store'
 import { formDataFromElement, optionalNumber, submitClinicalForm } from '../../lib/form-utils'
 import { notify } from '../../lib/notify'
@@ -85,7 +85,7 @@ const actions: { id: ActionKey; label: string; icon: ReactNode; tab?: WorkspaceT
   { id: 'vitals', label: 'Vitals', icon: <Activity className="h-4 w-4" />, tab: 'vitals' },
   { id: 'lab', label: 'Lab Request', icon: <FlaskConical className="h-4 w-4" />, tab: 'laboratory' },
   { id: 'radiology', label: 'Radiology Request', icon: <Scan className="h-4 w-4" />, tab: 'radiology' },
-  { id: 'medication', label: 'Medication Order', icon: <Pill className="h-4 w-4" />, tab: 'medication' },
+  { id: 'medication', label: 'Chart on MAR', icon: <Pill className="h-4 w-4" />, tab: 'medication' },
   { id: 'transfer', label: 'Transfer', icon: <ArrowLeft className="h-4 w-4 rotate-180" />, tab: 'transfers' },
   { id: 'discharge', label: 'Discharge', icon: <FileText className="h-4 w-4" />, tab: 'discharge' },
 ]
@@ -453,6 +453,21 @@ export function PatientWorkspace({
     },
   })
 
+  const cancelAdmission = useMutation({
+    mutationFn: () => apiRequest(`/inpatient/admissions/${admissionId}/cancel`, { method: 'POST' }),
+    onSuccess: async () => {
+      notify('Admission cancelled', 'The bed is available again. The encounter was not closed as discharged.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['ipd-workspace', admissionId] })
+      await queryClient.invalidateQueries({ queryKey: ['ward-census'] })
+      await queryClient.invalidateQueries({ queryKey: ['available-beds'] })
+      await queryClient.invalidateQueries({ queryKey: ['ipd-dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['patient-timeline'] })
+      onBack()
+    },
+    onError: (error: unknown) =>
+      notify('Could not cancel admission', formatApiError(error, 'Admission cancel failed.'), 'critical'),
+  })
+
   if (isLoading || !workspace) {
     return <Card><p className="py-16 text-center text-slate-500">Loading patient workspace…</p></Card>
   }
@@ -588,7 +603,10 @@ export function PatientWorkspace({
               )}
               {activeAction === 'medication' && (
                 <ClinicalForm onSubmit={(e) => submitClinicalForm(createMar, e)}>
-                  <FormSection title="Medication order">
+                  <Alert tone="info">
+                    This adds a dose to the medication administration record (MAR). Pharmacy dispensing is a separate prescription on the Pharmacy tab.
+                  </Alert>
+                  <FormSection title="MAR dose">
                     <Field name="medicationName" label="Medication" required />
                     <Field name="dosage" label="Dosage" required />
                     <SelectField name="route" label="Route" required>
@@ -674,11 +692,27 @@ export function PatientWorkspace({
             <VitalsTrendPanel vitals={vitals} onRecord={() => handleAction('vitals')} />
           )}
           {activeTab === 'medication' && (
-            <MarGrid
-              entries={mar}
-              updatingId={updateMarStatus.isPending ? updateMarStatus.variables?.id ?? null : null}
-              onUpdateStatus={(id, status) => updateMarStatus.mutate({ id, status })}
-            />
+            <div className="space-y-6">
+              <Alert tone="info">
+                MAR records nurse administration against this admission. Pharmacy prescriptions on the Pharmacy tab go to dispensing and stock — they are not automatically charted here.
+              </Alert>
+              <MarGrid
+                entries={mar}
+                updatingId={updateMarStatus.isPending ? updateMarStatus.variables?.id ?? null : null}
+                onUpdateStatus={(id, status) => updateMarStatus.mutate({ id, status })}
+              />
+              {pharmacyOrders.length ? (
+                <DepartmentList
+                  title="Pharmacy prescriptions (dispensing — not MAR)"
+                  empty="No pharmacy orders."
+                  items={pharmacyOrders.map((order) => ({
+                    id: order.id,
+                    title: String(order.metadata?.medication ?? order.orderNo),
+                    meta: `${order.status}${order.metadata?.quantity != null ? ` · qty ${String(order.metadata.quantity)}` : ''} · ${new Date(order.orderedAt).toLocaleString()}`,
+                  }))}
+                />
+              ) : null}
+            </div>
           )}
           {activeTab === 'laboratory' && (
             <InvestigationsTab
@@ -774,12 +808,23 @@ export function PatientWorkspace({
           {activeTab === 'transfers' && <TransfersTab transfers={transfers} ward={admission.ward.name} />}
           {activeTab === 'discharge' && (
             <DischargeTab
+              admissionStatus={admission.status}
               summaries={dischargeSummaries}
               hasCompleteSummary={hasCompleteSummary}
               onComplete={(id) => completeSummary.mutate(id)}
               onDischarge={(e) => submitClinicalForm(dischargeAdmission, e)}
               onCreateSummary={(e) => submitClinicalForm(createDischargeSummary, e)}
+              onCancel={() => {
+                if (
+                  window.confirm(
+                    'Cancel this admission? Use this only if the patient did not proceed. The bed will be released and the encounter will not be marked discharged.',
+                  )
+                ) {
+                  cancelAdmission.mutate()
+                }
+              }}
               dischargePending={dischargeAdmission.isPending}
+              cancelPending={cancelAdmission.isPending}
             />
           )}
         </Card>
@@ -1331,19 +1376,25 @@ function TransfersTab({
 }
 
 function DischargeTab({
+  admissionStatus,
   summaries,
   hasCompleteSummary,
   onComplete,
   onDischarge,
   onCreateSummary,
+  onCancel,
   dischargePending,
+  cancelPending,
 }: {
+  admissionStatus: string
   summaries: { id: string; status: string; finalDiagnosis: string }[]
   hasCompleteSummary: boolean
   onComplete: (id: string) => void
   onDischarge: (e: FormEvent<HTMLFormElement>) => void
   onCreateSummary: (e: FormEvent<HTMLFormElement>) => void
+  onCancel: () => void
   dischargePending: boolean
+  cancelPending: boolean
 }) {
   const checklist = [
     { label: 'Discharge summary drafted', done: summaries.length > 0 },
@@ -1415,6 +1466,20 @@ function DischargeTab({
           </Button>
         </FormActions>
       </ClinicalForm>
+
+      {admissionStatus === 'active' ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-950">Admission started in error?</p>
+          <p className="mt-1 text-sm text-amber-800">
+            Cancel releases the bed and restores the encounter. Do not use this as a discharge.
+          </p>
+          <div className="mt-3">
+            <Button type="button" variant="secondary" loading={cancelPending} onClick={onCancel}>
+              Cancel admission
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

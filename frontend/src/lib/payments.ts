@@ -40,6 +40,7 @@ export type CollectPaymentInput = {
   payerScheme?: string
   mpesaPhone?: string
   paymentReference?: string
+  chargeId?: string
 }
 
 export async function collectPayment(input: CollectPaymentInput) {
@@ -53,6 +54,7 @@ export async function collectPayment(input: CollectPaymentInput) {
           serviceLine: input.serviceLine,
           serviceEntityId: input.serviceEntityId,
           encounterId: input.encounterId,
+          chargeId: input.chargeId,
           serviceDescription: input.serviceDescription,
           phone: input.mpesaPhone,
           amount: input.amount,
@@ -69,6 +71,7 @@ export async function collectPayment(input: CollectPaymentInput) {
       serviceLine: input.serviceLine,
       serviceEntityId: input.serviceEntityId,
       encounterId: input.encounterId,
+      chargeId: input.chargeId,
       serviceDescription: input.serviceDescription,
       method: input.paymentMethod,
       payerScheme: input.payerScheme,
@@ -84,4 +87,21 @@ export function listPatientPayments(patientId: string) {
 
 export function listRecentPayments(limit = 200) {
   return apiRequest<PaymentTransactionRow[]>(`/payments/transactions?limit=${Math.min(limit, 200)}`)
+}
+
+export type OutstandingPharmacyBill = {
+  serviceLine: PaymentServiceLine
+  serviceEntityId: string
+  chargeId?: string
+  encounterId: string | null
+  orderNo: string
+  description: string
+  dispensedAt: string | null
+  amountOwed?: number
+  amountPaid?: number
+  remaining?: number
+}
+
+export function listOutstandingPharmacy(patientId: string) {
+  return apiRequest<OutstandingPharmacyBill[]>(`/payments/outstanding?patientId=${patientId}`)
 }

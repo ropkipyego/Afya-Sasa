@@ -22,6 +22,15 @@ export function InventoryPricesPanel() {
   const queryClient = useQueryClient()
   const [locationId, setLocationId] = useState('')
   const [draft, setDraft] = useState<Record<string, { cost: string; markup: string; sell: string }>>({})
+  const [pendingCsv, setPendingCsv] = useState<string | null>(null)
+  const [preview, setPreview] = useState<{
+    created: number
+    updated: number
+    heldOpeningQty: number
+    rejectedExpiredQty: number
+    duplicates: string[]
+    errors: string[]
+  } | null>(null)
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['inventory-items'],
@@ -33,21 +42,55 @@ export function InventoryPricesPanel() {
     queryFn: () => apiRequest<Location[]>('/inventory/locations'),
   })
 
-  const importCsv = useMutation({
+  const previewCsv = useMutation({
     mutationFn: (csv: string) =>
-      apiRequest<{ created: number; updated: number; received: number; priced: number; errors: string[] }>(
-        '/inventory/items/import',
-        { method: 'POST', body: JSON.stringify({ csv, locationId: locationId || undefined }) },
-      ),
+      apiRequest<{
+        created: number
+        updated: number
+        heldOpeningQty: number
+        rejectedExpiredQty: number
+        duplicates: string[]
+        errors: string[]
+      }>('/inventory/items/import/preview', {
+        method: 'POST',
+        body: JSON.stringify({ csv, locationId: locationId || undefined }),
+      }),
+    onSuccess: (summary, csv) => {
+      setPendingCsv(csv)
+      setPreview(summary)
+      notify(
+        'Import preview ready',
+        `${summary.created} new · ${summary.updated} updates · ${summary.heldOpeningQty} opening qty held. Review before commit.`,
+        summary.errors.length || summary.duplicates.length ? 'warning' : 'success',
+      )
+    },
+    onError: (error: Error) => notify('Preview failed', error.message, 'critical'),
+  })
+
+  const importCsv = useMutation({
+    mutationFn: ({ csv, confirmStockTake }: { csv: string; confirmStockTake: boolean }) =>
+      apiRequest<{
+        created: number
+        updated: number
+        received: number
+        priced: number
+        heldOpeningQty: number
+        errors: string[]
+      }>('/inventory/items/import', {
+        method: 'POST',
+        body: JSON.stringify({ csv, locationId: locationId || undefined, confirmStockTake }),
+      }),
     onSuccess: async (summary) => {
       notify(
-        'Stock file imported',
-        `${summary.created} new · ${summary.updated} updated · ${summary.received} received · ${summary.priced} priced.`,
+        summary.received ? 'Stock-take imported' : 'Product list imported',
+        `${summary.created} new · ${summary.updated} updated · ${summary.received} received · ${summary.priced} priced · ${summary.heldOpeningQty} opening qty held.`,
         summary.errors.length ? 'warning' : 'success',
       )
       if (summary.errors.length) {
         notify('Some rows failed', summary.errors.slice(0, 4).join(' · '), 'critical')
       }
+      setPendingCsv(null)
+      setPreview(null)
       await queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
       await queryClient.invalidateQueries({ queryKey: ['inventory-balances'] })
     },
@@ -86,7 +129,7 @@ export function InventoryPricesPanel() {
       <Card className="p-6">
         <PageHeader
           title="Upload stock & price list"
-          description="CSV like QuickBooks item import: create or update SKUs, set cost/markup/sell, and optionally receive opening quantity."
+          description="Preview first. Product and price rows commit without changing live quantities. Opening quantity is applied only after an explicit stock-take confirmation."
         />
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <label className="text-sm">
@@ -113,7 +156,7 @@ export function InventoryPricesPanel() {
             Download template
           </Button>
           <label className="inline-flex cursor-pointer items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-            Upload CSV
+            Preview CSV
             <input
               type="file"
               accept=".csv,text/csv"
@@ -122,13 +165,49 @@ export function InventoryPricesPanel() {
                 const file = event.target.files?.[0]
                 event.target.value = ''
                 if (!file) return
-                importCsv.mutate(await file.text())
+                previewCsv.mutate(await file.text())
               }}
             />
           </label>
         </div>
+        {preview && pendingCsv ? (
+          <div className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p>
+              Preview: {preview.created} new products, {preview.updated} updates, {preview.heldOpeningQty}{' '}
+              opening-qty rows held, {preview.rejectedExpiredQty} expired lots rejected.
+            </p>
+            {preview.duplicates.length ? <p>Duplicates: {preview.duplicates.slice(0, 3).join(' · ')}</p> : null}
+            {preview.errors.length ? <p>Warnings: {preview.errors.slice(0, 3).join(' · ')}</p> : null}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => importCsv.mutate({ csv: pendingCsv, confirmStockTake: false })}
+                loading={importCsv.isPending}
+              >
+                Import products only
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={importCsv.isPending}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'This will receive opening quantities into live stock. Continue only after a supervised stock-take.',
+                    )
+                  ) {
+                    importCsv.mutate({ csv: pendingCsv, confirmStockTake: true })
+                  }
+                }}
+              >
+                Import + confirmed stock-take
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <p className="mt-3 text-xs text-slate-500">
-          Columns: sku, name, category, unit, track_batch, cost, markup, sell, opening_qty, batch_no, expiry
+          Columns: sku, name, category, unit, track_batch, cost, markup, sell, opening_qty, batch_no, expiry.
+          Expired opening stock is never received.
         </p>
       </Card>
 

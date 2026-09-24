@@ -41,6 +41,7 @@ type TriagePatient = {
 type EncounterItem = {
   id: string
   encounterNo: string
+  queueToken?: string | null
   patient: TriagePatient
 }
 
@@ -179,6 +180,7 @@ export function TriageWorkspace() {
                   <p className="text-sm font-semibold text-slate-900">
                     {activeEncounter.patient.firstName} {activeEncounter.patient.lastName} ·{' '}
                     {activeEncounter.encounterNo}
+                    {activeEncounter.queueToken ? ` · ${activeEncounter.queueToken}` : ''}
                   </p>
                 </div>
                 <button
@@ -354,7 +356,10 @@ export function TriageWorkspace() {
                   <p className="font-semibold">
                     {encounter.patient.firstName} {encounter.patient.lastName}
                   </p>
-                  <p className="text-xs text-slate-500">{encounter.encounterNo}</p>
+                  <p className="text-xs text-slate-500">
+                    {encounter.encounterNo}
+                    {encounter.queueToken ? ` · ${encounter.queueToken}` : ''}
+                  </p>
                 </button>
               ))}
               {!encounters.length ? (

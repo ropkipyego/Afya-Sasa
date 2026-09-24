@@ -48,6 +48,11 @@ export class InitiateMpesaStkDto {
   @IsString()
   encounterId?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  chargeId?: string;
+
   @ApiProperty({ example: '254712345678' })
   @IsString()
   phone!: string;
@@ -100,6 +105,11 @@ export class RecordManualPaymentDto {
   @IsOptional()
   @IsString()
   encounterId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  chargeId?: string;
 
   @ApiProperty({ enum: ['cash', 'card', 'insurance', 'quickbooks', 'waived'] })
   @IsIn(['cash', 'card', 'insurance', 'quickbooks', 'waived'])

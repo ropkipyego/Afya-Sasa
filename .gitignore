@@ -12,3 +12,6 @@ ops/onboarding-tests/results/*
 .DS_Store
 npm-debug.log*
 *.tsbuildinfo
+/backups/
+*.pgdump
+*.sql.gz

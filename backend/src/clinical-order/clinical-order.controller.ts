@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import { ClinicalOrderMirrorService } from './clinical-order-mirror.service';
-import { IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -64,6 +64,72 @@ class CreatePharmacyOrderDto {
   instructions?: string;
 }
 
+class PharmacyPrescriptionLineDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  medication!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  dose?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  route?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  frequency?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  itemId?: string;
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  instructions?: string;
+}
+
+class CreatePharmacyPrescriptionDto {
+  @ApiProperty()
+  @IsString()
+  patientId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  encounterId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  admissionId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  priority?: string;
+
+  @ApiProperty({ type: [PharmacyPrescriptionLineDto] })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => PharmacyPrescriptionLineDto)
+  lines!: PharmacyPrescriptionLineDto[];
+}
+
 @ApiBearerAuth()
 @ApiTags('Clinical Orders')
 @Controller('clinical-orders')
@@ -110,5 +176,11 @@ export class ClinicalOrderController {
       },
       request,
     );
+  }
+
+  @Post('pharmacy/prescription')
+  @RequirePermissions('pharmacy:prescribe', 'consultations:create')
+  createPharmacyPrescription(@Body() dto: CreatePharmacyPrescriptionDto, @Req() request: RequestContext) {
+    return this.orders.createPharmacyPrescription(dto, request);
   }
 }

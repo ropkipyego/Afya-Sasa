@@ -15,6 +15,7 @@ export type PaymentCheckoutPanelProps = {
   patientPhone?: string | null
   serviceLine: PaymentServiceLine
   serviceEntityId?: string
+  chargeId?: string
   encounterId?: string
   serviceDescription: string
   defaultAmount?: string
@@ -28,6 +29,7 @@ export function PaymentCheckoutPanel({
   patientPhone,
   serviceLine,
   serviceEntityId,
+  chargeId,
   encounterId,
   serviceDescription,
   defaultAmount = '',
@@ -69,6 +71,7 @@ export function PaymentCheckoutPanel({
         patientId,
         serviceLine,
         serviceEntityId,
+        chargeId,
         encounterId,
         serviceDescription,
         amount: parsedAmount,

@@ -14,6 +14,7 @@ import { UsersService } from '../users/users.service';
 import { LoginAuditService } from './login-audit.service';
 import { MailService } from '../mail/mail.service';
 import { TokenRevocationService } from './token-revocation.service';
+import { accessTokenTtlSeconds, refreshTokenTtlMs, sessionPolicy } from './session-policy';
 
 @Injectable()
 export class AuthService {
@@ -37,6 +38,7 @@ export class AuthService {
     device?: string,
     ip?: string,
     userAgent?: string,
+    incomingRefreshToken?: string,
   ) {
     const user = await this.usersService.findByEmail(email);
 
@@ -83,6 +85,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    if (incomingRefreshToken) {
+      await this.revokeRefreshToken(incomingRefreshToken);
+    }
+
     await this.usersService.recordSuccessfulLogin(user);
     await this.loginAudit.record({
       email,
@@ -95,14 +101,15 @@ export class AuthService {
     });
 
     const auth = await this.usersService.collectRolesAndPermissions(user.id);
-    const accessToken = await this.signAccessTokenWithAuth(user, auth);
-    const refreshToken = await this.createRefreshToken(user.id, device, ip);
+    const session = await this.createRefreshToken(user.id, device, ip);
+    await this.tokenRevocation.touchSessionActivity(session.id);
+    const accessToken = await this.signAccessTokenWithAuth(user, auth, session.id);
 
     return {
       accessToken,
-      refreshToken,
+      refreshToken: session.rawToken,
       tokenType: 'Bearer',
-      expiresIn: 15 * 60,
+      expiresIn: accessTokenTtlSeconds(),
       user: this.profileFromUser(user, auth),
     };
   }
@@ -130,40 +137,67 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    if (await this.tokenRevocation.isSessionInactive(token.id, token.createdAt.getTime() / 1000)) {
+      await this.refreshTokens.update({ id: token.id }, { revokedAt: new Date() });
+      await this.tokenRevocation.clearSessionActivity(token.id);
+      throw new UnauthorizedException('Session expired due to inactivity');
+    }
+
     await this.refreshTokens.update({ id: token.id }, { revokedAt: new Date() });
-    const refreshToken = await this.createRefreshToken(
+    await this.tokenRevocation.clearSessionActivity(token.id);
+    const session = await this.createRefreshToken(
       user.id,
       token.device ?? undefined,
       token.ip ?? undefined,
     );
+    await this.tokenRevocation.touchSessionActivity(session.id);
 
     const auth = await this.usersService.collectRolesAndPermissions(user.id);
 
     return {
-      accessToken: await this.signAccessTokenWithAuth(user, auth),
-      refreshToken,
+      accessToken: await this.signAccessTokenWithAuth(user, auth, session.id),
+      refreshToken: session.rawToken,
       tokenType: 'Bearer',
-      expiresIn: 15 * 60,
+      expiresIn: accessTokenTtlSeconds(),
       user: this.profileFromUser(user, auth),
     };
   }
 
-  async logout(rawRefreshToken: string, email?: string, userId?: string, ip?: string) {
-    const tokenHash = this.hashToken(rawRefreshToken);
-    await this.refreshTokens.update(
-      { tokenHash, revokedAt: IsNull() },
-      { revokedAt: new Date() },
-    );
+  async logout(
+    rawRefreshToken: string | undefined,
+    email?: string,
+    userId?: string,
+    ip?: string,
+    reason: 'user' | 'inactivity' = 'user',
+  ) {
+    if (rawRefreshToken) {
+      const existing = await this.refreshTokens.findOne({
+        where: { tokenHash: this.hashToken(rawRefreshToken), revokedAt: IsNull() },
+      });
+      if (existing) {
+        await this.refreshTokens.update({ id: existing.id }, { revokedAt: new Date() });
+        await this.tokenRevocation.clearSessionActivity(existing.id);
+      }
+    }
     if (email) {
       await this.loginAudit.record({
         email,
         userId: userId ?? null,
-        eventType: 'logout',
+        eventType: reason === 'inactivity' ? 'inactivity_logout' : 'logout',
         success: true,
         ip,
       });
     }
     return { revoked: true };
+  }
+
+  async touchActivity(sessionId: string | undefined) {
+    if (!sessionId) return { ok: false, ...sessionPolicy() };
+    if (await this.tokenRevocation.isSessionInactive(sessionId)) {
+      throw new UnauthorizedException('Session expired due to inactivity');
+    }
+    await this.tokenRevocation.touchSessionActivity(sessionId);
+    return { ok: true, ...sessionPolicy() };
   }
 
   async logoutAll(userId: string): Promise<{ revoked: boolean }> {
@@ -239,6 +273,7 @@ export class AuthService {
       lockedUntil: null,
     });
     await this.passwordResetTokens.update(reset.id, { usedAt: new Date() });
+    await this.tokenRevocation.invalidateUser(user.id);
     await this.logoutAll(user.id);
     await this.loginAudit.record({
       email: user.email,
@@ -280,13 +315,14 @@ export class AuthService {
 
     const updated = await this.users.findOneOrFail({ where: { id: userId } });
     const auth = await this.usersService.collectRolesAndPermissions(updated.id);
-    const accessToken = await this.signAccessTokenWithAuth(updated, auth);
-    const refreshToken = await this.createRefreshToken(userId, device, ip);
+    const session = await this.createRefreshToken(userId, device, ip);
+    await this.tokenRevocation.touchSessionActivity(session.id);
+    const accessToken = await this.signAccessTokenWithAuth(updated, auth, session.id);
 
     return {
       changed: true,
       accessToken,
-      refreshToken,
+      refreshToken: session.rawToken,
       user: this.profileFromUser(updated, auth),
     };
   }
@@ -310,6 +346,7 @@ export class AuthService {
   private async signAccessTokenWithAuth(
     user: User,
     auth: { roles: string[]; permissions: string[] },
+    sessionId: string,
   ): Promise<string> {
     return this.jwtService.signAsync({
       sub: user.id,
@@ -317,6 +354,7 @@ export class AuthService {
       roles: auth.roles,
       permissions: auth.permissions,
       forcePasswordChange: user.forcePasswordChange,
+      sid: sessionId,
     });
   }
 
@@ -324,19 +362,28 @@ export class AuthService {
     userId: string,
     device?: string,
     ip?: string,
-  ): Promise<string> {
+  ): Promise<{ rawToken: string; id: string }> {
     const rawToken = randomBytes(48).toString('base64url');
     const token = this.refreshTokens.create({
       userId,
       tokenHash: this.hashToken(rawToken),
       device: device ?? null,
       ip: ip ?? null,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + refreshTokenTtlMs()),
       revokedAt: null,
     });
 
-    await this.refreshTokens.save(token);
-    return rawToken;
+    const saved = await this.refreshTokens.save(token);
+    return { rawToken, id: saved.id };
+  }
+
+  private async revokeRefreshToken(rawToken: string) {
+    const existing = await this.refreshTokens.findOne({
+      where: { tokenHash: this.hashToken(rawToken), revokedAt: IsNull() },
+    });
+    if (!existing) return;
+    await this.refreshTokens.update({ id: existing.id }, { revokedAt: new Date() });
+    await this.tokenRevocation.clearSessionActivity(existing.id);
   }
 
   private hashToken(rawToken: string): string {

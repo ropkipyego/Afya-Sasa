@@ -1,16 +1,24 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, MoreThan, Repository } from 'typeorm';
+import { EntityManager, IsNull, MoreThan, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
+import {
+  dispensedQuantity,
+  prescribedQuantity,
+  prescriptionGroupId,
+  remainingQuantity,
+} from '../clinical-order/pharmacy-prescription';
 import { TenantSettings } from '../core/core.entities';
+import { PaymentsService } from '../payments/payments.service';
 import {
   CreateInventoryItemDto,
   CreateRequisitionDto,
   CreateTransferDto,
   DispenseOtcDto,
   DispensePharmacyDto,
+  DispensePrescriptionDto,
   ImportInventoryCsvDto,
   ReceiveStockDto,
   UpdateItemPricingDto,
@@ -54,6 +62,7 @@ export class InventoryService {
     @InjectRepository(TenantSettings)
     private readonly settings: Repository<TenantSettings>,
     private readonly clinicalOrderMirror: ClinicalOrderMirrorService,
+    private readonly payments: PaymentsService,
   ) {}
 
   listLocations() {
@@ -182,6 +191,11 @@ export class InventoryService {
     if (item.trackBatch && !dto.expiryDate) {
       throw new BadRequestException('Expiry date is required for batch-tracked items');
     }
+    if (dto.expiryDate && isExpiredBatch(dto.expiryDate)) {
+      throw new BadRequestException(
+        'Expired stock cannot be received as usable inventory. Record it as a write-off after a stock-take.',
+      );
+    }
 
     const qty = dto.quantity.toString();
     let batch: InventoryBatch | null = null;
@@ -254,8 +268,26 @@ export class InventoryService {
     return { batch, transaction };
   }
 
-  async dispensePharmacyOrder(dto: DispensePharmacyDto, request: RequestContext) {
-    return this.items.manager.transaction(async (manager) => {
+  async dispensePharmacyOrder(
+    dto: DispensePharmacyDto,
+    request: RequestContext,
+    manager?: EntityManager,
+  ) {
+    if (!manager) {
+      const result = await this.items.manager.transaction((txn) =>
+        this.issuePharmacyLine(dto, request, txn),
+      );
+      await this.recordDispenseCharge(result.billing, request);
+      return result;
+    }
+    return this.issuePharmacyLine(dto, request, manager);
+  }
+
+  private async issuePharmacyLine(
+    dto: DispensePharmacyDto,
+    request: RequestContext,
+    manager: EntityManager,
+  ) {
       const orders = manager.getRepository(ClinicalOrder);
       const items = manager.getRepository(InventoryItem);
       const locations = manager.getRepository(InventoryLocation);
@@ -264,17 +296,21 @@ export class InventoryService {
 
       const order = await orders.findOne({
         where: { id: dto.clinicalOrderId, orderType: 'pharmacy' },
-        relations: { patient: true },
+        relations: { patient: true, encounter: true },
         lock: { mode: 'pessimistic_write' },
       });
       if (!order) {
         throw new NotFoundException('Pharmacy order not found');
       }
-      if (order.status === 'dispensed') {
-        throw new BadRequestException('This prescription is already dispensed.');
+      if (order.metadata?.kind === 'prescription') {
+        throw new BadRequestException('Dispense the medication lines, not the prescription header.');
       }
       if (order.status === 'cancelled') {
         throw new BadRequestException('This prescription was cancelled.');
+      }
+      const remaining = remainingQuantity(order);
+      if (order.status === 'dispensed' || remaining === 0) {
+        throw new BadRequestException('This prescription line is already fully dispensed.');
       }
 
       const pharmacy = await locations.findOne({ where: { code: 'PHARMACY', active: true } });
@@ -283,7 +319,7 @@ export class InventoryService {
       }
 
       const item = await this.resolvePharmacyItem(items, order, dto.itemId);
-      const quantity = this.resolveDispenseQuantity(dto.quantity, order);
+      const quantity = this.resolveDispenseQuantity(dto.quantity, order, remaining);
       const batches = await batchesRepo.find({
         where: {
           item: { id: item.id },
@@ -295,11 +331,12 @@ export class InventoryService {
         lock: { mode: 'pessimistic_write' },
       });
 
-      const available = batches.reduce((sum, batch) => sum + Number(batch.qtyOnHand), 0);
+      const usable = batches.filter((batch) => !isExpiredBatch(batch.expiryDate));
+      const available = usable.reduce((sum, batch) => sum + Number(batch.qtyOnHand), 0);
       const allocations = this.allocateFromBatches(
-        batches,
+        usable,
         quantity,
-        `Insufficient pharmacy stock for ${item.name}. Need ${quantity} ${item.unit}, have ${available}.`,
+        `Insufficient usable (non-expired) pharmacy stock for ${item.name}. Need ${quantity} ${item.unit}, have ${available}.`,
       );
 
       const ledgerRows: InventoryTransaction[] = [];
@@ -327,24 +364,41 @@ export class InventoryService {
         );
       }
 
-      order.status = 'dispensed';
-      order.completedAt = new Date();
+      const previousAllocations = Array.isArray(order.metadata?.allocations)
+        ? (order.metadata?.allocations as Array<Record<string, unknown>>)
+        : [];
+      const nextDispensed = dispensedQuantity(order) + quantity;
+      const prescribed = prescribedQuantity(order);
+      const fullyDispensed = prescribed > 0 ? nextDispensed >= prescribed : true;
+      order.status = fullyDispensed ? 'dispensed' : 'partially_dispensed';
+      order.completedAt = fullyDispensed ? new Date() : order.completedAt;
       order.updatedBy = request.user?.sub ?? null;
       order.metadata = {
         ...(order.metadata ?? {}),
         itemId: item.id,
         dispensedItemId: item.id,
         dispensedItemName: item.name,
-        dispensedQuantity: quantity,
+        dispensedQuantity: nextDispensed,
+        quantityDispensed: nextDispensed,
         dispensedAt: new Date().toISOString(),
-        allocations: allocations.map(({ batch, quantity: take }) => ({
-          batchId: batch.id,
-          batchNo: batch.batchNo,
-          quantity: take,
-        })),
+        allocations: [
+          ...previousAllocations,
+          ...allocations.map(({ batch, quantity: take }) => ({
+            batchId: batch.id,
+            batchNo: batch.batchNo,
+            quantity: take,
+          })),
+        ],
       };
       await orders.save(order);
+      await this.syncPrescriptionHeader(orders, order);
 
+      const pricing = await this.readPricingMap(request);
+      const unitSell = Number(pricing[item.sku]?.sell ?? 0);
+      const suggestedAmount =
+        Number.isFinite(unitSell) && unitSell > 0
+          ? Math.round(unitSell * quantity * 100) / 100
+          : null;
       return {
         orderId: order.id,
         orderNo: order.orderNo,
@@ -356,8 +410,16 @@ export class InventoryService {
           quantity: take,
         })),
         transactions: ledgerRows,
+        billing: {
+          serviceLine: 'pharmacy',
+          serviceEntityId: prescriptionGroupId(order),
+          lineId: order.id,
+          patientId: order.patient.id,
+          encounterId: order.encounter?.id ?? null,
+          description: `${item.name} × ${quantity} ${item.unit}`,
+          suggestedAmount,
+        },
       };
-    });
   }
 
   async dispenseOtcSale(dto: DispenseOtcDto, request: RequestContext) {
@@ -384,10 +446,11 @@ export class InventoryService {
       order: { expiryDate: 'ASC', createdAt: 'ASC' },
     });
 
+    const usable = batches.filter((batch) => !isExpiredBatch(batch.expiryDate));
     const allocations = this.allocateFromBatches(
-      batches,
+      usable,
       dto.quantity,
-      `Insufficient pharmacy stock for ${item.name}.`,
+      `Insufficient usable (non-expired) pharmacy stock for ${item.name}.`,
     );
     const ledgerRows: InventoryTransaction[] = [];
 
@@ -927,13 +990,116 @@ export class InventoryService {
     return { batch: destBatch, transaction };
   }
 
-  private resolveDispenseQuantity(requested: number | undefined, order: ClinicalOrder) {
-    const fromScript = Number(order.metadata?.quantity);
+  private resolveDispenseQuantity(
+    requested: number | undefined,
+    order: ClinicalOrder,
+    remaining?: number | null,
+  ) {
+    const fromScript = remaining != null && remaining > 0 ? remaining : Number(order.metadata?.quantity);
     const quantity = requested ?? (Number.isFinite(fromScript) && fromScript > 0 ? fromScript : undefined);
     if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) {
       throw new BadRequestException('Enter how many units to issue.');
     }
+    if (remaining != null && remaining >= 0 && quantity > remaining) {
+      throw new BadRequestException(
+        `Cannot dispense ${quantity}. Only ${remaining} remain on this prescription line.`,
+      );
+    }
     return quantity;
+  }
+
+  private async syncPrescriptionHeader(
+    orders: Repository<ClinicalOrder>,
+    line: ClinicalOrder,
+  ) {
+    const groupId = prescriptionGroupId(line);
+    if (groupId === line.id) return;
+    const header = await orders.findOne({ where: { id: groupId, orderType: 'pharmacy' } });
+    if (!header || header.metadata?.kind !== 'prescription') return;
+    const siblings = await orders.find({
+      where: { orderType: 'pharmacy', patient: { id: line.patient.id } },
+    });
+    const lines = siblings.filter(
+      (row) => prescriptionGroupId(row) === groupId && row.metadata?.kind !== 'prescription',
+    );
+    const allDispensed = lines.every((row) => row.status === 'dispensed' || row.status === 'cancelled');
+    const anyIssued = lines.some((row) => dispensedQuantity(row) > 0 || row.status === 'partially_dispensed');
+    header.status = allDispensed ? 'dispensed' : anyIssued ? 'partially_dispensed' : 'requested';
+    header.completedAt = allDispensed ? new Date() : null;
+    await orders.save(header);
+  }
+
+  async dispensePrescription(dto: DispensePrescriptionDto, request: RequestContext) {
+    if (!dto.confirm) {
+      throw new BadRequestException('Confirm dispensing before stock is deducted.');
+    }
+    if (!dto.lines?.length) {
+      throw new BadRequestException('Select at least one medication line to dispense.');
+    }
+    return this.items.manager.transaction(async (manager) => {
+    const results = [];
+    for (const line of dto.lines) {
+      if (line.rejected) continue;
+      results.push(
+        await this.dispensePharmacyOrder(
+          {
+            clinicalOrderId: line.clinicalOrderId,
+            itemId: line.itemId,
+            quantity: line.quantity,
+          },
+          request,
+          manager,
+        ),
+      );
+    }
+    if (!results.length) {
+      throw new BadRequestException('No lines were dispensed.');
+    }
+    const suggestedAmount = results.reduce(
+      (sum, row) => sum + (row.billing.suggestedAmount ?? 0),
+      0,
+    );
+    const billing = {
+      serviceLine: 'pharmacy' as const,
+      serviceEntityId: dto.prescriptionGroupId ?? results[0].billing.serviceEntityId,
+      patientId: results[0].billing.patientId,
+      encounterId: results[0].billing.encounterId,
+      description: results.map((row) => row.billing.description).join(' · '),
+      suggestedAmount: suggestedAmount > 0 ? Math.round(suggestedAmount * 100) / 100 : null,
+      orderNo: results[0].orderNo,
+    };
+    return {
+      prescriptionGroupId: billing.serviceEntityId,
+      lines: results,
+      billing,
+    };
+    }).then(async (result) => {
+      await this.recordDispenseCharge(result.billing, request);
+      return result;
+    });
+  }
+
+  private async recordDispenseCharge(
+    billing: {
+      patientId: string;
+      encounterId: string | null;
+      serviceEntityId: string;
+      description: string;
+      suggestedAmount: number | null;
+      orderNo?: string;
+    },
+    request: RequestContext,
+  ) {
+    if (billing.suggestedAmount == null || billing.suggestedAmount <= 0) return;
+    await this.payments.upsertPharmacyCharge({
+      patientId: billing.patientId,
+      encounterId: billing.encounterId,
+      serviceEntityId: billing.serviceEntityId,
+      description: billing.description,
+      amountDelta: billing.suggestedAmount,
+      orderNo: billing.orderNo,
+      userId: request.user?.sub ?? null,
+    });
   }
 
   private async resolvePharmacyItem(
@@ -1000,6 +1166,7 @@ export class InventoryService {
     let remaining = quantity;
     const allocations: Array<{ batch: InventoryBatch; quantity: number }> = [];
     for (const batch of batches) {
+      if (isExpiredBatch(batch.expiryDate)) continue;
       const available = Number(batch.qtyOnHand);
       if (available <= 0) continue;
       const take = Math.min(available, remaining);
@@ -1034,7 +1201,20 @@ export class InventoryService {
     if (!rows.length) {
       throw new BadRequestException('CSV is empty or missing a header row.');
     }
-    const summary = { created: 0, updated: 0, received: 0, priced: 0, errors: [] as string[] };
+    const previewOnly = Boolean(dto.previewOnly);
+    const receiveOpening = Boolean(dto.confirmStockTake) && !previewOnly;
+    const summary = {
+      preview: previewOnly,
+      stockTakeApplied: receiveOpening,
+      created: 0,
+      updated: 0,
+      received: 0,
+      priced: 0,
+      heldOpeningQty: 0,
+      rejectedExpiredQty: 0,
+      duplicates: [] as string[],
+      errors: [] as string[],
+    };
     const defaultLocation = dto.locationId
       ? await this.locations.findOne({ where: { id: dto.locationId, active: true } })
       : null;
@@ -1042,15 +1222,49 @@ export class InventoryService {
       throw new BadRequestException('Receive location was not found.');
     }
 
+    const seenSku = new Set<string>();
+    const seenIdentity = new Set<string>();
+
     for (const [index, row] of rows.entries()) {
       const line = index + 2;
       const sku = (row.sku ?? '').trim().toUpperCase();
       const name = (row.name ?? '').trim();
+      const unit = (row.unit ?? 'unit').trim() || 'unit';
       if (!sku || !name) {
         summary.errors.push(`Line ${line}: sku and name are required.`);
         continue;
       }
+      if (seenSku.has(sku)) {
+        summary.duplicates.push(`Line ${line}: SKU ${sku} is repeated in this file.`);
+        continue;
+      }
+      seenSku.add(sku);
       const category = normalizeInventoryCategory(row.category);
+      const identity = `${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}|${unit.toLowerCase()}|${category}`;
+      if (seenIdentity.has(identity)) {
+        summary.duplicates.push(`Line ${line}: ${name} ${unit} looks like a duplicate product in this file.`);
+      } else {
+        seenIdentity.add(identity);
+      }
+
+      const qty = Number(row.opening_qty ?? row.quantity ?? '');
+      const expiry = row.expiry || row.expiry_date || '';
+      if (Number.isFinite(qty) && qty > 0) {
+        if (expiry && isExpiredBatch(expiry)) {
+          summary.rejectedExpiredQty += 1;
+          summary.errors.push(`Line ${line}: expired opening stock for ${sku} was not received.`);
+        } else if (!receiveOpening) {
+          summary.heldOpeningQty += 1;
+        }
+      }
+
+      if (previewOnly) {
+        const existing = await this.items.findOne({ where: { sku } });
+        if (existing) summary.updated += 1;
+        else summary.created += 1;
+        continue;
+      }
+
       try {
         let item = await this.items.findOne({ where: { sku } });
         if (!item) {
@@ -1059,7 +1273,7 @@ export class InventoryService {
               sku,
               name,
               category,
-              unit: (row.unit ?? 'unit').trim() || 'unit',
+              unit,
               trackBatch: parseBool(row.track_batch) ?? category === 'pharmaceutical',
               active: true,
               createdBy: request.user?.sub ?? null,
@@ -1083,6 +1297,10 @@ export class InventoryService {
         const sell = Number(row.sell ?? row.selling_price ?? '');
         const markup = Number(row.markup ?? row.markup_percent ?? '');
         if ([cost, sell, markup].some((value) => Number.isFinite(value) && value !== 0) || row.sell === '0') {
+          if ([cost, sell, markup].some((value) => Number.isFinite(value) && value < 0)) {
+            summary.errors.push(`Line ${line}: prices cannot be negative.`);
+            continue;
+          }
           const price = resolvePrice({
             cost: Number.isFinite(cost) ? cost : 0,
             markup: Number.isFinite(markup) ? markup : 0,
@@ -1093,8 +1311,7 @@ export class InventoryService {
           summary.priced += 1;
         }
 
-        const qty = Number(row.opening_qty ?? row.quantity ?? '');
-        if (Number.isFinite(qty) && qty > 0) {
+        if (receiveOpening && Number.isFinite(qty) && qty > 0 && !(expiry && isExpiredBatch(expiry))) {
           const location =
             defaultLocation ??
             (await this.locations.findOne({
@@ -1113,8 +1330,8 @@ export class InventoryService {
               locationId: location.id,
               quantity: qty,
               batchNo: row.batch_no?.trim() || undefined,
-              expiryDate: row.expiry || row.expiry_date || undefined,
-              reason: `CSV import ${sku}`,
+              expiryDate: expiry || undefined,
+              reason: `Confirmed stock-take import ${sku}`,
             },
             request,
           );
@@ -1219,6 +1436,14 @@ function normalizeInventoryCategory(value?: string): InventoryCategory {
     return 'medical_consumable';
   }
   return 'non_medical';
+}
+
+export function isExpiredBatch(expiryDate?: string | Date | null, now = new Date()) {
+  if (!expiryDate) return false;
+  const raw = typeof expiryDate === 'string' ? expiryDate.slice(0, 10) : expiryDate.toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const today = now.toISOString().slice(0, 10);
+  return raw < today;
 }
 
 function parseBool(value?: string) {

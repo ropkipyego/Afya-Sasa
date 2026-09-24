@@ -18,17 +18,22 @@ export class LoginDto {
 }
 
 export class RefreshDto {
-  @ApiProperty()
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  refreshToken!: string;
+  refreshToken?: string;
 }
 
 export class LogoutDto {
-  @ApiProperty()
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  refreshToken!: string;
+  refreshToken?: string;
+
+  @ApiProperty({ required: false, enum: ['user', 'inactivity'] })
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }
 
 export class ChangePasswordDto {

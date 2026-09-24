@@ -17,5 +17,6 @@ import { HduService } from './hdu.service';
   ],
   controllers: [HduController],
   providers: [HduService],
+  exports: [HduService],
 })
 export class HduModule {}

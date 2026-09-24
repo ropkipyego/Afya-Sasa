@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClinicalOrderModule } from '../clinical-order/clinical-order.module';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { TenantSettings } from '../core/core.entities';
+import { PaymentsModule } from '../payments/payments.module';
 import {
   InventoryBatch,
   InventoryItem,
@@ -19,6 +20,7 @@ import { InventoryService } from './inventory.service';
 @Module({
   imports: [
     ClinicalOrderModule,
+    PaymentsModule,
     TypeOrmModule.forFeature([
       InventoryItem,
       InventoryLocation,

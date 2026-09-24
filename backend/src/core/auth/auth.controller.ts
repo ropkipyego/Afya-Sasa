@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import type { Response } from 'express';
 import type { RequestContext } from '../../common/request-context';
 import { tenantChannel } from '../../common/tenant-defaults';
 import { TenancyService } from '../tenancy/tenancy.service';
@@ -14,6 +15,8 @@ import {
   ResetPasswordDto,
 } from './auth.dto';
 import { Public } from './auth.decorators';
+import { clearRefreshCookie, readRefreshToken, setRefreshCookie } from './auth-cookies';
+import { sessionPolicy } from './session-policy';
 
 @ApiTags('Auth')
 @UseGuards(ThrottlerGuard)
@@ -36,30 +39,56 @@ export class AuthController {
     return this.tenancyService.getPublicHospital(code);
   }
 
+  @Public()
+  @Get('session-policy')
+  getSessionPolicy() {
+    return sessionPolicy();
+  }
+
   @ApiBearerAuth()
   @Get('me')
   me(@Req() request: RequestContext) {
     return this.authService.getMe(request.user?.sub ?? '');
   }
 
+  @ApiBearerAuth()
+  @Post('activity')
+  touchActivity(@Req() request: RequestContext) {
+    return this.authService.touchActivity(request.user?.sid);
+  }
+
   @Public()
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   @Post('login')
-  login(@Body() dto: LoginDto, @Req() request: RequestContext) {
-    return this.authService.login(
+  async login(
+    @Body() dto: LoginDto,
+    @Req() request: RequestContext,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.authService.login(
       dto.email,
       dto.password,
       dto.device,
       request.ip,
       request.headers['user-agent'] as string | undefined,
+      readRefreshToken(request),
     );
+    setRefreshCookie(response, result.refreshToken);
+    return result;
   }
 
   @Public()
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('refresh')
-  refresh(@Body() dto: RefreshDto) {
-    return this.authService.refresh(dto.refreshToken);
+  async refresh(
+    @Body() dto: RefreshDto,
+    @Req() request: RequestContext,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const token = readRefreshToken(request, dto.refreshToken);
+    const result = await this.authService.refresh(token ?? '');
+    setRefreshCookie(response, result.refreshToken);
+    return result;
   }
 
   @Public()
@@ -80,15 +109,22 @@ export class AuthController {
     return this.authService.resetPassword(dto.token, dto.newPassword, request.ip);
   }
 
-  @ApiBearerAuth()
+  @Public()
   @Post('logout')
-  logout(@Body() dto: LogoutDto, @Req() request: RequestContext) {
-    return this.authService.logout(
-      dto.refreshToken,
+  async logout(
+    @Body() dto: LogoutDto,
+    @Req() request: RequestContext,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.authService.logout(
+      readRefreshToken(request, dto.refreshToken),
       request.user?.email,
       request.user?.sub,
       request.ip,
+      dto.reason === 'inactivity' ? 'inactivity' : 'user',
     );
+    clearRefreshCookie(response);
+    return result;
   }
 
   @ApiBearerAuth()
@@ -99,16 +135,19 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Post('change-password')
-  changePassword(
+  async changePassword(
     @Req() request: RequestContext,
     @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.authService.changePassword(
+    const result = await this.authService.changePassword(
       request.user?.sub ?? '',
       dto.currentPassword,
       dto.newPassword,
       'web',
       request.ip,
     );
+    setRefreshCookie(response, result.refreshToken);
+    return result;
   }
 }

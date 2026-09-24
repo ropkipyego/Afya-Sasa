@@ -1,4 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import { demoSeedIsAllowed } from '../demo-seed-guard';
 
 /**
  * Ensures the demo administrator can always recover first-login access
@@ -9,7 +10,7 @@ export class DemoAdminAccessRecovery1766910000000 implements MigrationInterface 
 
   async up(queryRunner: QueryRunner): Promise<void> {
     // Historical recovery for local demo admin. Already-applied installs never re-run this.
-    if (process.env.AFYASASA_ALLOW_DEMO_SEED !== 'true') {
+    if (!demoSeedIsAllowed()) {
       return;
     }
 

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { Admission } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
@@ -174,6 +174,11 @@ export class TheatreService {
     dto: UpdateSurgeryBookingStatusDto,
     request: RequestContext,
   ) {
+    const booking = await this.bookings.findOne({
+      where: { id },
+      relations: { theatre: true },
+    });
+    if (!booking) throw new NotFoundException('Surgery booking not found');
     const update: Partial<SurgeryBooking> = {
       status: dto.status,
       updatedBy: request.user?.sub ?? null,
@@ -181,7 +186,25 @@ export class TheatreService {
     if (dto.status === 'in_theatre') update.actualStartAt = new Date();
     if (dto.status === 'completed') update.actualEndAt = new Date();
     await this.bookings.update(id, update);
-    return this.bookings.findOneOrFail({ where: { id } });
+    if (booking.theatre && dto.status === 'in_theatre') {
+      await this.theatres.update(booking.theatre.id, { status: 'in_use' });
+    }
+    if (
+      booking.theatre &&
+      (dto.status === 'completed' || dto.status === 'cancelled' || dto.status === 'recovery')
+    ) {
+      const remaining = await this.bookings.count({
+        where: {
+          theatre: { id: booking.theatre.id },
+          status: In(['scheduled', 'pre_op', 'in_theatre']),
+          id: Not(id),
+        },
+      });
+      if (remaining === 0) {
+        await this.theatres.update(booking.theatre.id, { status: 'available' });
+      }
+    }
+    return this.bookings.findOneOrFail({ where: { id }, relations: { theatre: true } });
   }
 
   async assignStaff(id: string, dto: AssignSurgeryStaffDto, request: RequestContext) {

@@ -8,6 +8,7 @@ import {
   CreateTransferDto,
   DispenseOtcDto,
   DispensePharmacyDto,
+  DispensePrescriptionDto,
   ImportInventoryCsvDto,
   ReceiveStockDto,
   UpdateItemPricingDto,
@@ -63,6 +64,12 @@ export class InventoryController {
     return this.inventoryService.createItem(dto, request);
   }
 
+  @Post('items/import/preview')
+  @RequirePermissions('inventory:manage', 'settings:manage')
+  previewImport(@Body() dto: ImportInventoryCsvDto, @Req() request: RequestContext) {
+    return this.inventoryService.importCatalog({ ...dto, previewOnly: true }, request);
+  }
+
   @Post('items/import')
   @RequirePermissions('inventory:manage', 'settings:manage')
   importItems(@Body() dto: ImportInventoryCsvDto, @Req() request: RequestContext) {
@@ -95,6 +102,12 @@ export class InventoryController {
   @RequirePermissions('pharmacy:dispense', 'inventory:manage')
   dispensePharmacy(@Body() dto: DispensePharmacyDto, @Req() request: RequestContext) {
     return this.inventoryService.dispensePharmacyOrder(dto, request);
+  }
+
+  @Post('dispense/prescription')
+  @RequirePermissions('pharmacy:dispense', 'inventory:manage')
+  dispensePrescription(@Body() dto: DispensePrescriptionDto, @Req() request: RequestContext) {
+    return this.inventoryService.dispensePrescription(dto, request);
   }
 
   @Post('dispense/otc')

@@ -33,6 +33,8 @@ import { InventoryModule } from './inventory/inventory.module';
 import { MarketingModule } from './marketing/marketing.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ShaModule } from './integration/sha/sha.module';
+import { VisitQueueModule } from './queue/visit-queue.module';
+import { ExportsModule } from './exports/exports.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { RequestIdMiddleware } from './common/request-id.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
@@ -104,6 +106,8 @@ import { HttpLoggingInterceptor } from './common/http-logging.interceptor';
     HealthModule,
     PaymentsModule,
     ShaModule,
+    VisitQueueModule,
+    ExportsModule,
   ],
   controllers: [AppController],
   providers: [

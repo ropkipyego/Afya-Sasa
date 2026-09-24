@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
-import { Button, Card, Field, FormSection, PageHeader, SelectField, TextareaField } from '../ui'
+import { Alert, Button, Card, Field, FormSection, PageHeader, SelectField, TextareaField } from '../ui'
 import { VitalsForm } from '../VitalsFields'
 import { ClinicalInvestigationOrders } from '../investigations/ClinicalInvestigationOrders'
 import { PatientTimeline, type TimelineEvent } from '../PatientTimeline'
@@ -92,6 +92,14 @@ const outcomes = [
   ['left_without_being_seen', 'Left without being seen'],
 ] as const
 
+const CONTINUING_CARE = new Set<(typeof outcomes)[number][0]>([
+  'admitted_ipd',
+  'transferred_icu',
+  'transferred_hdu',
+  'transferred_theatre',
+  'transferred_maternity',
+])
+
 export function EmergencyPatientWorkspace({
   emergencyId,
   onBack,
@@ -123,7 +131,7 @@ export function EmergencyPatientWorkspace({
       apiRequest<{ id: string; bedNo: string; status?: string; ward: { name: string } }[]>(
         '/inpatient/beds/available',
       ),
-    enabled: outcome === 'admitted_ipd',
+    enabled: CONTINUING_CARE.has(outcome as (typeof outcomes)[number][0]),
   })
 
   const patientId = workspace?.encounter.patient.id
@@ -284,7 +292,13 @@ export function EmergencyPatientWorkspace({
       })
     },
     onSuccess: async () => {
-      notify('Disposition recorded', outcome === 'admitted_ipd' ? 'IPD admission created.' : 'Emergency episode closed.', 'success')
+      notify(
+        'Disposition recorded',
+        CONTINUING_CARE.has(outcome as (typeof outcomes)[number][0])
+          ? 'Emergency episode closed. Inpatient care continues — the encounter was not completed.'
+          : 'Emergency episode closed.',
+        'success',
+      )
       await queryClient.invalidateQueries({ queryKey: ['emergency-queue'] })
       await queryClient.invalidateQueries({ queryKey: ['emergency-metrics'] })
       await queryClient.invalidateQueries({ queryKey: ['emergency-bays'] })
@@ -486,7 +500,10 @@ export function EmergencyPatientWorkspace({
 
       {tab === 'disposition' ? (
         <Card>
-          <PageHeader title="Emergency outcome" description="Every patient must have a final disposition." />
+          <PageHeader
+            title="Emergency outcome"
+            description="Closing outcomes complete the encounter. Ward, ICU, HDU, theatre, and maternity keep the clinical journey open."
+          />
           {isClosed ? (
             <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-200">
               <p className="font-semibold">Episode closed</p>
@@ -506,9 +523,9 @@ export function EmergencyPatientWorkspace({
                 <option key={value} value={value}>{label}</option>
               ))}
             </SelectField>
-            {outcome === 'admitted_ipd' ? (
+            {CONTINUING_CARE.has(outcome as (typeof outcomes)[number][0]) ? (
               <>
-                <SelectField name="bedId" label="Available IPD bed" required>
+                <SelectField name="bedId" label="Available inpatient bed" required>
                   <option value="">Select a bed</option>
                   {availableBeds
                     .filter((bed) => !bed.status || bed.status === 'available')
@@ -518,12 +535,33 @@ export function EmergencyPatientWorkspace({
                       </option>
                     ))}
                 </SelectField>
-                <Field name="admissionReason" label="Admission reason" required />
+                <Field
+                  name="admissionReason"
+                  label={
+                    outcome === 'admitted_ipd'
+                      ? 'Admission reason'
+                      : outcome === 'transferred_icu'
+                        ? 'ICU transfer reason'
+                        : outcome === 'transferred_hdu'
+                          ? 'HDU transfer reason'
+                          : outcome === 'transferred_theatre'
+                            ? 'Theatre transfer reason'
+                            : 'Maternity transfer reason'
+                  }
+                  required
+                />
+                <Alert tone="info">
+                  This closes the emergency episode and creates (or continues) an IPD admission. The encounter stays open for inpatient care.
+                </Alert>
               </>
             ) : null}
             <Field name="transferFacility" label="Transfer facility (if applicable)" />
             <TextareaField name="notes" label="Disposition notes" />
-            <Button type="submit" loading={disposition.isPending}>Close emergency episode</Button>
+            <Button type="submit" loading={disposition.isPending}>
+              {CONTINUING_CARE.has(outcome as (typeof outcomes)[number][0])
+                ? 'Admit and continue care'
+                : 'Close emergency episode'}
+            </Button>
           </form>
           )}
         </Card>

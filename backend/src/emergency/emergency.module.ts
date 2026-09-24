@@ -4,6 +4,8 @@ import { Patient, PatientAllergy, PatientChronicCondition } from '../patients/pa
 import { Encounter } from '../opd/opd.entities';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { InpatientModule } from '../inpatient/inpatient.module';
+import { IcuModule } from '../icu/icu.module';
+import { HduModule } from '../hdu/hdu.module';
 import {
   CriticalAlert,
   EmergencyEncounter,
@@ -11,13 +13,17 @@ import {
   EmergencyObservationLog,
   EmergencyTreatmentBay,
 } from './emergency.entities';
+import { VisitQueueModule } from '../queue/visit-queue.module';
 import { EmergencyController } from './emergency.controller';
 import { EmergencyService } from './emergency.service';
 
 @Module({
   imports: [
     WorkflowModule,
+    VisitQueueModule,
     InpatientModule,
+    IcuModule,
+    HduModule,
     TypeOrmModule.forFeature([
       Patient,
       PatientAllergy,

@@ -9,18 +9,20 @@ import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber, hospitalNumberLikePattern } from '../common/hospital-numbering';
 import { isMinorPatient, normalizePhoneDigits } from './patient.rules';
 import QRCode from 'qrcode';
-import { Repository, Not, In } from 'typeorm';
+import { Repository, Not, In, IsNull } from 'typeorm';
 import { Appointment } from '../appointments/appointment.entities';
 import { HduAdmission } from '../hdu/hdu.entities';
 import { IcuAdmission } from '../icu/icu.entities';
 import { Admission } from '../inpatient/inpatient.entities';
 import { LabRequest, LabResult } from '../laboratory/laboratory.entities';
 import { Pregnancy } from '../maternity/maternity.entities';
-import { Consultation, Encounter, TriageAssessment } from '../opd/opd.entities';
+import { Consultation, Encounter, EncounterDiagnosis, TriageAssessment } from '../opd/opd.entities';
 import { RadiologyReport, RadiologyRequest } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
+import { Charge } from '../payments/charge.entities';
 import { PaymentTransaction } from '../payments/payment.entities';
+import { VisitQueueItem } from '../queue/visit-queue.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import {
   Patient,
@@ -68,6 +70,8 @@ export class PatientsService {
     private readonly labRequests: Repository<LabRequest>,
     @InjectRepository(Consultation)
     private readonly consultations: Repository<Consultation>,
+    @InjectRepository(EncounterDiagnosis)
+    private readonly diagnoses: Repository<EncounterDiagnosis>,
     @InjectRepository(TriageAssessment)
     private readonly triages: Repository<TriageAssessment>,
     @InjectRepository(RadiologyReport)
@@ -90,6 +94,10 @@ export class PatientsService {
     private readonly clinicalOrders: Repository<ClinicalOrder>,
     @InjectRepository(PaymentTransaction)
     private readonly payments: Repository<PaymentTransaction>,
+    @InjectRepository(Charge)
+    private readonly charges: Repository<Charge>,
+    @InjectRepository(VisitQueueItem)
+    private readonly queueItems: Repository<VisitQueueItem>,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     private readonly tenancy: TenancyService,
@@ -414,16 +422,270 @@ export class PatientsService {
   }
 
   async history(id: string) {
-    const patient = await this.findOne(id);
+    const timeline = await this.timeline(id);
+    const [encounters, admissions, diagnoses, labResults, radiologyReports] = await Promise.all([
+      this.encounters.find({
+        where: { patient: { id } },
+        order: { startedAt: 'DESC' },
+        take: 100,
+      }),
+      this.admissions.find({
+        where: { patient: { id } },
+        relations: { ward: true, bed: true },
+        order: { createdAt: 'DESC' },
+        take: 100,
+      }),
+      this.diagnoses.find({
+        where: { encounter: { patient: { id } } },
+        relations: { encounter: true },
+        order: { createdAt: 'DESC' },
+        take: 100,
+      }),
+      this.labResults.find({
+        where: { requestItem: { request: { patient: { id } } } },
+        relations: { requestItem: { request: true, test: true, panel: true } },
+        order: { enteredAt: 'DESC' },
+        take: 100,
+      }),
+      this.radiologyReports.find({
+        where: { request: { patient: { id } } },
+        relations: { request: { modality: true } },
+        order: { createdAt: 'DESC' },
+        take: 100,
+      }),
+    ]);
     return {
-      patient,
-      encounters: [],
-      admissions: [],
-      diagnoses: [],
-      labResults: [],
-      radiologyReports: [],
-      message:
-        'Patient history endpoint is reserved for OPD, inpatient, lab, and radiology phases.',
+      patient: timeline.patient,
+      encounters,
+      admissions,
+      diagnoses,
+      labResults,
+      radiologyReports,
+      events: timeline.events,
+    };
+  }
+
+  async chart(id: string, section?: string) {
+    const patient = await this.findOne(id);
+    const key = (section ?? 'overview').trim().toLowerCase();
+    const take = 80;
+    if (key === 'visits') {
+      const [encounters, queue] = await Promise.all([
+        this.encounters.find({
+          where: { patient: { id } },
+          relations: { attendingDoctor: true },
+          order: { startedAt: 'DESC' },
+          take,
+        }),
+        this.queueItems.find({
+          where: { patient: { id } },
+          relations: { encounter: true },
+          order: { createdAt: 'DESC' },
+          take,
+        }),
+      ]);
+      return {
+        section: key,
+        source: 'encounters+visit_queue_items',
+        items: encounters.map((row) => ({
+          id: row.id,
+          kind: 'visit',
+          title: row.encounterNo,
+          status: row.status,
+          occurredAt: row.startedAt,
+          summary: `${row.departmentName ?? row.type} · ${row.visitType ?? 'visit'}`,
+          queueToken: queue.find((item) => item.encounter?.id === row.id)?.token ?? null,
+        })),
+      };
+    }
+    if (key === 'diagnoses') {
+      const items = await this.diagnoses.find({
+        where: { encounter: { patient: { id } } },
+        relations: { encounter: true },
+        order: { createdAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'encounter_diagnoses',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'diagnosis',
+          title: row.description,
+          status: row.type,
+          occurredAt: row.createdAt,
+          summary: `${row.icd10Code ? `${row.icd10Code} · ` : ''}${row.confirmed ? 'confirmed' : 'unconfirmed'} · ${row.encounter?.encounterNo ?? ''}`,
+        })),
+      };
+    }
+    if (key === 'clinical' || key === 'treatments') {
+      const items = await this.consultations.find({
+        where: { encounter: { patient: { id } } },
+        relations: { encounter: true },
+        order: { createdAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'consultations',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'treatment',
+          title: 'Consultation',
+          status: row.encounter?.status ?? null,
+          occurredAt: row.createdAt,
+          summary: row.plan ?? row.assessment ?? row.encounter?.encounterNo ?? 'SOAP note',
+        })),
+      };
+    }
+    if (key === 'medications' || key === 'prescriptions' || key === 'pharmacy') {
+      const items = await this.clinicalOrders.find({
+        where: { patient: { id }, orderType: 'pharmacy' },
+        order: { orderedAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'clinical_orders',
+        items: items
+          .filter((row) => row.metadata?.kind !== 'prescription' || key !== 'medications')
+          .map((row) => ({
+            id: row.id,
+            kind: row.metadata?.kind === 'prescription' ? 'prescription' : 'medication',
+            title: String(row.metadata?.medication ?? row.orderNo),
+            status: row.status,
+            occurredAt: row.orderedAt,
+            summary: `${row.orderNo} · dispensed ${String(row.metadata?.dispensedQuantity ?? 0)} of ${String(row.metadata?.quantity ?? '')}`,
+          })),
+      };
+    }
+    if (key === 'laboratory') {
+      const items = await this.labRequests.find({
+        where: { patient: { id } },
+        order: { createdAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'lab_requests',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'laboratory',
+          title: row.requestNo,
+          status: row.status,
+          occurredAt: row.createdAt,
+          summary: `${row.priority} · ${row.paymentStatus ?? 'unbilled'}`,
+        })),
+      };
+    }
+    if (key === 'radiology') {
+      const items = await this.radiologyRequests.find({
+        where: { patient: { id } },
+        relations: { modality: true },
+        order: { createdAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'radiology_requests',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'radiology',
+          title: `${row.modality?.name ?? 'Imaging'} ${row.requestNo}`,
+          status: row.status,
+          occurredAt: row.createdAt,
+          summary: `${row.bodyPart}${row.views ? ` · ${row.views}` : ''} · ${row.priority}`,
+        })),
+      };
+    }
+    if (key === 'admissions') {
+      const items = await this.admissions.find({
+        where: { patient: { id } },
+        relations: { ward: true, bed: true },
+        order: { createdAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'admissions',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'admission',
+          title: row.admissionNo,
+          status: row.status,
+          occurredAt: row.admittedAt,
+          summary: `${row.ward?.name ?? 'Ward'} / ${row.bed?.bedNo ?? 'Bed'}`,
+        })),
+      };
+    }
+    if (key === 'payments' || key === 'finance') {
+      const [charges, payments] = await Promise.all([
+        this.charges.find({
+          where: { patient: { id } },
+          order: { createdAt: 'DESC' },
+          take,
+        }),
+        this.payments.find({
+          where: { patient: { id } },
+          order: { createdAt: 'DESC' },
+          take,
+        }),
+      ]);
+      return {
+        section: key,
+        source: 'charges+payment_transactions',
+        items: [
+          ...charges.map((row) => ({
+            id: row.id,
+            kind: 'charge',
+            title: row.serviceDescription,
+            status: row.status,
+            occurredAt: row.createdAt,
+            summary: `Owed ${row.amountOwed} · paid ${row.amountPaid} · waived ${row.amountWaived} ${row.currency}`,
+          })),
+          ...payments.map((row) => ({
+            id: row.id,
+            kind: 'payment',
+            title: row.serviceDescription ?? row.serviceLine ?? 'Payment',
+            status: row.status,
+            occurredAt: row.createdAt,
+            summary: `${row.method} · ${row.amount ?? '0'} ${row.currency} · ${row.externalReference ?? ''}`,
+          })),
+        ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
+      };
+    }
+    if (key === 'referrals') {
+      const items = await this.referrals.find({
+        where: { patient: { id } },
+        order: { createdAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'referrals',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'referral',
+          title: `${row.type} referral`,
+          status: row.status,
+          occurredAt: row.createdAt,
+          summary: row.reason,
+        })),
+      };
+    }
+    return {
+      section: 'overview',
+      source: 'patient',
+      items: [
+        {
+          id: patient.id,
+          kind: 'patient',
+          title: patient.patientNo,
+          status: 'active',
+          occurredAt: patient.createdAt,
+          summary: `${patient.firstName} ${patient.lastName}`,
+        },
+      ],
     };
   }
 
@@ -444,8 +706,11 @@ export class PatientsService {
       referrals,
       triages,
       consultations,
+      diagnoses,
       pharmacyOrders,
       payments,
+      charges,
+      queueItems,
     ] = await Promise.all([
       this.encounters.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
       this.admissions.find({ where: { patient: { id } }, relations: { ward: true, bed: true }, order: { createdAt: 'DESC' }, take: 50 }),
@@ -486,6 +751,12 @@ export class PatientsService {
         order: { createdAt: 'DESC' },
         take: 50,
       }),
+      this.diagnoses.find({
+        where: { encounter: { patient: { id } } },
+        relations: { encounter: true },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
       this.clinicalOrders.find({
         where: { patient: { id }, orderType: 'pharmacy' },
         order: { orderedAt: 'DESC' },
@@ -493,6 +764,17 @@ export class PatientsService {
       }),
       this.payments.find({
         where: { patient: { id } },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
+      this.charges.find({
+        where: { patient: { id } },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      }),
+      this.queueItems.find({
+        where: { patient: { id } },
+        relations: { encounter: true },
         order: { createdAt: 'DESC' },
         take: 50,
       }),
@@ -513,6 +795,13 @@ export class PatientsService {
         title: `Encounter ${item.encounterNo}`,
         summary: `${item.departmentName ? `${item.departmentName} · ` : ''}${item.type} — ${item.status}`,
       })),
+      ...queueItems.map((item) => ({
+        id: item.id,
+        type: 'queue',
+        occurredAt: item.createdAt,
+        title: `Queue ${item.token}`,
+        summary: `${item.queueType} · ${item.status}${item.encounter?.encounterNo ? ` · ${item.encounter.encounterNo}` : ''}`,
+      })),
       ...triages.map((item) => ({
         id: item.id,
         type: 'triage',
@@ -526,6 +815,13 @@ export class PatientsService {
         occurredAt: item.createdAt,
         title: 'Consultation',
         summary: item.assessment ?? item.plan ?? 'SOAP note recorded',
+      })),
+      ...diagnoses.map((item) => ({
+        id: item.id,
+        type: 'diagnosis',
+        occurredAt: item.createdAt,
+        title: `${item.type} diagnosis`,
+        summary: `${item.icd10Code ? `${item.icd10Code} · ` : ''}${item.description}${item.confirmed ? ' (confirmed)' : ''}`,
       })),
       ...labRequests.map((item) => ({
         id: item.id,
@@ -643,6 +939,13 @@ export class PatientsService {
         title: `${item.method.toUpperCase()} ${item.status}`,
         summary: `${item.serviceDescription ?? item.serviceLine ?? 'Payment'} — KES ${item.amount ?? '0'}`,
       })),
+      ...charges.map((item) => ({
+        id: item.id,
+        type: 'charge',
+        occurredAt: item.createdAt,
+        title: `Charge ${item.serviceLine}`,
+        summary: `${item.serviceDescription} — owed ${item.amountOwed} paid ${item.amountPaid} (${item.status})`,
+      })),
     ].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
     return { patient, events };
@@ -650,7 +953,7 @@ export class PatientsService {
 
   async getJourneyStatus(id: string) {
     await this.findOne(id);
-    const [activeEncounter, activePregnancy, pendingLabs, criticalLabs] =
+    const [activeEncounter, activePregnancy, pendingLabs, criticalLabs, verifiedLabs, activeQueue] =
       await Promise.all([
         this.encounters.findOne({
           where: {
@@ -675,19 +978,30 @@ export class PatientsService {
             {
               requestItem: { request: { patient: { id } } },
               flag: 'critically_low',
-              reviewedAt: null as never,
+              reviewedAt: IsNull(),
             },
             {
               requestItem: { request: { patient: { id } } },
               flag: 'critically_high',
-              reviewedAt: null as never,
+              reviewedAt: IsNull(),
             },
           ],
+        }),
+        this.labResults.count({
+          where: {
+            requestItem: { request: { patient: { id } } },
+            verifiedAt: Not(IsNull()),
+          },
+        }),
+        this.queueItems.find({
+          where: { patient: { id }, status: In(['WAITING', 'CALLED', 'IN_SERVICE']) },
+          order: { createdAt: 'DESC' },
+          take: 5,
         }),
       ]);
 
     const hasPendingLab = pendingLabs > 0;
-    const hasLabResults = false;
+    const hasLabResults = verifiedLabs > 0;
     let step = 'registered';
 
     if (!activeEncounter) {
@@ -724,6 +1038,14 @@ export class PatientsService {
       pregnancyAlert: Boolean(activePregnancy),
       criticalLabAlert: criticalLabs > 0,
       hasPendingLab,
+      hasLabResults,
+      queueToken: activeQueue[0]?.token ?? null,
+      queueItems: activeQueue.map((item) => ({
+        id: item.id,
+        token: item.token,
+        queueType: item.queueType,
+        status: item.status,
+      })),
     };
   }
 

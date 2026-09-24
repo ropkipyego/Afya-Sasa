@@ -42,9 +42,32 @@ type PatientFile = {
 type JourneyStatus = {
   step?: string
   encounterStatus?: string | null
+  queueToken?: string | null
 }
 
-type FileTab = 'overview' | 'demographics' | 'visits' | 'history' | 'documents'
+type FileTab =
+  | 'overview'
+  | 'demographics'
+  | 'visits'
+  | 'diagnoses'
+  | 'treatments'
+  | 'medications'
+  | 'laboratory'
+  | 'radiology'
+  | 'admissions'
+  | 'payments'
+  | 'history'
+  | 'documents'
+
+type ChartItem = {
+  id: string
+  kind: string
+  title: string
+  status?: string | null
+  occurredAt: string
+  summary?: string | null
+  queueToken?: string | null
+}
 
 type EncounterRow = {
   id: string
@@ -53,6 +76,7 @@ type EncounterRow = {
   startedAt: string
   visitType?: string
   departmentName?: string | null
+  queueToken?: string | null
 }
 
 export function PatientFileModal({
@@ -105,7 +129,24 @@ export function PatientFileModal({
   const { data: payments = [] } = useQuery({
     queryKey: ['patient-payments', patientId],
     queryFn: () => listPatientPayments(patientId),
-    enabled: tab === 'overview',
+    enabled: tab === 'overview' || tab === 'payments',
+  })
+  const chartSection =
+    tab === 'diagnoses' ||
+    tab === 'treatments' ||
+    tab === 'medications' ||
+    tab === 'laboratory' ||
+    tab === 'radiology' ||
+    tab === 'admissions' ||
+    tab === 'payments'
+      ? tab
+      : null
+  const { data: chart } = useQuery({
+    queryKey: ['patient-chart', patientId, chartSection],
+    queryFn: () =>
+      apiRequest<{ items: ChartItem[] }>(`/patients/${patientId}/chart?section=${chartSection}`),
+    enabled: Boolean(chartSection),
+    retry: false,
   })
   const { data: documents = [], isError: documentsError } = useQuery({
     queryKey: ['patient-documents', patientId],
@@ -147,7 +188,10 @@ export function PatientFileModal({
       >
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 bg-slate-900 px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-teal-400">Patient file</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-teal-400">
+              Patient file
+              {journey?.queueToken ? ` · Queue ${journey.queueToken}` : ''}
+            </p>
             <h2 id="patient-file-title" className="truncate text-xl font-bold text-white">
               {patient ? formatPatientName(patient) : 'Loading…'}
             </h2>
@@ -227,7 +271,14 @@ export function PatientFileModal({
                 ['overview', 'Overview'],
                 ['demographics', 'Demographics'],
                 ['visits', 'Visits'],
-                ['history', 'History'],
+                ['diagnoses', 'Diagnoses'],
+                ['treatments', 'Treatments'],
+                ['medications', 'Medications'],
+                ['laboratory', 'Laboratory'],
+                ['radiology', 'Radiology'],
+                ['admissions', 'Admissions'],
+                ['payments', 'Payments'],
+                ['history', 'Timeline'],
                 ['documents', 'Documents'],
               ] as const
             ).map(([id, label]) => (
@@ -386,6 +437,7 @@ export function PatientFileModal({
                             <p className="text-xs text-slate-500">
                               {row.departmentName || 'OPD'} · {row.visitType || 'visit'} ·{' '}
                               {new Date(row.startedAt).toLocaleString()}
+                              {row.queueToken ? ` · Queue ${row.queueToken}` : ''}
                             </p>
                           </div>
                           <p className="text-sm font-medium capitalize text-slate-700">
@@ -396,6 +448,32 @@ export function PatientFileModal({
                     </div>
                   ) : (
                     <Alert tone="info">No OPD encounters on file yet.</Alert>
+                  )}
+                </Card>
+              ) : null}
+
+              {chartSection ? (
+                <Card className="p-5">
+                  <PageHeader
+                    title={chartSection[0].toUpperCase() + chartSection.slice(1)}
+                    description="Existing records only. Opening this tab does not create anything."
+                  />
+                  {chart?.items?.length ? (
+                    <div className="mt-3 divide-y divide-slate-100">
+                      {chart.items.map((row) => (
+                        <div key={`${row.kind}-${row.id}`} className="py-3">
+                          <p className="font-semibold">{row.title}</p>
+                          <p className="text-xs text-slate-500">
+                            {row.status ? `${row.status.replace(/_/g, ' ')} · ` : ''}
+                            {new Date(row.occurredAt).toLocaleString()}
+                            {row.queueToken ? ` · ${row.queueToken}` : ''}
+                          </p>
+                          {row.summary ? <p className="mt-1 text-sm text-slate-700">{row.summary}</p> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Alert tone="info">No {chartSection} records on this file yet.</Alert>
                   )}
                 </Card>
               ) : null}

@@ -1,10 +1,10 @@
 import { apiRequest } from './api'
 import { useAuthStore, type UserProfile } from './auth-store'
-
-const REFRESH_INTERVAL_MS = 12 * 60 * 1000
+import { getCachedSessionPolicy } from './session-policy'
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let backgroundRevalidatePromise: Promise<void> | null = null
+let ending = false
 
 export async function fetchCurrentUser(): Promise<UserProfile> {
   return apiRequest<UserProfile>('/auth/me')
@@ -12,20 +12,20 @@ export async function fetchCurrentUser(): Promise<UserProfile> {
 
 export async function refreshSession(): Promise<boolean> {
   const { refreshToken, setSession, clearSession } = useAuthStore.getState()
-  if (!refreshToken) {
-    clearSession()
-    return false
-  }
 
   try {
     const result = await apiRequest<{
       accessToken: string
       refreshToken?: string
       user?: UserProfile
-    }>('/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({ refreshToken }),
-    }, false)
+    }>(
+      '/auth/refresh',
+      {
+        method: 'POST',
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+      },
+      false,
+    )
 
     setSession({
       accessToken: result.accessToken,
@@ -36,6 +36,30 @@ export async function refreshSession(): Promise<boolean> {
   } catch {
     clearSession()
     return false
+  }
+}
+
+export async function endSession(reason: 'user' | 'inactivity' = 'user'): Promise<void> {
+  if (ending) return
+  ending = true
+  const { refreshToken, clearSession } = useAuthStore.getState()
+  try {
+    await apiRequest(
+      '/auth/logout',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          refreshToken: refreshToken ?? undefined,
+          reason,
+        }),
+      },
+      false,
+    )
+  } catch {
+    // Cookie/session may already be gone.
+  } finally {
+    clearSession()
+    ending = false
   }
 }
 
@@ -61,7 +85,7 @@ async function revalidateSessionInBackground() {
 
 export async function bootstrapAuthSession(): Promise<void> {
   const store = useAuthStore.getState()
-  if (!store.accessToken && !store.refreshToken) {
+  if (!store.accessToken && !store.refreshToken && !store.user) {
     store.setHydrated(true)
     return
   }
@@ -73,7 +97,7 @@ export async function bootstrapAuthSession(): Promise<void> {
   }
 
   try {
-    if (!store.accessToken && store.refreshToken) {
+    if (!store.accessToken) {
       const refreshed = await refreshSession()
       if (!refreshed) {
         store.clearSession()
@@ -105,9 +129,13 @@ export async function bootstrapAuthSession(): Promise<void> {
 
 export function startSessionRefreshLoop() {
   stopSessionRefreshLoop()
+  const interval = Math.max(
+    30_000,
+    (getCachedSessionPolicy().accessTokenTtlSeconds - 180) * 1000,
+  )
   refreshTimer = setInterval(() => {
     void refreshSession()
-  }, REFRESH_INTERVAL_MS)
+  }, interval)
 }
 
 export function stopSessionRefreshLoop() {

@@ -94,6 +94,7 @@ export function useHospitalSync() {
         instance.on('admission.created', handleSync)
         instance.on('admission.updated', handleSync)
         instance.on('admission.discharged', handleSync)
+        instance.on('encounter.updated', handleSync)
         instance.on('bed.updated', handleSync)
         instance.on('settings.updated', handleSync)
         instance.on('lab.updated', handleSync)

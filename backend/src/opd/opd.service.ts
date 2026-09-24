@@ -8,7 +8,9 @@ import { defaultTenantCode } from '../common/tenant-defaults';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { Patient } from '../patients/patient.entities';
+import { Appointment } from '../appointments/appointment.entities';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
+import { VisitQueueService } from '../queue/visit-queue.service';
 import {
   ClinicalNote,
   Consultation,
@@ -60,6 +62,18 @@ function startOfNairobiDay(now = new Date()): Date {
   return new Date(`${year}-${month}-${day}T00:00:00+03:00`);
 }
 
+function asIsoDate(value?: string | Date | null): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const date = value.trim().slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+  }
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 @Injectable()
 export class OpdService {
   constructor(
@@ -81,6 +95,8 @@ export class OpdService {
     private readonly attachments: Repository<EncounterAttachment>,
     @InjectRepository(SickSheet)
     private readonly sickSheets: Repository<SickSheet>,
+    @InjectRepository(Appointment)
+    private readonly appointments: Repository<Appointment>,
     @InjectRepository(Role)
     private readonly roles: Repository<Role>,
     @InjectRepository(UserRole)
@@ -88,6 +104,7 @@ export class OpdService {
     private readonly workflow: EncounterWorkflowService,
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
+    private readonly visitQueue: VisitQueueService,
   ) {}
 
   async createEncounter(dto: CreateEncounterDto, request: RequestContext) {
@@ -139,10 +156,17 @@ export class OpdService {
       updatedBy: request.user?.sub ?? null,
     });
     const saved = await this.encounters.save(encounter);
-    return this.encounters.findOneOrFail({
+    const loaded = await this.encounters.findOneOrFail({
       where: { id: saved.id },
       relations: { patient: true, attendingDoctor: true },
     });
+    const queueItem = await this.visitQueue.issue({
+      patientId: patient.id,
+      encounterId: loaded.id,
+      queueType: 'OPD',
+      request,
+    });
+    return { ...loaded, queueToken: queueItem.token, queueItem };
   }
 
   async listEncounters(params: {
@@ -159,12 +183,13 @@ export class OpdService {
     if (params.patientId) where.patient = { id: params.patientId };
     if (params.status) where.status = params.status;
     if (params.doctorId) where.attendingDoctor = { id: params.doctorId };
-    return this.encounters.find({
+    const rows = await this.encounters.find({
       where,
       relations: { patient: true, attendingDoctor: true },
       order: { startedAt: 'DESC' },
       take: 100,
     });
+    return this.withQueueTokens(rows);
   }
 
   async getEncounter(id: string) {
@@ -353,7 +378,7 @@ export class OpdService {
       order: { startedAt: 'ASC' },
     });
     await this.notifyFrontOfficeOnLongQueueWait(queue, 'triage');
-    return queue;
+    return this.withQueueTokens(queue);
   }
 
   async triageBoard() {
@@ -417,10 +442,12 @@ export class OpdService {
         })
       ).map((triage) => [triage.encounter?.id, triage]),
     );
+    const tokens = await this.visitQueue.mapForEncounters(encounters.map((row) => row.id));
     return encounters
       .map((encounter) => ({
         ...encounter,
         triage: triageByEncounter.get(encounter.id) ?? null,
+        queueToken: tokens.get(encounter.id)?.token ?? null,
         assignedToMe: doctorId
           ? !encounter.attendingDoctor || encounter.attendingDoctor.id === doctorId
           : true,
@@ -488,7 +515,7 @@ export class OpdService {
   async completeConsultation(consultationId: string, request: RequestContext) {
     const consultation = await this.consultations.findOne({
       where: { id: consultationId },
-      relations: { encounter: true },
+      relations: { encounter: { patient: true, attendingDoctor: true }, doctor: true },
     });
     if (!consultation) {
       throw new NotFoundException('Consultation not found');
@@ -498,8 +525,50 @@ export class OpdService {
       completedAt: new Date(),
       updatedBy: request.user?.sub ?? null,
     });
+    await this.scheduleFollowUpAppointment(consultation, request);
     await this.workflow.requireTransition(consultation.encounter.id, 'completed', request);
     return this.getEncounter(consultation.encounter.id);
+  }
+
+  private async scheduleFollowUpAppointment(
+    consultation: Consultation,
+    request: RequestContext,
+  ) {
+    const followUpDate = asIsoDate(consultation.followUpDate);
+    if (!followUpDate) return;
+    const doctorId =
+      consultation.doctor?.id ?? consultation.encounter.attendingDoctor?.id ?? request.user?.sub;
+    if (!doctorId) {
+      throw new BadRequestException(
+        'A follow-up date is set, but no doctor is assigned to schedule the appointment.',
+      );
+    }
+    const existing = await this.appointments.findOne({
+      where: {
+        sourceEncounter: { id: consultation.encounter.id },
+        type: 'follow_up',
+        appointmentDate: followUpDate,
+        status: Not(In(['cancelled', 'no_show'])),
+      },
+    });
+    if (existing) return;
+    await this.appointments.save(
+      this.appointments.create({
+        patient: consultation.encounter.patient,
+        doctorId,
+        doctor: { id: doctorId } as never,
+        slot: null,
+        appointmentDate: followUpDate,
+        appointmentTime: '09:00',
+        type: 'follow_up',
+        reason: consultation.followUpInstructions?.trim() || 'Follow-up from consultation',
+        status: 'scheduled',
+        sourceEncounter: consultation.encounter,
+        linkedEncounter: null,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
   }
 
   async addDiagnosis(
@@ -651,6 +720,14 @@ export class OpdService {
       doctor: row.doctor
         ? { id: row.doctor.id, firstName: row.doctor.firstName, lastName: row.doctor.lastName }
         : null,
+    }));
+  }
+
+  private async withQueueTokens<T extends { id: string }>(rows: T[]) {
+    const tokens = await this.visitQueue.mapForEncounters(rows.map((row) => row.id));
+    return rows.map((row) => ({
+      ...row,
+      queueToken: tokens.get(row.id)?.token ?? null,
     }));
   }
 

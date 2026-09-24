@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { Encounter } from '../opd/opd.entities';
 import { LabRequest } from '../laboratory/laboratory.entities';
 import { Patient } from '../patients/patient.entities';
+import { Charge } from './charge.entities';
 import { PaymentTransaction, QuickbooksSyncQueueItem } from './payment.entities';
 import { MpesaService } from './mpesa.service';
 import { PaymentsController } from './payments.controller';
@@ -14,9 +16,11 @@ import { QuickbooksWebConnectorService } from './quickbooks-webconnector.service
     TypeOrmModule.forFeature([
       PaymentTransaction,
       QuickbooksSyncQueueItem,
+      Charge,
       Patient,
       LabRequest,
       Encounter,
+      ClinicalOrder,
     ]),
   ],
   controllers: [PaymentsController],

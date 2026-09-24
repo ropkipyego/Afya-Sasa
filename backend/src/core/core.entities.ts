@@ -299,7 +299,13 @@ export class LoginEvent {
   email!: string;
 
   @Column({ name: 'event_type', type: 'varchar' })
-  eventType!: 'login' | 'logout' | 'login_failed' | 'password_reset_requested' | 'password_reset_completed';
+  eventType!:
+    | 'login'
+    | 'logout'
+    | 'inactivity_logout'
+    | 'login_failed'
+    | 'password_reset_requested'
+    | 'password_reset_completed';
 
   @Column({ type: 'boolean', default: false })
   success!: boolean;

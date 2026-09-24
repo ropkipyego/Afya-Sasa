@@ -14,6 +14,7 @@ import { PaymentCheckoutPanel } from './PaymentCheckoutPanel'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { clinicConsultationFee, formatKes } from '../../lib/clinical-catalog'
 import {
+  listOutstandingPharmacy,
   listPatientPayments,
   PAYMENT_SERVICE_LINES,
   type PaymentServiceLine,
@@ -35,6 +36,7 @@ export function PaymentDesk() {
   const [stockItemId, setStockItemId] = useState('')
   const [stockQty, setStockQty] = useState('1')
   const [catalogService, setCatalogService] = useState('')
+  const [pharmacyOrderId, setPharmacyOrderId] = useState('')
 
   const { data: stockItems = [] } = useQuery({
     queryKey: ['inventory-items', 'cashier'],
@@ -73,6 +75,12 @@ export function PaymentDesk() {
   const { data: recentPayments = [], refetch } = useQuery({
     queryKey: ['patient-payments', patient?.id],
     queryFn: () => listPatientPayments(patient!.id),
+    enabled: Boolean(patient?.id),
+  })
+
+  const { data: outstandingPharmacy = [], refetch: refetchOutstanding } = useQuery({
+    queryKey: ['pharmacy-outstanding', patient?.id],
+    queryFn: () => listOutstandingPharmacy(patient!.id),
     enabled: Boolean(patient?.id),
   })
 
@@ -169,6 +177,7 @@ export function PaymentDesk() {
                     if (e.target.value !== 'pharmacy') {
                       setStockItemId('')
                       setStockQty('1')
+                      setPharmacyOrderId('')
                     }
                     setCatalogService('')
                   }}
@@ -254,6 +263,35 @@ export function PaymentDesk() {
                   ))}
                 </SelectField>
               ) : null}
+              {serviceLine === 'pharmacy' &&
+              outstandingPharmacy.filter((row) => row.serviceLine === 'pharmacy').length ? (
+                <SelectField
+                  name="pharmacyOrderId"
+                  label="Unpaid dispensed prescription"
+                  value={pharmacyOrderId}
+                  onChange={(e) => {
+                    const selected = outstandingPharmacy
+                      .filter((row) => row.serviceLine === 'pharmacy')
+                      .find((row) => row.serviceEntityId === e.target.value)
+                    setPharmacyOrderId(e.target.value)
+                    if (selected) {
+                      setServiceDescription(selected.description)
+                      if (selected.remaining != null) setAmount(String(selected.remaining))
+                    }
+                  }}
+                  hint="Dispense already happened. Pay this prescription (full or partial) so cashier and pharmacy stay on the same bill."
+                >
+                  <option value="">Select dispensed order…</option>
+                  {outstandingPharmacy
+                    .filter((row) => row.serviceLine === 'pharmacy')
+                    .map((row) => (
+                    <option key={row.serviceEntityId} value={row.serviceEntityId}>
+                      {row.orderNo} — {row.description}
+                      {row.remaining != null ? ` · balance ${formatKes(row.remaining)}` : ''}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : null}
               {serviceLine === 'pharmacy' ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   <SelectField
@@ -313,6 +351,18 @@ export function PaymentDesk() {
                 patientId={patient.id}
                 patientPhone={patient.primaryPhone}
                 serviceLine={serviceLine}
+                serviceEntityId={
+                  serviceLine === 'pharmacy' ? pharmacyOrderId || undefined : catalogService || undefined
+                }
+                chargeId={
+                  serviceLine === 'pharmacy'
+                    ? outstandingPharmacy.find((row) => row.serviceEntityId === pharmacyOrderId)?.chargeId
+                    : undefined
+                }
+                encounterId={
+                  outstandingPharmacy.find((row) => row.serviceEntityId === pharmacyOrderId)?.encounterId ??
+                  undefined
+                }
                 serviceDescription={
                   serviceDescription ||
                   (PAYMENT_SERVICE_LINES.find((l) => l.value === serviceLine)?.label ?? 'Hospital service')
@@ -325,9 +375,11 @@ export function PaymentDesk() {
                 }}
                 onSuccess={async () => {
                   await refetch()
+                  await refetchOutstanding()
                   setAmount('')
                   setServiceDescription('')
                   setClinicName('')
+                  setPharmacyOrderId('')
                 }}
               />
             </>

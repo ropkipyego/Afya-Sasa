@@ -19,6 +19,7 @@ export function PatientContextHeader({
   showWorkflow = true,
   pregnancyAlert = false,
   criticalLabAlert = false,
+  queueToken,
   className,
 }: {
   patient: PatientLike & { id?: string }
@@ -27,6 +28,7 @@ export function PatientContextHeader({
   showWorkflow?: boolean
   pregnancyAlert?: boolean
   criticalLabAlert?: boolean
+  queueToken?: string | null
   className?: string
 }) {
   const allergies = patient.allergies ?? []
@@ -48,6 +50,7 @@ export function PatientContextHeader({
             title={patient.patientNo}
           >
             {formatPatientNoShort(patient.patientNo)}
+            {queueToken ? ` · ${queueToken}` : ''}
           </p>
           <h2 className="text-lg font-bold text-slate-900">{formatPatientName(patient)}</h2>
           <p className="mt-0.5 text-sm text-slate-500">

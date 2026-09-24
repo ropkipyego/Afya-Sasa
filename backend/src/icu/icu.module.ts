@@ -25,5 +25,6 @@ import { IcuService } from './icu.service';
   ],
   controllers: [IcuController],
   providers: [IcuService],
+  exports: [IcuService],
 })
 export class IcuModule {}

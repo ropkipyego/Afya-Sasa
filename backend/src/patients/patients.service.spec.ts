@@ -254,3 +254,26 @@ describe('PatientsService identifier and update safety', () => {
     expect(item.allergies).toBeUndefined();
   });
 });
+
+describe('PatientsService.history', () => {
+  it('returns stored clinical records instead of a placeholder', async () => {
+    const service = serviceStub();
+    Object.assign(service, {
+      timeline: jest.fn().mockResolvedValue({
+        patient: { id: 'p1', patientNo: 'JAL-P-2026-0001' },
+        events: [{ id: 'e1', type: 'visit', title: 'Encounter' }],
+      }),
+      encounters: { find: jest.fn().mockResolvedValue([{ id: 'enc-1' }]) },
+      admissions: { find: jest.fn().mockResolvedValue([]) },
+      diagnoses: { find: jest.fn().mockResolvedValue([{ id: 'dx-1', description: 'Malaria' }]) },
+      labResults: { find: jest.fn().mockResolvedValue([]) },
+      radiologyReports: { find: jest.fn().mockResolvedValue([]) },
+    });
+
+    const result = await service.history('p1');
+    expect(result.message).toBeUndefined();
+    expect(result.encounters).toHaveLength(1);
+    expect(result.diagnoses[0].description).toBe('Malaria');
+    expect(result.events[0].type).toBe('visit');
+  });
+});

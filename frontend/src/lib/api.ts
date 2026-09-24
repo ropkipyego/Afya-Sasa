@@ -84,6 +84,7 @@ export async function apiRequest<T>(
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
+    credentials: 'include',
   })
 
   if (response.status === 401 && allowRefresh && !path.includes('/auth/refresh')) {

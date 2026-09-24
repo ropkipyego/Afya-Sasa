@@ -62,6 +62,9 @@ export class PaymentTransaction extends SoftDeleteClinicalEntity {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
+
+  @Column({ type: 'uuid', name: 'charge_id', nullable: true })
+  chargeId!: string | null;
 }
 
 @Entity({ name: 'quickbooks_sync_queue', schema: 'demo' })

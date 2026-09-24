@@ -41,7 +41,7 @@ const CARDS: ImportCard[] = [
   {
     id: 'inventory',
     title: 'Pharmacy & store',
-    description: 'SKUs, cost, markup, sell, opening stock. Cashier Pharmacy and prescribe lists use this.',
+    description: 'SKUs, cost, markup, sell. Opening quantity is held until a confirmed stock-take — this upload does not change live stock.',
     template: '/templates/inventory-stock-import-template.csv',
     endpoint: '/inventory/items/import',
     countQuery: {

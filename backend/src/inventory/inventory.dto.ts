@@ -97,6 +97,46 @@ export class DispensePharmacyDto {
   quantity?: number;
 }
 
+export class DispensePrescriptionLineDto {
+  @ApiProperty()
+  @IsString()
+  clinicalOrderId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  itemId?: string;
+
+  @ApiPropertyOptional()
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0.0001)
+  quantity?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  rejected?: boolean;
+}
+
+export class DispensePrescriptionDto {
+  @ApiProperty({ description: 'Required confirmation for the atomic dispense commit.' })
+  @IsBoolean()
+  confirm!: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  prescriptionGroupId?: string;
+
+  @ApiProperty({ type: [DispensePrescriptionLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DispensePrescriptionLineDto)
+  lines!: DispensePrescriptionLineDto[];
+}
+
 export class DispenseOtcDto {
   @ApiProperty()
   @IsString()
@@ -160,6 +200,18 @@ export class ImportInventoryCsvDto {
   @IsOptional()
   @IsString()
   locationId?: string;
+
+  @ApiPropertyOptional({
+    description: 'When true, opening quantities are received after product rows. Default is products and prices only.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  confirmStockTake?: boolean;
+
+  @ApiPropertyOptional({ description: 'Validate and classify rows without writing.' })
+  @IsOptional()
+  @IsBoolean()
+  previewOnly?: boolean;
 }
 
 export class UpdateItemPricingDto {

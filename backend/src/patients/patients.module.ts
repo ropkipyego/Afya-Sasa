@@ -7,11 +7,13 @@ import { IcuAdmission } from '../icu/icu.entities';
 import { Admission } from '../inpatient/inpatient.entities';
 import { LabRequest, LabResult } from '../laboratory/laboratory.entities';
 import { Pregnancy } from '../maternity/maternity.entities';
-import { Consultation, Encounter, TriageAssessment } from '../opd/opd.entities';
+import { Consultation, Encounter, EncounterDiagnosis, TriageAssessment } from '../opd/opd.entities';
 import { RadiologyReport, RadiologyRequest } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
+import { Charge } from '../payments/charge.entities';
 import { PaymentTransaction } from '../payments/payment.entities';
+import { VisitQueueItem } from '../queue/visit-queue.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import {
   Patient,
@@ -37,6 +39,7 @@ import { PatientsService } from './patients.service';
       LabResult,
       LabRequest,
       Consultation,
+      EncounterDiagnosis,
       TriageAssessment,
       RadiologyReport,
       RadiologyRequest,
@@ -48,6 +51,8 @@ import { PatientsService } from './patients.service';
       Referral,
       ClinicalOrder,
       PaymentTransaction,
+      Charge,
+      VisitQueueItem,
     ]),
     NotificationsModule,
     TenancyModule,

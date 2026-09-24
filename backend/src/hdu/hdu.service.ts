@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
@@ -26,6 +26,15 @@ export class HduService {
   async admit(dto: CreateHduAdmissionDto, request: RequestContext) {
     const admission = await this.admissions.findOne({ where: { id: dto.admissionId } });
     if (!admission) throw new NotFoundException('Admission not found');
+    if (admission.status !== 'active') {
+      throw new BadRequestException('HDU admission requires an active IPD admission.');
+    }
+    const duplicate = await this.hduAdmissions.findOne({
+      where: { admission: { id: admission.id }, status: 'active' },
+    });
+    if (duplicate) {
+      return duplicate;
+    }
     const bed = dto.hduBedId ? await this.beds.findOne({ where: { id: dto.hduBedId } }) : null;
     return this.hduAdmissions.save(
       this.hduAdmissions.create({

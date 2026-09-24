@@ -59,7 +59,7 @@ export function MarGrid({
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 px-8 py-16 text-center">
         <p className="text-lg font-semibold text-slate-700">No medications on chart</p>
-        <p className="mt-2 text-sm text-slate-500">Use Medication Order in clinical actions above.</p>
+        <p className="mt-2 text-sm text-slate-500">Use Chart on MAR in clinical actions above. Pharmacy prescriptions are separate.</p>
       </div>
     )
   }

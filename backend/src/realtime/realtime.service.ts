@@ -6,6 +6,7 @@ export type RealtimeEvent =
   | 'admission.created'
   | 'admission.updated'
   | 'admission.discharged'
+  | 'encounter.updated'
   | 'bed.updated'
   | 'settings.updated'
   | 'lab.updated'

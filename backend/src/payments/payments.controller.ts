@@ -42,6 +42,22 @@ export class PaymentsController {
     return this.payments.listTransactions(limit ? Number(limit) : 50, patientId);
   }
 
+  @Get('payments/outstanding')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:read', 'payments:initiate')
+  listOutstanding(@Query('patientId') patientId?: string) {
+    if (!patientId) return [];
+    return this.payments.listOutstandingPharmacy(patientId);
+  }
+
+  @Get('payments/charges')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:read', 'payments:initiate', 'patients:history')
+  listCharges(@Query('patientId') patientId?: string) {
+    if (!patientId) return [];
+    return this.payments.listCharges(patientId);
+  }
+
   @Get('integrations/quickbooks/queue')
   @ApiBearerAuth()
   @RequirePermissions('payments:manage')

@@ -3,7 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Role, User, UserRole } from '../core/core.entities';
 import { Patient } from '../patients/patient.entities';
+import { Appointment } from '../appointments/appointment.entities';
 import { WorkflowModule } from '../workflow/workflow.module';
+import { VisitQueueModule } from '../queue/visit-queue.module';
 import {
   ClinicalNote,
   Consultation,
@@ -20,6 +22,7 @@ import { OpdService } from './opd.service';
   imports: [
     TypeOrmModule.forFeature([
       Patient,
+      Appointment,
       User,
       Role,
       UserRole,
@@ -33,6 +36,7 @@ import { OpdService } from './opd.service';
     ]),
     WorkflowModule,
     NotificationsModule,
+    VisitQueueModule,
   ],
   controllers: [OpdController],
   providers: [OpdService],

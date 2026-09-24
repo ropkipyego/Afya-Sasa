@@ -27,7 +27,18 @@ import {
   UpdateEmergencyWorkflowDto,
 } from './emergency.dto';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
+import { VisitQueueService } from '../queue/visit-queue.service';
 import { InpatientService } from '../inpatient/inpatient.service';
+import { IcuService } from '../icu/icu.service';
+import { HduService } from '../hdu/hdu.service';
+
+const CONTINUING_CARE_OUTCOMES: DispositionDto['outcome'][] = [
+  'admitted_ipd',
+  'transferred_icu',
+  'transferred_hdu',
+  'transferred_theatre',
+  'transferred_maternity',
+];
 
 const TRIAGE_ORDER: Record<EmergencyTriageCategory, number> = {
   red: 0,
@@ -54,11 +65,23 @@ export class EmergencyService {
     private readonly realtime: RealtimeService,
     private readonly encounterWorkflow: EncounterWorkflowService,
     private readonly inpatientService: InpatientService,
+    private readonly icuService: IcuService,
+    private readonly hduService: HduService,
+    private readonly visitQueue: VisitQueueService,
   ) {}
 
   async register(dto: CreateEmergencyEncounterDto, request: RequestContext) {
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
+    const activeEmergency = await this.emergencies.findOne({
+      where: { status: 'active', encounter: { patient: { id: patient.id } } },
+      relations: { encounter: true },
+    });
+    if (activeEmergency) {
+      throw new BadRequestException(
+        'This patient already has an active emergency episode. Open that episode instead of registering again.',
+      );
+    }
     const encounter = await this.encounters.save(
       this.encounters.create({
         encounterNo: await this.generateEmergencyNo(),
@@ -74,7 +97,7 @@ export class EmergencyService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-    return this.emergencies.save(
+    const episode = await this.emergencies.save(
       this.emergencies.create({
         encounter,
         arrivalMode: dto.arrivalMode,
@@ -97,6 +120,13 @@ export class EmergencyService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
+    const queueItem = await this.visitQueue.issue({
+      patientId: patient.id,
+      encounterId: encounter.id,
+      queueType: 'ED',
+      request,
+    });
+    return { ...episode, queueToken: queueItem.token, queueItem };
   }
 
   async dashboardMetrics() {
@@ -150,12 +180,19 @@ export class EmergencyService {
       },
       order: { arrivalTime: 'ASC' },
     });
-    return items.sort((a, b) => {
+    const sorted = items.sort((a, b) => {
       const ta = a.triageCategory ? TRIAGE_ORDER[a.triageCategory] : 99;
       const tb = b.triageCategory ? TRIAGE_ORDER[b.triageCategory] : 99;
       if (ta !== tb) return ta - tb;
       return a.arrivalTime.getTime() - b.arrivalTime.getTime();
     });
+    const tokens = await this.visitQueue.mapForEncounters(
+      sorted.map((row) => row.encounter?.id).filter((id): id is string => Boolean(id)),
+    );
+    return sorted.map((row) => ({
+      ...row,
+      queueToken: row.encounter?.id ? tokens.get(row.encounter.id)?.token ?? null : null,
+    }));
   }
 
   listBays() {
@@ -319,51 +356,8 @@ export class EmergencyService {
     const encounterId = emergency.encounter.id;
     const patientId = emergency.encounter.patient.id;
 
-    if (dto.outcome === 'admitted_ipd') {
-      const existing =
-        (await this.inpatientService.findActiveAdmissionForEncounter(encounterId)) ??
-        (await this.inpatientService.findActiveAdmissionForPatient(patientId));
-      if (existing && existing.encounter?.id && existing.encounter.id !== encounterId) {
-        throw new BadRequestException(
-          'This patient already has an active IPD admission on another encounter.',
-        );
-      }
-      if (!existing) {
-        if (!dto.bedId) {
-          throw new BadRequestException(
-            'Select an available ward bed before admitting this emergency patient to IPD.',
-          );
-        }
-        const encounter = await this.encounters.findOne({ where: { id: encounterId } });
-        if (encounter?.status === 'registered') {
-          await this.encounterWorkflow.requireTransition(encounterId, 'triaged', request);
-        }
-        await this.inpatientService.createAdmission(
-          {
-            patientId,
-            encounterId,
-            bedId: dto.bedId,
-            reason: dto.admissionReason?.trim() || dto.notes?.trim() || 'Admitted from emergency',
-            type: 'emergency',
-          },
-          request,
-        );
-      }
-      await this.emergencies.update(id, {
-        status: 'disposed',
-        workflowStage: 'disposed',
-        outcome: dto.outcome,
-        disposition: dto.outcome,
-        transferFacility: dto.transferFacility ?? null,
-        dispositionNotes: dto.notes ?? null,
-        updatedBy: request.user?.sub ?? null,
-      });
-      if (emergency.bay) {
-        await this.bays.update(emergency.bay.id, {
-          status: 'cleaning',
-          updatedBy: request.user?.sub ?? null,
-        });
-      }
+    if (CONTINUING_CARE_OUTCOMES.includes(dto.outcome)) {
+      await this.continueInpatientCare(emergency, dto, request);
       return this.emergencies.findOneOrFail({
         where: { id },
         relations: { encounter: true },
@@ -438,6 +432,84 @@ export class EmergencyService {
       updatedBy: request.user?.sub ?? null,
     });
     return this.alerts.findOneOrFail({ where: { id } });
+  }
+
+  private async continueInpatientCare(
+    emergency: EmergencyEncounter,
+    dto: DispositionDto,
+    request: RequestContext,
+  ) {
+    const encounterId = emergency.encounter.id;
+    const patientId = emergency.encounter.patient.id;
+    if (!dto.bedId) {
+      throw new BadRequestException(
+        'Select an available inpatient bed before transferring this emergency patient to continuing care.',
+      );
+    }
+    const existing =
+      (await this.inpatientService.findActiveAdmissionForEncounter(encounterId)) ??
+      (await this.inpatientService.findActiveAdmissionForPatient(patientId));
+    if (existing && existing.encounter?.id && existing.encounter.id !== encounterId) {
+      throw new BadRequestException(
+        'This patient already has an active IPD admission on another encounter.',
+      );
+    }
+    let admission = existing;
+    if (!admission) {
+      const encounter = await this.encounters.findOne({ where: { id: encounterId } });
+      if (encounter?.status === 'registered') {
+        await this.encounterWorkflow.requireTransition(encounterId, 'triaged', request);
+      }
+      const reasonPrefix =
+        dto.outcome === 'admitted_ipd'
+          ? 'Admitted from emergency'
+          : dto.outcome === 'transferred_icu'
+            ? 'Transferred from emergency to ICU'
+            : dto.outcome === 'transferred_hdu'
+              ? 'Transferred from emergency to HDU'
+              : dto.outcome === 'transferred_theatre'
+                ? 'Transferred from emergency to theatre'
+                : 'Transferred from emergency to maternity';
+      admission = await this.inpatientService.createAdmission(
+        {
+          patientId,
+          encounterId,
+          bedId: dto.bedId,
+          reason: dto.admissionReason?.trim() || dto.notes?.trim() || reasonPrefix,
+          type: 'emergency',
+        },
+        request,
+      );
+    }
+    const overlayReason =
+      dto.admissionReason?.trim() || dto.notes?.trim() || `Emergency disposition: ${dto.outcome}`;
+    if (dto.outcome === 'transferred_icu') {
+      await this.icuService.admit(
+        { admissionId: admission.id, icuBedId: dto.bedId, reason: overlayReason },
+        request,
+      );
+    }
+    if (dto.outcome === 'transferred_hdu') {
+      await this.hduService.admit(
+        { admissionId: admission.id, hduBedId: dto.bedId, reason: overlayReason },
+        request,
+      );
+    }
+    await this.emergencies.update(emergency.id, {
+      status: 'disposed',
+      workflowStage: 'disposed',
+      outcome: dto.outcome,
+      disposition: dto.outcome,
+      transferFacility: dto.transferFacility ?? null,
+      dispositionNotes: dto.notes ?? null,
+      updatedBy: request.user?.sub ?? null,
+    });
+    if (emergency.bay) {
+      await this.bays.update(emergency.bay.id, {
+        status: 'cleaning',
+        updatedBy: request.user?.sub ?? null,
+      });
+    }
   }
 
   private async getEmergency(id: string) {

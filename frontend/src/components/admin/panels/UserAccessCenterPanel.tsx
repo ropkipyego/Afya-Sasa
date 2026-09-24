@@ -16,6 +16,7 @@ import { formDataFromElement, submitFormMutation } from '../../../lib/form-utils
 import { apiRequest, getApiErrorStatus } from '../../../lib/api'
 import { notify } from '../../../lib/notify'
 import { useAuthStore } from '../../../lib/auth-store'
+import { endSession } from '../../../lib/auth-session'
 
 type RoleItem = { id: string; name: string; label: string }
 type AdminUserItem = {
@@ -138,7 +139,6 @@ function QuickAddForm({
 export function UserAccessCenterPanel() {
   const queryClient = useQueryClient()
   const currentUser = useAuthStore((state) => state.user)
-  const clearSession = useAuthStore((state) => state.clearSession)
   const canManageUsers = currentUser?.permissions.includes('users:manage')
   const canManageDepartments = currentUser?.permissions.includes('departments:manage')
   const currentIsSuperadmin = currentUser?.roles.includes('superadmin') ?? false
@@ -242,7 +242,7 @@ export function UserAccessCenterPanel() {
       await invalidate()
       if (variables.id === currentUser?.id && variables.payload.roleIds) {
         notify('Session ended', 'Your roles changed. Sign in again to continue.', 'warning')
-        clearSession()
+        void endSession('user')
       }
     },
     onError: (error: Error) => {

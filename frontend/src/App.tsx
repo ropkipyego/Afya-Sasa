@@ -58,6 +58,7 @@ import { useHospitalSync } from './hooks/useHospitalSync'
 import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
+import { endSession } from './lib/auth-session'
 import { useAuthSession } from './hooks/useAuthSession'
 import { LoginScreen } from './components/auth/LoginScreen'
 import { SINGLE_TENANT_MODE } from './lib/tenant-config'
@@ -125,7 +126,7 @@ function SessionLoadingScreen() {
 }
 
 function App() {
-  const { user, accessToken, tenant, setTenant, clearSession } = useAuthStore()
+  const { user, accessToken, tenant, setTenant, inactivityWarning } = useAuthStore()
   const { hydrated } = useAuthSession()
   const [activeScreen, setActiveScreen] = useState(() => {
     const saved = sessionStorage.getItem('afyasasa.activeScreen')?.trim()
@@ -337,7 +338,7 @@ function App() {
               </div>
               <button
                 className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-100"
-                onClick={clearSession}
+                onClick={() => void endSession('user')}
                 aria-label="Log out"
               >
                 <LogOut size={18} />
@@ -345,6 +346,12 @@ function App() {
             </div>
           </div>
         </header>
+
+        {inactivityWarning ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-950">
+            {inactivityWarning}
+          </div>
+        ) : null}
 
         <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24 md:p-6 md:pb-24">
           {activeScreen === 'Register Patient' ? (

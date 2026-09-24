@@ -60,6 +60,8 @@ export function OpdCheckInWorkspace({
   const [completed, setCompleted] = useState<{
     patient: CheckInPatient
     encounterId: string
+    queueToken?: string
+    encounterNo?: string
   } | null>(null)
   const [visitDraft, setVisitDraft] = useState({
     clinicName: '',
@@ -89,7 +91,7 @@ export function OpdCheckInWorkspace({
     mutationFn: async (formElement: HTMLFormElement) => {
       if (!selected) throw new Error('Select a patient first.')
       const form = formDataFromElement(formElement)
-      return apiRequest<{ id: string }>('/opd/encounters', {
+      return apiRequest<{ id: string; encounterNo?: string; queueToken?: string }>('/opd/encounters', {
         method: 'POST',
         body: JSON.stringify({
           patientId: selected.id,
@@ -106,9 +108,20 @@ export function OpdCheckInWorkspace({
     },
     onSuccess: (encounter) => {
       if (selected) {
-        setCompleted({ patient: selected, encounterId: encounter.id })
+        setCompleted({
+          patient: selected,
+          encounterId: encounter.id,
+          queueToken: encounter.queueToken,
+          encounterNo: encounter.encounterNo,
+        })
       }
-      notify('Check-in complete', 'Patient checked in and sent to triage queue.', 'success')
+      notify(
+        'Check-in complete',
+        encounter.queueToken
+          ? `Queue ${encounter.queueToken}. Patient sent to triage.`
+          : 'Patient checked in and sent to triage queue.',
+        'success',
+      )
       setSelected(null)
       setStep(0)
       setFormError(null)
@@ -145,8 +158,8 @@ export function OpdCheckInWorkspace({
 
         {completed ? (
           <Alert tone="success" className="mt-6" title="Check-in complete">
-            {completed.patient.firstName} {completed.patient.lastName} ({completed.patient.patientNo}) is
-            on the triage queue.
+            {completed.patient.firstName} {completed.patient.lastName} ({completed.patient.patientNo})
+            {completed.queueToken ? ` — queue ${completed.queueToken}` : ''} is on the triage queue.
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="button" onClick={() => onOpenTriage?.()}>
                 Open Triage
