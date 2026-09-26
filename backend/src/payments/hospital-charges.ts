@@ -68,6 +68,15 @@ export type ZeroPriceClass =
 
 export type PayerScheme = 'cash' | 'sha' | 'insurance' | 'corporate' | 'staff' | 'waiver';
 
+const PAYER_SCHEMES: readonly PayerScheme[] = ['cash', 'sha', 'insurance', 'corporate', 'staff', 'waiver'];
+
+export function asPayerScheme(value?: string | null): PayerScheme | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && PAYER_SCHEMES.includes(normalized as PayerScheme)
+    ? (normalized as PayerScheme)
+    : null;
+}
+
 export type HospitalChargeItem = {
   code: string;
   name: string;
@@ -703,8 +712,9 @@ export function resolveChargeUnitPrice(
   serviceDate: string,
   payerScheme?: string | null,
 ): number | null {
-  if (payerScheme && item.payerPrices?.[payerScheme] != null) {
-    const payerPrice = Number(item.payerPrices[payerScheme]);
+  const payer = asPayerScheme(payerScheme);
+  if (payer && item.payerPrices?.[payer] != null) {
+    const payerPrice = Number(item.payerPrices[payer]);
     if (Number.isFinite(payerPrice) && payerPrice > 0) return payerPrice;
   }
   const history = [...(item.priceHistory ?? [])]
