@@ -133,6 +133,7 @@ export function IpdModule({
       onConsultant={() => setView({ screen: 'consultant' })}
       onSetup={() => setView({ screen: 'setup' })}
       onAdmit={() => setView({ screen: 'admit' })}
+      onOpenPatient={(admissionId) => setView({ screen: 'workspace', admissionId })}
     />
     </div>
   )

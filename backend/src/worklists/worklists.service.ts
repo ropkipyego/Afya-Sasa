@@ -9,6 +9,7 @@ import { Encounter } from '../opd/opd.entities';
 import { Patient, PatientIdentifier } from '../patients/patient.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { EmergencyEncounter } from '../emergency/emergency.entities';
+import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 
 export type WorklistModule =
   | 'registration'
@@ -16,7 +17,8 @@ export type WorklistModule =
   | 'emergency'
   | 'ipd'
   | 'laboratory'
-  | 'radiology';
+  | 'radiology'
+  | 'pharmacy';
 
 @Injectable()
 export class WorklistsService {
@@ -31,6 +33,8 @@ export class WorklistsService {
     private readonly radiologyRequests: Repository<RadiologyRequest>,
     @InjectRepository(EmergencyEncounter)
     private readonly emergencyEncounters: Repository<EmergencyEncounter>,
+    @InjectRepository(ClinicalOrder)
+    private readonly clinicalOrders: Repository<ClinicalOrder>,
   ) {}
 
   async list(module: WorklistModule, listKey: string, query: PaginationQueryDto) {
@@ -49,6 +53,8 @@ export class WorklistsService {
         return this.laboratoryList(listKey, query, page, pageSize);
       case 'radiology':
         return this.radiologyList(listKey, query, page, pageSize);
+      case 'pharmacy':
+        return this.pharmacyList(listKey, query, page, pageSize);
       default:
         return paginatedResult([], 0, page, pageSize);
     }
@@ -69,6 +75,7 @@ export class WorklistsService {
       ipd: ['current-admissions', 'expected-discharges', 'critical'],
       laboratory: ['requested', 'collected', 'processing', 'completed', 'verified', 'critical'],
       radiology: ['requested', 'scheduled', 'in-progress', 'reported', 'reviewed'],
+      pharmacy: ['pending', 'partial', 'dispensed'],
     };
   }
 
@@ -357,6 +364,46 @@ export class WorklistsService {
     }
 
     qb.orderBy('request.created_at', 'DESC');
+    const [items, total] = await qb
+      .skip((page - 1) * pageSize)
+      .take(pageSize)
+      .getManyAndCount();
+
+    return paginatedResult(items, total, page, pageSize);
+  }
+
+  private async pharmacyList(
+    listKey: string,
+    query: PaginationQueryDto,
+    page: number,
+    pageSize: number,
+  ) {
+    const qb = this.clinicalOrders
+      .createQueryBuilder('rx')
+      .leftJoinAndSelect('rx.patient', 'patient')
+      .where('rx.deleted_at IS NULL')
+      .andWhere(`rx.order_type = 'pharmacy'`)
+      .andWhere(`(rx.metadata->>'kind' IS NULL OR rx.metadata->>'kind' <> 'prescription')`);
+
+    if (listKey === 'pending') {
+      qb.andWhere(`rx.status NOT IN ('dispensed', 'cancelled')`);
+    } else if (listKey === 'partial') {
+      qb.andWhere(`rx.status = 'partially_dispensed'`);
+    } else if (listKey === 'dispensed') {
+      qb.andWhere(`rx.status = 'dispensed'`);
+    } else {
+      return paginatedResult([], 0, page, pageSize);
+    }
+
+    if (query.q?.trim()) {
+      const term = `%${query.q.trim()}%`;
+      qb.andWhere(
+        `(patient.first_name ILIKE :term OR patient.last_name ILIKE :term OR patient.patient_no ILIKE :term OR rx.order_no ILIKE :term)`,
+        { term },
+      );
+    }
+
+    qb.orderBy('rx.ordered_at', 'DESC');
     const [items, total] = await qb
       .skip((page - 1) * pageSize)
       .take(pageSize)

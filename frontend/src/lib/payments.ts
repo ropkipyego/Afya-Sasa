@@ -105,3 +105,20 @@ export type OutstandingPharmacyBill = {
 export function listOutstandingPharmacy(patientId: string) {
   return apiRequest<OutstandingPharmacyBill[]>(`/payments/outstanding?patientId=${patientId}`)
 }
+
+export type PatientChargeRow = {
+  id: string
+  serviceLine: PaymentServiceLine
+  serviceDescription: string
+  amountOwed: string
+  amountPaid: string
+  amountWaived?: string
+  status: string
+  createdAt: string
+  encounter?: { id: string } | null
+  metadata?: { admissionId?: string | null; payerScheme?: string | null } | null
+}
+
+export function listPatientCharges(patientId: string) {
+  return apiRequest<PatientChargeRow[]>(`/payments/charges?patientId=${patientId}`)
+}

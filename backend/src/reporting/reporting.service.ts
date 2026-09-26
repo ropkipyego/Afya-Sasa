@@ -11,6 +11,9 @@ import { Patient } from '../patients/patient.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
+import { Charge } from '../payments/charge.entities';
+import { PaymentTransaction } from '../payments/payment.entities';
+import { compareAgainstBaseline } from './analytics-intelligence';
 
 export interface ReportResult<T> {
   generatedAt: string;
@@ -43,6 +46,9 @@ export class ReportingService {
     private readonly pregnancies: Repository<Pregnancy>,
     @InjectRepository(Referral)
     private readonly referrals: Repository<Referral>,
+    @InjectRepository(Charge) private readonly charges: Repository<Charge>,
+    @InjectRepository(PaymentTransaction)
+    private readonly paymentTransactions: Repository<PaymentTransaction>,
   ) {}
 
   async dashboard() {
@@ -93,6 +99,10 @@ export class ReportingService {
       maternityActive,
       theatreToday,
       todayAppointments,
+      dischargesToday,
+      chargesToday,
+      collectionsToday,
+      outstandingOpen,
     ] = await Promise.all([
       this.patients.count(),
       this.encounters.count({
@@ -114,6 +124,12 @@ export class ReportingService {
         where: { scheduledStartAt: MoreThanOrEqual(startOfDay) },
       }),
       this.appointments.count({ where: { appointmentDate: today } }),
+      this.admissions.count({
+        where: { status: 'discharged', dischargedAt: MoreThanOrEqual(startOfDay) },
+      }),
+      this.sumNumeric(this.charges, 'amountOwed', startOfDay),
+      this.sumNumeric(this.paymentTransactions, 'amount', startOfDay, { status: 'completed' }),
+      this.sumOutstandingCharges(),
     ]);
 
     const occupancyPct =
@@ -123,7 +139,7 @@ export class ReportingService {
       generatedAt: new Date().toISOString(),
       patientsToday: opdToday,
       admissions: activeAdmissions,
-      dischargesToday: null,
+      dischargesToday,
       occupancy: { occupied: occupiedBeds, total: totalBeds, percent: occupancyPct },
       pendingLabs,
       pendingRadiology,
@@ -133,8 +149,75 @@ export class ReportingService {
       theatreCases: theatreToday,
       todayAppointments,
       totalPatients,
+      chargesToday,
+      collectionsToday,
+      outstanding: outstandingOpen,
       revenuePlaceholder: null,
       activeUsers: null,
+    };
+  }
+
+  async intelligence(from: string, to: string) {
+    const analytics = await this.executiveAnalytics(from, to);
+    const period = `${analytics.range.from} to ${analytics.range.to}`;
+    const findings = [
+      compareAgainstBaseline(
+        'OPD visits',
+        analytics.summary.opdVisits,
+        analytics.comparison.opdVisits.previous,
+        period,
+        'demo.encounters',
+      ),
+      compareAgainstBaseline(
+        'Admissions',
+        analytics.summary.admissions,
+        analytics.comparison.admissions.previous,
+        period,
+        'demo.admissions',
+      ),
+      compareAgainstBaseline(
+        'Charges',
+        analytics.summary.charges ?? 0,
+        analytics.comparison.charges?.previous ?? 0,
+        period,
+        'demo.charges',
+      ),
+      compareAgainstBaseline(
+        'Collections',
+        analytics.summary.collections ?? 0,
+        analytics.comparison.collections?.previous ?? 0,
+        period,
+        'demo.payment_transactions',
+      ),
+      compareAgainstBaseline(
+        'Outstanding',
+        analytics.summary.outstanding ?? 0,
+        analytics.comparison.outstanding?.previous ?? 0,
+        period,
+        'demo.charges',
+      ),
+    ].filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+    const collections = analytics.summary.collections ?? 0;
+    const charges = analytics.summary.charges ?? 0;
+    if (charges > 0 && collections < charges * 0.5) {
+      findings.push({
+        title: 'Collections are below posted charges',
+        detail: `IPD/hospital collections are ${collections} compared with posted charges of ${charges} for ${period}.`,
+        metric: 'Collections vs charges',
+        current: collections,
+        baseline: charges,
+        period,
+        source: 'demo.charges + demo.payment_transactions',
+        severity: 'watch',
+      });
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      range: analytics.range,
+      readOnly: true,
+      findings,
     };
   }
 
@@ -230,9 +313,11 @@ export class ReportingService {
     const totalSurgeries = this.sumSeries(surgerySeries);
     const totalReferrals = this.sumSeries(referralSeries);
 
-    const [totalBeds, occupiedBeds] = await Promise.all([
+    const [totalBeds, occupiedBeds, finance, priorFinance] = await Promise.all([
       this.beds.count(),
       this.beds.count({ where: { status: 'occupied' } }),
+      this.financeAnalytics(start, end),
+      this.financeAnalytics(priorStart, priorEnd),
     ]);
 
     return {
@@ -258,6 +343,10 @@ export class ReportingService {
           totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0,
         occupiedBeds,
         totalBeds,
+        charges: finance.charges,
+        collections: finance.collections,
+        outstanding: finance.outstanding,
+        accommodationCharges: finance.accommodationCharges,
       },
       comparison: {
         opdVisits: this.compareDelta(totalOpd, priorOpd),
@@ -267,6 +356,9 @@ export class ReportingService {
         labRequests: this.compareDelta(totalLabs, priorLabs),
         radiologyRequests: this.compareDelta(totalRadiology, priorRadiology),
         emergencyCases: this.compareDelta(totalEmergency, priorEmergency),
+        charges: this.compareDelta(finance.charges, priorFinance.charges),
+        collections: this.compareDelta(finance.collections, priorFinance.collections),
+        outstanding: this.compareDelta(finance.outstanding, priorFinance.outstanding),
       },
       trends: {
         opdVisits: opdSeries,
@@ -279,6 +371,8 @@ export class ReportingService {
         appointments: appointmentSeries,
         surgeries: surgerySeries,
         referrals: referralSeries,
+        collections: finance.collectionSeries,
+        charges: finance.chargeSeries,
       },
       breakdowns: {
         opdByVisitType: this.countBy(opdEncounters, (item) => item.visitType ?? 'unknown'),
@@ -299,8 +393,115 @@ export class ReportingService {
           emergencies,
           (item) => item.disposition ?? 'pending',
         ),
+        chargesByServiceLine: finance.chargesByServiceLine,
+        collectionsByMethod: finance.collectionsByMethod,
+        outstandingAgeing: finance.outstandingAgeing,
       },
     };
+  }
+
+  private async financeAnalytics(start: Date, end: Date) {
+    const [chargeRows, paymentRows, openCharges] = await Promise.all([
+      this.charges.find({
+        where: { createdAt: Between(start, end) },
+        take: 2000,
+      }),
+      this.paymentTransactions.find({
+        where: { createdAt: Between(start, end), status: 'completed' },
+        take: 2000,
+      }),
+      this.charges.find({
+        where: { status: In(['owed', 'partially_paid']) },
+        take: 2000,
+      }),
+    ]);
+    const charges = chargeRows.reduce((sum, row) => sum + Number(row.amountOwed), 0);
+    const collections = paymentRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const outstanding = openCharges.reduce(
+      (sum, row) =>
+        sum + Math.max(0, Number(row.amountOwed) - Number(row.amountPaid) - Number(row.amountWaived)),
+      0,
+    );
+    const accommodationCharges = chargeRows
+      .filter((row) => row.serviceLine === 'inpatient' || row.metadata?.source === 'ACCOMMODATION')
+      .reduce((sum, row) => sum + Number(row.amountOwed), 0);
+    const now = Date.now();
+    const outstandingAgeing = { '0-30 days': 0, '31-60 days': 0, '61-90 days': 0, '90+ days': 0 };
+    for (const row of openCharges) {
+      const remaining = Math.max(
+        0,
+        Number(row.amountOwed) - Number(row.amountPaid) - Number(row.amountWaived),
+      );
+      if (remaining <= 0) continue;
+      const ageDays = Math.floor((now - new Date(row.createdAt).getTime()) / 86_400_000);
+      const bucket =
+        ageDays <= 30
+          ? '0-30 days'
+          : ageDays <= 60
+            ? '31-60 days'
+            : ageDays <= 90
+              ? '61-90 days'
+              : '90+ days';
+      outstandingAgeing[bucket] += remaining;
+    }
+    return {
+      charges,
+      collections,
+      outstanding,
+      accommodationCharges,
+      chargeSeries: this.rollupDaily(chargeRows, (row) => Number(row.amountOwed), start, end),
+      collectionSeries: this.rollupDaily(paymentRows, (row) => Number(row.amount ?? 0), start, end),
+      chargesByServiceLine: this.countBy(chargeRows, (row) => row.serviceLine),
+      collectionsByMethod: this.countBy(paymentRows, (row) => row.method),
+      outstandingAgeing,
+    };
+  }
+
+  private rollupDaily<T extends { createdAt: Date }>(
+    rows: T[],
+    amount: (row: T) => number,
+    start: Date,
+    end: Date,
+  ) {
+    const days: Record<string, number> = {};
+    for (let cursor = new Date(start); cursor <= end; cursor = new Date(cursor.getTime() + 86_400_000)) {
+      days[cursor.toISOString().slice(0, 10)] = 0;
+    }
+    for (const row of rows) {
+      const key = row.createdAt.toISOString().slice(0, 10);
+      if (key in days) days[key] += amount(row);
+    }
+    return Object.entries(days).map(([date, count]) => ({ date, count }));
+  }
+
+  private async sumNumeric(
+    repository: Repository<object>,
+    column: string,
+    since: Date,
+    filters: Record<string, string> = {},
+  ) {
+    const alias = 'row';
+    const qb = repository
+      .createQueryBuilder(alias)
+      .select(`COALESCE(SUM((${alias}.${column})::numeric), 0)`, 'total')
+      .where(`${alias}.createdAt >= :since`, { since });
+    for (const [key, value] of Object.entries(filters)) {
+      qb.andWhere(`${alias}.${key} = :${key}`, { [key]: value });
+    }
+    const raw = await qb.getRawOne<{ total: string }>();
+    return Number(raw?.total ?? 0);
+  }
+
+  private async sumOutstandingCharges() {
+    const raw = await this.charges
+      .createQueryBuilder('charge')
+      .select(
+        `COALESCE(SUM((charge.amountOwed)::numeric - (charge.amountPaid)::numeric - (charge.amountWaived)::numeric), 0)`,
+        'total',
+      )
+      .where('charge.status IN (:...statuses)', { statuses: ['owed', 'partially_paid'] })
+      .getRawOne<{ total: string }>();
+    return Math.max(0, Number(raw?.total ?? 0));
   }
 
   private async dailySeries(

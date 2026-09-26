@@ -168,7 +168,16 @@ function CatalogImportCard({ card, onDone }: { card: ImportCard; onDone: () => v
               event.target.value = ''
               if (!file) return
               try {
-                importFile.mutate(await readSpreadsheetAsCsv(file))
+                importFile.mutate(
+                  await readSpreadsheetAsCsv(
+                    file,
+                    card.id === 'inventory'
+                      ? ['Pharmacy_Import', 'Pharmacy_Review']
+                      : card.id === 'lab'
+                        ? ['Pathology_Import', 'Pathology_Review']
+                        : [],
+                  ),
+                )
               } catch (error) {
                 notify(
                   `${card.title} import failed`,

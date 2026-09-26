@@ -6,6 +6,7 @@ import { LabRequest } from '../laboratory/laboratory.entities';
 import { Encounter } from '../opd/opd.entities';
 import { Patient, PatientIdentifier } from '../patients/patient.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
+import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { WorklistsController } from './worklists.controller';
 import { WorklistsService } from './worklists.service';
 
@@ -19,6 +20,7 @@ import { WorklistsService } from './worklists.service';
       LabRequest,
       RadiologyRequest,
       EmergencyEncounter,
+      ClinicalOrder,
     ]),
   ],
   controllers: [WorklistsController],

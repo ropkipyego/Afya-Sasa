@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, ArrowRight, BedDouble, Settings, Stethoscope } from 'lucide-react'
 import { Alert, Button, Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { formatKes } from '../../lib/clinical-catalog'
 import { useAuthStore } from '../../lib/auth-store'
 import { wardTypeLabel } from './ipd-utils'
 
@@ -12,6 +13,7 @@ type DashboardData = {
   transfersToday: number
   occupiedBeds: number
   availableBeds: number
+  cleaningBeds?: number
   totalBeds: number
   icuOccupancyPct: number
   hduOccupancyPct: number
@@ -70,6 +72,7 @@ export function IpdDashboard({
   onConsultant,
   onSetup,
   onAdmit,
+  onOpenPatient,
   wardTypeFilter,
 }: {
   onSelectWard: (wardId: string) => void
@@ -77,6 +80,7 @@ export function IpdDashboard({
   onConsultant: () => void
   onSetup: () => void
   onAdmit: () => void
+  onOpenPatient?: (admissionId: string) => void
   wardTypeFilter?: 'icu' | 'hdu'
 }) {
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -87,6 +91,64 @@ export function IpdDashboard({
   const canManageSetup = useAuthStore((state) => {
     const permissions = state.user?.permissions ?? []
     return permissions.includes('wards:manage') || permissions.includes('beds:manage')
+  })
+  const canReadFinance = useAuthStore((state) => {
+    const permissions = state.user?.permissions ?? []
+    return (
+      permissions.includes('payments:read') ||
+      permissions.includes('payments:initiate') ||
+      permissions.includes('reports:read')
+    )
+  })
+  const { data: finance } = useQuery({
+    queryKey: ['ipd-charge-summary'],
+    queryFn: () =>
+      apiRequest<{
+        charges: number
+        collections: number
+        outstanding: number
+        accommodationCharges: number
+      }>('/payments/charges/summary?scope=ipd'),
+    enabled: canReadFinance,
+    refetchInterval: 60_000,
+    retry: false,
+  })
+  const { data: pendingPharmacy } = useQuery({
+    queryKey: ['worklists', 'pharmacy', 'pending'],
+    queryFn: () =>
+      apiRequest<{ total?: number; items?: unknown[] }>('/worklists/pharmacy/pending'),
+    refetchInterval: 30_000,
+    retry: false,
+  })
+  const { data: census = [] } = useQuery({
+    queryKey: ['ipd-census'],
+    queryFn: () =>
+      apiRequest<
+        Array<{
+          admissionId: string
+          patient: string
+          patientNo: string
+          ward: string
+          bed: string
+          admittedAt: string
+          days: number
+          charges: number
+          paid: number
+          outstanding: number
+        }>
+      >('/payments/charges/ipd-census'),
+    refetchInterval: 60_000,
+    retry: false,
+  })
+  const { data: exceptions } = useQuery({
+    queryKey: ['billing-exceptions'],
+    queryFn: () =>
+      apiRequest<{ count: number; exceptions: Array<{ reason: string; patient?: string; expectedService: string }> }>(
+        '/payments/exceptions',
+      ),
+    enabled: canReadFinance,
+    refetchInterval: 60_000,
+    retry: false,
   })
 
   if (isError) {
@@ -180,6 +242,7 @@ export function IpdDashboard({
       <MetricSection title="Bed status">
         <MetricTile label="Occupied beds" value={data.occupiedBeds} tone="border-rose-200 bg-rose-50" />
         <MetricTile label="Available beds" value={data.availableBeds} tone="border-emerald-200 bg-emerald-50" />
+        <MetricTile label="Cleaning beds" value={data.cleaningBeds ?? 0} tone="border-violet-200 bg-violet-50" />
         <MetricTile label="ICU occupancy" value={data.icuOccupancyPct} suffix="%" tone="border-orange-200 bg-orange-50" />
         <MetricTile label="HDU occupancy" value={data.hduOccupancyPct} suffix="%" tone="border-amber-200 bg-amber-50" />
       </MetricSection>
@@ -188,7 +251,72 @@ export function IpdDashboard({
         <MetricTile label="Pending lab" value={data.pendingLabResults} />
         <MetricTile label="Pending radiology" value={data.pendingRadiologyReports} />
         <MetricTile label="Due for review" value={data.patientsDueForReview} />
+        <MetricTile
+          label="Pending pharmacy"
+          value={pendingPharmacy?.total ?? pendingPharmacy?.items?.length ?? 0}
+        />
       </MetricSection>
+
+      {canReadFinance && finance ? (
+        <MetricSection title="Financial">
+          <MetricTile label="Today's IPD charges" value={formatKes(finance.charges)} />
+          <MetricTile label="Accommodation posted" value={formatKes(finance.accommodationCharges)} />
+          <MetricTile label="IPD payments today" value={formatKes(finance.collections)} tone="border-emerald-200 bg-emerald-50" />
+          <MetricTile label="Outstanding IPD" value={formatKes(finance.outstanding)} tone="border-rose-200 bg-rose-50" />
+        </MetricSection>
+      ) : null}
+
+      {census.length ? (
+        <section className="space-y-3">
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Inpatients</h3>
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Patient</th>
+                  <th className="px-4 py-3">Ward</th>
+                  <th className="px-4 py-3">Bed</th>
+                  <th className="px-4 py-3">Admission</th>
+                  <th className="px-4 py-3 text-right">Days</th>
+                  <th className="px-4 py-3 text-right">Charges</th>
+                  <th className="px-4 py-3 text-right">Paid</th>
+                  <th className="px-4 py-3 text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {census.map((row) => (
+                  <tr key={row.admissionId} className="border-t border-slate-100">
+                    <td className="px-4 py-3">
+                      {onOpenPatient ? (
+                        <button type="button" className="font-semibold text-teal-700 hover:underline" onClick={() => onOpenPatient(row.admissionId)}>
+                          {row.patient}
+                        </button>
+                      ) : (
+                        row.patient
+                      )}
+                      <p className="text-xs text-slate-500">{row.patientNo}</p>
+                    </td>
+                    <td className="px-4 py-3">{row.ward}</td>
+                    <td className="px-4 py-3">{row.bed}</td>
+                    <td className="px-4 py-3">{new Date(row.admittedAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.days}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatKes(row.charges)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatKes(row.paid)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKes(row.outstanding)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {exceptions?.exceptions?.length ? (
+        <Alert tone="warning">
+          {exceptions.count} billing exceptions. Latest: {exceptions.exceptions[0]?.reason}
+          {exceptions.exceptions[0]?.patient ? ` · ${exceptions.exceptions[0].patient}` : ''}
+        </Alert>
+      ) : null}
 
       <section className="space-y-6">
         <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Ward summary</h3>

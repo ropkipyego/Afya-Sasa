@@ -6,6 +6,7 @@ import { formDataFromElement, submitClinicalForm } from '../../../lib/form-utils
 import { apiRequest } from '../../../lib/api'
 import { formatConfiguredPrice } from '../../../lib/clinical-catalog'
 import { notify } from '../../../lib/notify'
+import { classifyAgainstCatalog, parseSimpleCsv } from '../../../lib/catalog-preview'
 import { readSpreadsheetAsCsv, SPREADSHEET_UPLOAD_ACCEPT } from '../../../lib/spreadsheet-import'
 
 type LabPanel = { id: string; name: string; code: string; category: string; description?: string | null }
@@ -75,6 +76,10 @@ export function LabCatalogPanel() {
   const [importSummary, setImportSummary] = useState<string | null>(null)
   const [lisImportSummary, setLisImportSummary] = useState<string | null>(null)
   const [priceImportSummary, setPriceImportSummary] = useState<string | null>(null)
+  const [pricePreview, setPricePreview] = useState<{
+    csv: string
+    rows: Array<{ name: string; code: string; sell: string; kind: string; match: string }>
+  } | null>(null)
   const [priceDraft, setPriceDraft] = useState<Record<string, string>>({})
   const [priceQuery, setPriceQuery] = useState('')
   const { data: panels = [], isLoading: panelsLoading } = useQuery({
@@ -403,7 +408,25 @@ export function LabCatalogPanel() {
                 e.target.value = ''
                 if (!file) return
                 try {
-                  importPrices.mutate(await readSpreadsheetAsCsv(file))
+                  const csv = await readSpreadsheetAsCsv(file, ['Pathology_Import', 'Pathology_Review'])
+                  const seen = new Set<string>()
+                  const rows = parseSimpleCsv(csv).map((row) => {
+                    const code = (row.code ?? row.test_code ?? '').trim()
+                    const name = (row.name ?? row.test ?? row.test_name ?? '').trim()
+                    const sell = (row.sell ?? row.price ?? row.rate ?? '').trim()
+                    const classified = classifyAgainstCatalog({ code, name }, catalogTests, seen)
+                    return {
+                      code,
+                      name,
+                      sell,
+                      kind: !sell || Number(sell) <= 0 ? 'NO PRICE' : classified.kind,
+                      match: classified.matchCodes.join(', '),
+                    }
+                  })
+                  setPricePreview({ csv, rows })
+                  setPriceImportSummary(
+                    `${rows.length} source rows · ${rows.filter((r) => r.kind === 'EXISTING MATCH').length} existing · ${rows.filter((r) => r.kind === 'NEW').length} new · ${rows.filter((r) => r.kind === 'AMBIGUOUS').length} ambiguous · ${rows.filter((r) => r.kind === 'NO PRICE').length} no price. Confirm to save matched prices only.`,
+                  )
                 } catch (error) {
                   notify(
                     'Price import failed',
@@ -419,6 +442,54 @@ export function LabCatalogPanel() {
           Format: code, name, sell. Use the catalog code when you have it. Name matching is a fallback. RATE / PRICE / KES / KSH also work. The Jalaram list maps the hospital sheet to existing codes; seven name-only rows stay unmatched until those tests exist in the catalog.
         </p>
         {priceImportSummary ? <Alert tone="info" className="mt-4">{priceImportSummary}</Alert> : null}
+        {pricePreview ? (
+          <div className="mt-4 space-y-3">
+            <div className="max-h-64 overflow-auto rounded-xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500">
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Name</th>
+                    <th className="px-3 py-2">Code</th>
+                    <th className="px-3 py-2">Sell</th>
+                    <th className="px-3 py-2">Match</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pricePreview.rows.slice(0, 80).map((row, index) => (
+                    <tr key={`${row.code}-${row.name}-${index}`} className="border-b border-slate-100">
+                      <td className="px-3 py-1.5 font-medium">{row.kind}</td>
+                      <td className="px-3 py-1.5">{row.name}</td>
+                      <td className="px-3 py-1.5 font-mono">{row.code || '—'}</td>
+                      <td className="px-3 py-1.5">{row.sell || 'NO PRICE'}</td>
+                      <td className="px-3 py-1.5">{row.match || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Save sell prices for existing matches only? New and ambiguous rows will stay unmatched. Existing 55 priced tests are updated only where this file has a code/name match.`,
+                    )
+                  ) {
+                    importPrices.mutate(pricePreview.csv)
+                    setPricePreview(null)
+                  }
+                }}
+              >
+                Confirm matched prices
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setPricePreview(null)}>
+                Cancel preview
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Card>
 
       <Card className="p-8">

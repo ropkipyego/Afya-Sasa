@@ -27,12 +27,14 @@ import { LaboratoryController } from './laboratory.controller';
 import { LaboratoryService } from './laboratory.service';
 import { LabCatalogController } from './lab-catalog.controller';
 import { LabCatalogService } from './lab-catalog.service';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
     ClinicalOrderModule,
     WorkflowModule,
     NotificationsModule,
+    PaymentsModule,
     TypeOrmModule.forFeature([
       Patient,
       Encounter,

@@ -15,6 +15,7 @@ import {
 } from './radiology.entities';
 import { RadiologyController } from './radiology.controller';
 import { RadiologyService } from './radiology.service';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { RadiologyService } from './radiology.service';
     WorkflowModule,
     AdminModule,
     NotificationsModule,
+    PaymentsModule,
     TypeOrmModule.forFeature([
       Patient,
       Encounter,

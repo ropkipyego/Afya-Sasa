@@ -27,6 +27,7 @@ import { RolesPermissionsPanel } from './panels/RolesPermissionsPanel'
 import { SecurityCompliancePanel } from './panels/SecurityCompliancePanel'
 import { BackupRestorePanel } from './panels/BackupRestorePanel'
 import { PricingReadinessPanel } from './panels/PricingReadinessPanel'
+import { HospitalChargeCataloguePanel } from './panels/HospitalChargeCataloguePanel'
 import { ShaIntegrationPanel } from './panels/ShaIntegrationPanel'
 import { AuditLogPanel } from './panels/AuditLogPanel'
 import { ServiceCatalogsHub } from '../catalog/ServiceCatalogsHub'
@@ -56,6 +57,7 @@ export type ControlCenterSection =
   | 'system'
   | 'superadmin'
   | 'pricing'
+  | 'charges'
   | 'sha'
   | 'catalogs'
 
@@ -135,6 +137,7 @@ export function HospitalControlCenter() {
           {section === 'system' && <SystemHealthPanel />}
           {section === 'superadmin' && <SuperAdminPanel />}
           {section === 'pricing' && <PricingReadinessPanel />}
+          {section === 'charges' && <HospitalChargeCataloguePanel />}
           {section === 'sha' && <ShaIntegrationPanel />}
           {section === 'catalogs' && <ServiceCatalogsHub />}
         </div>

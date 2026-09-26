@@ -73,6 +73,8 @@ export function PricingReadinessPanel() {
         <Wallet className="mb-2 inline h-4 w-4" /> Change a fee here and it appears on OPD check-in
         and the Payments desk as soon as the catalog refreshes. Lab, radiology, and pharmacy item
         price lists are still entered at the cashier when those catalogs are priced.
+        IPD accommodation and other hospital service rates live in Hospital charge catalogue.
+        Changing a rate never rewrites a posted charge.
       </div>
 
       <div className="mt-8 space-y-3">

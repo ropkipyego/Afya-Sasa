@@ -15,10 +15,12 @@ import {
 } from './inpatient.entities';
 import { InpatientController } from './inpatient.controller';
 import { InpatientService } from './inpatient.service';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
     WorkflowModule,
+    PaymentsModule,
     TypeOrmModule.forFeature([
       Patient,
       Encounter,

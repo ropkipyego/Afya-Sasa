@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CreditCard, History, Printer } from 'lucide-react'
 import {
   Button,
@@ -15,15 +15,18 @@ import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { clinicConsultationFee, formatKes } from '../../lib/clinical-catalog'
 import {
   listOutstandingPharmacy,
+  listPatientCharges,
   listPatientPayments,
   PAYMENT_SERVICE_LINES,
   type PaymentServiceLine,
   type PaymentTransactionRow,
 } from '../../lib/payments'
+import { useAuthStore } from '../../lib/auth-store'
+import { notify } from '../../lib/notify'
 import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { printPaymentReceipt } from '../../lib/print-payment-receipt'
-import { apiRequest } from '../../lib/api'
+import { apiRequest, formatApiError } from '../../lib/api'
 
 export function PaymentDesk() {
   const { data: catalog } = useClinicalCatalog()
@@ -40,6 +43,9 @@ export function PaymentDesk() {
   const [labTestIds, setLabTestIds] = useState<string[]>([])
   const [labQuery, setLabQuery] = useState('')
   const [pharmacyOrderId, setPharmacyOrderId] = useState('')
+  const [selectedChargeId, setSelectedChargeId] = useState('')
+  const queryClient = useQueryClient()
+  const canCloseCashier = useAuthStore((state) => (state.user?.permissions ?? []).includes('payments:manage'))
 
   const { data: stockItems = [] } = useQuery({
     queryKey: ['inventory-items', 'cashier'],
@@ -95,6 +101,39 @@ export function PaymentDesk() {
     queryKey: ['pharmacy-outstanding', patient?.id],
     queryFn: () => listOutstandingPharmacy(patient!.id),
     enabled: Boolean(patient?.id),
+  })
+
+  const { data: patientCharges = [], refetch: refetchCharges } = useQuery({
+    queryKey: ['patient-charges', patient?.id],
+    queryFn: () => listPatientCharges(patient!.id),
+    enabled: Boolean(patient?.id),
+  })
+
+  const chargeTotals = useMemo(() => {
+    const charges = patientCharges.reduce((sum, row) => sum + Number(row.amountOwed), 0)
+    const paid = patientCharges.reduce((sum, row) => sum + Number(row.amountPaid), 0)
+    const waived = patientCharges.reduce((sum, row) => sum + Number(row.amountWaived ?? 0), 0)
+    return { charges, paid, outstanding: Math.max(0, charges - paid - waived) }
+  }, [patientCharges])
+
+  const selectedCharge = patientCharges.find((row) => row.id === selectedChargeId)
+
+  const closeCashier = useMutation({
+    mutationFn: () =>
+      apiRequest<{ lastClosedAt: string; count: number; totals: Record<string, number> }>(
+        '/payments/cashier/close',
+        { method: 'POST' },
+      ),
+    onSuccess: (result) => {
+      notify(
+        'Cash point closed',
+        `${result.count} completed payments recorded for this close.`,
+        'success',
+      )
+      void queryClient.invalidateQueries({ queryKey: ['patient-payments'] })
+    },
+    onError: (error: Error) =>
+      notify('Could not close cash point', formatApiError(error, 'Cashier close failed.'), 'critical'),
   })
 
   useEffect(() => {
@@ -176,7 +215,14 @@ export function PaymentDesk() {
       <Card className="card-hover p-5 md:p-8">
         <PageHeader
           title="Cashier"
-          description="Collect payment for a hospital service. The receipt prints a simple slip. Revenue by department is on the Revenue tab."
+          description="Collect payment against an existing charge or a confirmed service. A payment settles the account — it does not replace the charge."
+          actions={
+            canCloseCashier ? (
+              <Button type="button" variant="secondary" loading={closeCashier.isPending} onClick={() => closeCashier.mutate()}>
+                Close cash point
+              </Button>
+            ) : undefined
+          }
         />
 
         <div className="mt-8 space-y-6">
@@ -185,6 +231,82 @@ export function PaymentDesk() {
             <>
               <PatientContextHeader patient={patient} workflowStep="checked_in" />
               <ShaEligibilityCard patientId={patient.id} />
+              {patientCharges.length ? (
+                <div className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-xs font-bold uppercase text-slate-500">Charges</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{formatKes(chargeTotals.charges)}</p>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <p className="text-xs font-bold uppercase text-slate-500">Paid</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{formatKes(chargeTotals.paid)}</p>
+                    </div>
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                      <p className="text-xs font-bold uppercase text-slate-500">Outstanding</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">{formatKes(chargeTotals.outstanding)}</p>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2">Charge</th>
+                          <th className="px-3 py-2">Encounter</th>
+                          <th className="px-3 py-2 text-right">Owed</th>
+                          <th className="px-3 py-2 text-right">Paid</th>
+                          <th className="px-3 py-2 text-right">Balance</th>
+                          <th className="px-3 py-2">Pay</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {patientCharges.map((row) => {
+                          const remaining = Math.max(
+                            0,
+                            Number(row.amountOwed) - Number(row.amountPaid) - Number(row.amountWaived ?? 0),
+                          )
+                          return (
+                            <tr key={row.id} className="border-t border-slate-100">
+                              <td className="px-3 py-2">
+                                <p className="font-medium">{row.serviceDescription}</p>
+                                <p className="text-xs text-slate-500">
+                                  {row.serviceLine} · {row.status.replace('_', ' ')}
+                                  {row.metadata?.payerScheme ? ` · ${row.metadata.payerScheme}` : ''}
+                                </p>
+                              </td>
+                              <td className="px-3 py-2 text-xs text-slate-500">
+                                {row.encounter?.id ? 'Linked encounter' : row.metadata?.admissionId ? 'Admission' : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">{formatKes(Number(row.amountOwed))}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{formatKes(Number(row.amountPaid))}</td>
+                              <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatKes(remaining)}</td>
+                              <td className="px-3 py-2">
+                                {remaining > 0 ? (
+                                  <Button
+                                    type="button"
+                                    variant={selectedChargeId === row.id ? 'primary' : 'secondary'}
+                                    className="px-3 py-1 text-xs"
+                                    onClick={() => {
+                                      setSelectedChargeId(row.id)
+                                      setServiceLine(row.serviceLine)
+                                      setServiceDescription(row.serviceDescription)
+                                      setAmount(String(remaining))
+                                    }}
+                                  >
+                                    {selectedChargeId === row.id ? 'Selected' : 'Pay'}
+                                  </Button>
+                                ) : (
+                                  <span className="text-xs text-slate-400">Settled</span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
             </>
           ) : null}
 
@@ -489,11 +611,13 @@ export function PaymentDesk() {
                   serviceLine === 'pharmacy' ? pharmacyOrderId || undefined : catalogService || undefined
                 }
                 chargeId={
-                  serviceLine === 'pharmacy'
+                  selectedCharge?.id ??
+                  (serviceLine === 'pharmacy'
                     ? outstandingPharmacy.find((row) => row.serviceEntityId === pharmacyOrderId)?.chargeId
-                    : undefined
+                    : undefined)
                 }
                 encounterId={
+                  selectedCharge?.encounter?.id ??
                   outstandingPharmacy.find((row) => row.serviceEntityId === pharmacyOrderId)?.encounterId ??
                   undefined
                 }
@@ -510,6 +634,7 @@ export function PaymentDesk() {
                 onSuccess={async () => {
                   await refetch()
                   await refetchOutstanding()
+                  await refetchCharges()
                   setAmount('')
                   setServiceDescription('')
                   setClinicName('')
@@ -518,6 +643,7 @@ export function PaymentDesk() {
                   setLabTestIds([])
                   setLabQuery('')
                   setCatalogService('')
+                  setSelectedChargeId('')
                 }}
               />
             </>

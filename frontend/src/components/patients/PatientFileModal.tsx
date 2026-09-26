@@ -131,6 +131,23 @@ export function PatientFileModal({
     queryFn: () => listPatientPayments(patientId),
     enabled: tab === 'overview' || tab === 'payments',
   })
+  const { data: charges = [] } = useQuery({
+    queryKey: ['patient-charges', patientId],
+    queryFn: () =>
+      apiRequest<
+        Array<{
+          id: string
+          serviceLine: string
+          serviceDescription: string
+          amountOwed: string
+          amountPaid: string
+          amountWaived?: string
+          status: string
+        }>
+      >(`/payments/charges?patientId=${patientId}`),
+    enabled: tab === 'overview' || tab === 'payments',
+    retry: false,
+  })
   const chartSection =
     tab === 'diagnoses' ||
     tab === 'treatments' ||
@@ -449,6 +466,45 @@ export function PatientFileModal({
                   ) : (
                     <Alert tone="info">No OPD encounters on file yet.</Alert>
                   )}
+                </Card>
+              ) : null}
+
+              {tab === 'payments' ? (
+                <Card className="p-5">
+                  <PageHeader
+                    title="Account"
+                    description="Operational charges and payments for this same patient. A charge is not money received."
+                  />
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl bg-slate-50 p-4">
+                      <p className="text-xs uppercase text-slate-500">Charges</p>
+                      <p className="mt-1 text-xl font-semibold">
+                        {formatKes(charges.reduce((sum, row) => sum + Number(row.amountOwed), 0))}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-emerald-50 p-4">
+                      <p className="text-xs uppercase text-emerald-700">Payments</p>
+                      <p className="mt-1 text-xl font-semibold">
+                        {formatKes(payments.reduce((sum, row) => sum + Number(row.amount ?? 0), 0))}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-rose-50 p-4">
+                      <p className="text-xs uppercase text-rose-700">Outstanding</p>
+                      <p className="mt-1 text-xl font-semibold">
+                        {formatKes(
+                          charges.reduce(
+                            (sum, row) =>
+                              sum +
+                              Math.max(
+                                0,
+                                Number(row.amountOwed) - Number(row.amountPaid) - Number(row.amountWaived ?? 0),
+                              ),
+                            0,
+                          ),
+                        )}
+                      </p>
+                    </div>
+                  </div>
                 </Card>
               ) : null}
 

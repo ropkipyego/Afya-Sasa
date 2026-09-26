@@ -14,6 +14,7 @@ import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
 import { OrderableLabTest, LabReferenceRange } from './lab-catalog.entities';
 import { LabCatalogService } from './lab-catalog.service';
+import { AccommodationChargeService } from '../payments/accommodation-charge.service';
 import type { PatientDemographics, SeedReferenceRange } from './lab-catalog.types';
 import { resolveLegacyResultFlag } from './lab-result-engine';
 import {
@@ -59,6 +60,7 @@ export class LaboratoryService {
     private readonly encounterWorkflow: EncounterWorkflowService,
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
+    private readonly operationalCharges: AccommodationChargeService,
   ) {}
 
   createPanel(dto: CreateLabPanelDto, request: RequestContext) {
@@ -193,6 +195,7 @@ export class LaboratoryService {
             ? 'paid'
             : 'pending';
 
+    const billingAmount = await this.resolveBillingAmount(dto.billingAmount, orderableCatalogTests, request);
     const labRequest = await this.requests.save(
       this.requests.create({
         patient,
@@ -208,7 +211,7 @@ export class LaboratoryService {
         paymentStatus,
         paymentReference: dto.paymentReference ?? null,
         mpesaPhone: dto.mpesaPhone ?? null,
-        billingAmount: await this.resolveBillingAmount(dto.billingAmount, orderableCatalogTests, request),
+        billingAmount,
         walkInSource: dto.walkInSource ?? null,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
@@ -238,6 +241,21 @@ export class LaboratoryService {
       requestId: labRequest.id,
       action: 'created',
     });
+    const billed = Number(billingAmount);
+    if (Number.isFinite(billed) && billed > 0) {
+      await this.operationalCharges.upsertServiceCharge({
+        patientId: patient.id,
+        encounterId: encounter.id,
+        admissionId: admission?.id ?? null,
+        serviceLine: 'laboratory',
+        serviceEntityId: labRequest.id,
+        description: `${labRequest.requestNo} · ${itemRows.length} test${itemRows.length === 1 ? '' : 's'}`,
+        amount: billed,
+        source: 'LABORATORY',
+        kind: 'laboratory_request',
+        userId: request.user?.sub ?? null,
+      });
+    }
     return this.detail(labRequest.id);
   }
 

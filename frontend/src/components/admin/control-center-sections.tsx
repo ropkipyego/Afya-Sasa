@@ -185,6 +185,15 @@ export const controlCenterCards: ControlCenterCard[] = [
     help: 'Each clinic has a consultation fee in the database. Reception sees it at check-in; cashier sees the same amount on Payments.',
   },
   {
+    id: 'charges',
+    title: 'Hospital charge catalogue',
+    description: 'Accommodation and service rates. Automatic IPD charging uses these configured amounts only.',
+    category: 'Finance (directors)',
+    icon: <Wallet className="h-6 w-6" />,
+    keywords: ['charges', 'accommodation', 'ward', 'icu', 'hdu', 'rate', 'billing', 'catalogue'],
+    help: 'Set hospital rates here. Empty rates mean no automatic charge is posted. Changing a rate does not rewrite posted charges.',
+  },
+  {
     id: 'sha',
     title: 'SHA / Social Health Authority',
     description: 'Eligibility against sha.go.ke / DHA HIE. Identify, then cover, then consent, then claim.',

@@ -96,6 +96,17 @@ export class ReportingController {
     return this.reportingService.operationsCommandCenter();
   }
 
+  @Get('intelligence')
+  @RequirePermissions('reports:read')
+  intelligence(@Query('from') from?: string, @Query('to') to?: string) {
+    const today = new Date();
+    const defaultTo = today.toISOString().slice(0, 10);
+    const defaultFrom = new Date(today.getTime() - 29 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    return this.reportingService.intelligence(from ?? defaultFrom, to ?? defaultTo);
+  }
+
   @Get('executive-analytics')
   @RequirePermissions('reports:read')
   executiveAnalytics(@Query('from') from?: string, @Query('to') to?: string) {

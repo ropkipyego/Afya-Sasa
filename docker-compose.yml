@@ -78,6 +78,8 @@ services:
       TYPEORM_MIGRATIONS_RUN: "false"
       AFYASASA_ALLOW_DEMO_SEED: "false"
       AFYASASA_CHARGES_ENABLED: "true"
+      AUTH_INACTIVITY_TIMEOUT_SECONDS: "300"
+      AUTH_INACTIVITY_WARNING_SECONDS: "60"
     ports:
       - "${BACKEND_HOST_PORT:-3000}:3000"
     healthcheck:

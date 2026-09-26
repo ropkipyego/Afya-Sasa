@@ -11,7 +11,7 @@ function extensionOf(file: File) {
   return dot >= 0 ? name.slice(dot) : ''
 }
 
-export async function readSpreadsheetAsCsv(file: File): Promise<string> {
+export async function readSpreadsheetAsCsv(file: File, preferredSheets: string[] = []): Promise<string> {
   const ext = extensionOf(file)
   const mime = (file.type || '').toLowerCase()
   const isExcel =
@@ -25,10 +25,15 @@ export async function readSpreadsheetAsCsv(file: File): Promise<string> {
 
   const XLSX = await import('xlsx')
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
-  const sheetName = workbook.SheetNames.find((name) => {
-    const sheet = workbook.Sheets[name]
-    return Boolean(sheet && XLSX.utils.sheet_to_json(sheet, { header: 1 }).length)
-  })
+  const preferred = preferredSheets
+    .map((name) => workbook.SheetNames.find((sheet) => sheet.toLowerCase() === name.toLowerCase()))
+    .find(Boolean)
+  const sheetName =
+    preferred ??
+    workbook.SheetNames.find((name) => {
+      const sheet = workbook.Sheets[name]
+      return Boolean(sheet && XLSX.utils.sheet_to_json(sheet, { header: 1 }).length)
+    })
   if (!sheetName) {
     throw new Error('That Excel file has no usable worksheet.')
   }

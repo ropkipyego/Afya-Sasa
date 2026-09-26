@@ -11,6 +11,7 @@ import { Admission } from '../inpatient/inpatient.entities';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AdminService } from '../core/admin/admin.service';
+import { AccommodationChargeService } from '../payments/accommodation-charge.service';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
 import {
@@ -48,6 +49,7 @@ export class RadiologyService {
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
     private readonly adminService: AdminService,
+    private readonly operationalCharges: AccommodationChargeService,
   ) {}
 
   createModality(dto: CreateModalityDto, request: RequestContext) {
@@ -77,6 +79,21 @@ export class RadiologyService {
       }>
     };
     return catalog.radiologyStudies ?? [];
+  }
+
+  private async resolveStudyPrice(
+    request: RequestContext,
+    modalityCode: string,
+    bodyPart: string,
+  ): Promise<number | null> {
+    const studies = await this.listStudies(request);
+    const match = studies.find(
+      (study) =>
+        study.modalityCode?.toUpperCase() === modalityCode.toUpperCase() &&
+        study.bodyPart?.trim().toLowerCase() === bodyPart.trim().toLowerCase(),
+    );
+    const sell = Number((match as { sell?: number } | undefined)?.sell);
+    return Number.isFinite(sell) && sell > 0 ? sell : null;
   }
 
   async importCatalog(dto: ImportRadiologyCatalogDto, request: RequestContext) {
@@ -242,6 +259,21 @@ export class RadiologyService {
       requestId: radiologyRequest.id,
       action: 'created',
     });
+    const billed = await this.resolveStudyPrice(request, modality.code, dto.bodyPart);
+    if (billed != null) {
+      await this.operationalCharges.upsertServiceCharge({
+        patientId: patient.id,
+        encounterId: encounter.id,
+        admissionId: admission?.id ?? null,
+        serviceLine: 'radiology',
+        serviceEntityId: radiologyRequest.id,
+        description: `${radiologyRequest.requestNo} · ${modality.name} ${dto.bodyPart}`,
+        amount: billed,
+        source: 'RADIOLOGY',
+        kind: 'radiology_request',
+        userId: request.user?.sub ?? null,
+      });
+    }
     return radiologyRequest;
   }
 

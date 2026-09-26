@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Alert, Button, Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { formatKes } from '../../lib/clinical-catalog'
 
 type DailyPoint = { date: string; count: number }
 type Comparison = { current: number; previous: number; delta: number; percent: number | null }
@@ -38,10 +39,30 @@ type AnalyticsData = {
     bedOccupancyPercent: number
     occupiedBeds: number
     totalBeds: number
+    charges?: number
+    collections?: number
+    outstanding?: number
+    accommodationCharges?: number
   }
   comparison: Record<string, Comparison>
   trends: Record<string, DailyPoint[]>
   breakdowns: Record<string, Record<string, number>>
+}
+
+type IntelligenceData = {
+  generatedAt: string
+  range: { from: string; to: string }
+  readOnly: boolean
+  findings: Array<{
+    title: string
+    detail: string
+    metric: string
+    current: number
+    baseline: number
+    period: string
+    source: string
+    severity: 'info' | 'watch'
+  }>
 }
 
 type DashboardConfig = {
@@ -57,6 +78,7 @@ type DashboardConfig = {
 const CONFIG_KEY = 'afyasasa-executive-dashboard-config'
 
 const presets = [
+  { id: '1d', label: 'Today', days: 1 },
   { id: '7d', label: '7 days', days: 7 },
   { id: '30d', label: '30 days', days: 30 },
   { id: '90d', label: '90 days', days: 90 },
@@ -225,6 +247,11 @@ export function ExecutiveAnalyticsDashboard() {
     queryKey: ['executive-analytics', from, to],
     queryFn: () =>
       apiRequest<AnalyticsData>(`/reports/executive-analytics?from=${from}&to=${to}`),
+  })
+  const { data: intelligence } = useQuery({
+    queryKey: ['executive-intelligence', from, to],
+    queryFn: () =>
+      apiRequest<IntelligenceData>(`/reports/intelligence?from=${from}&to=${to}`),
   })
 
   const applyPreset = (days: number) => {
@@ -425,6 +452,12 @@ export function ExecutiveAnalyticsDashboard() {
                   comparison={data.comparison.admissions}
                 />
                 <KpiCard
+                  label="Discharges"
+                  value={data.summary.discharges}
+                  icon={BedDouble}
+                  comparison={data.comparison.discharges}
+                />
+                <KpiCard
                   label="Bed occupancy"
                   value={data.summary.bedOccupancyPercent}
                   suffix="%"
@@ -457,10 +490,60 @@ export function ExecutiveAnalyticsDashboard() {
               />
             ) : null}
             <KpiCard label="Avg daily OPD" value={data.summary.avgDailyOpd} icon={Activity} />
+            <KpiCard
+              label="Charges posted"
+              value={formatKes(data.summary.charges ?? 0)}
+              icon={Activity}
+            />
+            <KpiCard
+              label="Collections"
+              value={formatKes(data.summary.collections ?? 0)}
+              icon={Activity}
+            />
+            <KpiCard
+              label="Outstanding"
+              value={formatKes(data.summary.outstanding ?? 0)}
+              icon={Activity}
+            />
+            <KpiCard
+              label="Accommodation charges"
+              value={formatKes(data.summary.accommodationCharges ?? 0)}
+              icon={BedDouble}
+            />
             <KpiCard label="Appointments" value={data.summary.appointments} icon={CalendarRange} />
           </div>
 
+          {intelligence?.findings?.length ? (
+            <Card className="space-y-3 p-5">
+              <h3 className="text-sm font-bold text-slate-800">Read-only intelligence</h3>
+              <p className="text-xs text-slate-500">
+                Deterministic comparison against the prior period. These findings never create or change charges, payments, or records.
+              </p>
+              {intelligence.findings.map((finding) => (
+                <Alert key={finding.title} tone={finding.severity === 'watch' ? 'warning' : 'info'}>
+                  <p className="font-semibold">{finding.title}</p>
+                  <p>{finding.detail}</p>
+                  <p className="mt-1 text-xs">Source: {finding.source} · {finding.period}</p>
+                </Alert>
+              ))}
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 lg:grid-cols-2">
+            {data.trends.charges?.length || data.trends.collections?.length ? (
+              <TrendChart
+                title="Charges vs collections"
+                series={data.trends.charges ?? []}
+                tone="bg-amber-500"
+              />
+            ) : null}
+            {data.trends.collections?.length ? (
+              <TrendChart
+                title="Collections per day"
+                series={data.trends.collections}
+                tone="bg-emerald-500"
+              />
+            ) : null}
             {config.showOpd ? (
               <TrendChart
                 title="OPD visits per day"
@@ -520,6 +603,15 @@ export function ExecutiveAnalyticsDashboard() {
               <BreakdownTable title="Radiology by priority" rows={data.breakdowns.radiologyByPriority} />
               <BreakdownTable title="Admissions by ward" rows={data.breakdowns.admissionsByWard} />
               <BreakdownTable title="ED by triage" rows={data.breakdowns.emergencyByTriage} />
+              {data.breakdowns.chargesByServiceLine ? (
+                <BreakdownTable title="Charges by department" rows={data.breakdowns.chargesByServiceLine} />
+              ) : null}
+              {data.breakdowns.collectionsByMethod ? (
+                <BreakdownTable title="Collections by method" rows={data.breakdowns.collectionsByMethod} />
+              ) : null}
+              {data.breakdowns.outstandingAgeing ? (
+                <BreakdownTable title="Outstanding ageing" rows={data.breakdowns.outstandingAgeing} />
+              ) : null}
             </div>
           ) : null}
 

@@ -1,15 +1,15 @@
 export const AUTH_REFRESH_COOKIE = 'afyasasa_refresh';
 
 export function inactivityTimeoutSeconds(env = process.env): number {
-  const raw = Number(env.AUTH_INACTIVITY_TIMEOUT_SECONDS ?? 120);
-  if (!Number.isFinite(raw) || raw < 30) return 120;
+  const raw = Number(env.AUTH_INACTIVITY_TIMEOUT_SECONDS ?? 300);
+  if (!Number.isFinite(raw) || raw < 30) return 300;
   return Math.min(Math.floor(raw), 8 * 60 * 60);
 }
 
 export function inactivityWarningSeconds(env = process.env): number {
   const timeout = inactivityTimeoutSeconds(env);
-  const raw = Number(env.AUTH_INACTIVITY_WARNING_SECONDS ?? 30);
-  if (!Number.isFinite(raw) || raw < 5) return Math.min(30, timeout);
+  const raw = Number(env.AUTH_INACTIVITY_WARNING_SECONDS ?? 60);
+  if (!Number.isFinite(raw) || raw < 5) return Math.min(60, timeout);
   return Math.min(Math.floor(raw), timeout - 5);
 }
 

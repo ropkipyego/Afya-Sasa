@@ -7,9 +7,9 @@ import {
 } from './session-policy';
 
 describe('session policy', () => {
-  it('defaults inactivity to two minutes', () => {
-    expect(inactivityTimeoutSeconds({})).toBe(120);
-    expect(inactivityWarningSeconds({})).toBe(30);
+  it('defaults inactivity to five minutes with a 60-second warning', () => {
+    expect(inactivityTimeoutSeconds({})).toBe(300);
+    expect(inactivityWarningSeconds({})).toBe(60);
   });
 
   it('reads a single env value', () => {
@@ -17,7 +17,7 @@ describe('session policy', () => {
   });
 
   it('rejects unsafe low timeouts', () => {
-    expect(inactivityTimeoutSeconds({ AUTH_INACTIVITY_TIMEOUT_SECONDS: '5' })).toBe(120);
+    expect(inactivityTimeoutSeconds({ AUTH_INACTIVITY_TIMEOUT_SECONDS: '5' })).toBe(300);
   });
 
   it('parses access token TTL', () => {
@@ -31,8 +31,8 @@ describe('session policy', () => {
   });
 
   it('centralizes the policy object', () => {
-    const policy = sessionPolicy({ AUTH_INACTIVITY_TIMEOUT_SECONDS: '120' });
-    expect(policy.inactivityTimeoutSeconds).toBe(120);
+    const policy = sessionPolicy({ AUTH_INACTIVITY_TIMEOUT_SECONDS: '300' });
+    expect(policy.inactivityTimeoutSeconds).toBe(300);
     expect(policy.refreshCookie).toBe('afyasasa_refresh');
   });
 });

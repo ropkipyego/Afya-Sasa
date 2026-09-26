@@ -249,7 +249,7 @@ export class ClinicalOrderMirrorService {
     if (filters.patientId) where.patient = { id: filters.patientId };
     return this.orders.find({
       where,
-      relations: { patient: true, encounter: true },
+      relations: { patient: true, encounter: true, admission: { ward: true, bed: true } },
       order: { orderedAt: 'DESC' },
       take: filters.limit ?? 100,
       skip: filters.offset ?? 0,

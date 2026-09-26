@@ -35,6 +35,7 @@ import {
   UpdateWardDto,
 } from './inpatient.dto';
 import { RealtimeService } from '../realtime/realtime.service';
+import { AccommodationChargeService } from '../payments/accommodation-charge.service';
 import { EncounterWorkflowService } from '../workflow/encounter-workflow.service';
 import { buildSimplePdf } from '../common/simple-pdf';
 
@@ -57,6 +58,7 @@ export class InpatientService {
     private readonly realtime: RealtimeService,
     private readonly encounterWorkflow: EncounterWorkflowService,
     private readonly dataSource: DataSource,
+    private readonly operationalCharges: AccommodationChargeService,
   ) {}
 
   async createWard(dto: CreateWardDto, request: RequestContext) {
@@ -562,6 +564,7 @@ export class InpatientService {
     this.realtime.publish(tenantChannel(request), 'bed.updated', {
       bedId: admission.bed.id,
     });
+    await this.operationalCharges.processAdmissionById(id, request);
     return this.getAdmission(id);
   }
 
@@ -732,6 +735,7 @@ export class InpatientService {
       transfersToday: transfersToday.length,
       occupiedBeds,
       availableBeds,
+      cleaningBeds: beds.filter((b) => b.status === 'cleaning').length,
       totalBeds: beds.length,
       icuOccupancyPct: icuBeds.length
         ? Math.round((icuOccupied / icuBeds.length) * 100)

@@ -241,6 +241,7 @@ export class PaymentsService {
   async upsertPharmacyCharge(params: {
     patientId: string;
     encounterId: string | null;
+    admissionId?: string | null;
     serviceEntityId: string;
     description: string;
     amountDelta: number;
@@ -265,6 +266,9 @@ export class PaymentsService {
       existing.metadata = {
         ...(existing.metadata ?? {}),
         orderNo: params.orderNo ?? existing.metadata?.orderNo,
+        admissionId: params.admissionId ?? existing.metadata?.admissionId ?? null,
+        source: 'PHARMACY',
+        kind: 'pharmacy_dispense',
       };
       existing.status = chargeRemaining(existing) <= 0 ? 'paid' : Number(existing.amountPaid) > 0 ? 'partially_paid' : 'owed';
       existing.updatedBy = params.userId;
@@ -283,7 +287,12 @@ export class PaymentsService {
         amountWaived: '0',
         currency: 'KES',
         status: 'owed',
-        metadata: { orderNo: params.orderNo, kind: 'pharmacy_dispense' },
+        metadata: {
+          orderNo: params.orderNo,
+          kind: 'pharmacy_dispense',
+          source: 'PHARMACY',
+          admissionId: params.admissionId ?? null,
+        },
         createdBy: params.userId,
         updatedBy: params.userId,
       }),

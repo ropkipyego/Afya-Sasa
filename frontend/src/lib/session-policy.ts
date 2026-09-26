@@ -7,8 +7,8 @@ export type SessionPolicy = {
 }
 
 const DEFAULT_POLICY: SessionPolicy = {
-  inactivityTimeoutSeconds: 120,
-  inactivityWarningSeconds: 30,
+  inactivityTimeoutSeconds: 300,
+  inactivityWarningSeconds: 60,
   accessTokenTtlSeconds: 900,
 }
 

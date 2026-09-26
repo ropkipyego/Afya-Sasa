@@ -36,6 +36,7 @@ import { formDataFromElement, optionalNumber, submitClinicalForm } from '../../l
 import { notify } from '../../lib/notify'
 import { viewClinicalFile } from '../../lib/clinical-upload'
 import { PrescriptionForm } from '../orders/PrescriptionForm'
+import { IpdAdmissionAccount } from './IpdAdmissionAccount'
 
 type WorkspaceTab =
   | 'overview'
@@ -49,6 +50,7 @@ type WorkspaceTab =
   | 'theatre'
   | 'physio'
   | 'documents'
+  | 'account'
   | 'transfers'
   | 'discharge'
 
@@ -64,19 +66,14 @@ type ActionKey =
   | null
 
 const tabs: { id: WorkspaceTab; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'reviews', label: 'Doctor Reviews' },
-  { id: 'nursing', label: 'Nursing Notes' },
-  { id: 'vitals', label: 'Vitals' },
-  { id: 'medication', label: 'Medication Chart' },
+  { id: 'overview', label: 'Clinical' },
+  { id: 'nursing', label: 'Nursing' },
+  { id: 'pharmacy', label: 'Orders' },
+  { id: 'medication', label: 'Medication' },
   { id: 'laboratory', label: 'Laboratory' },
   { id: 'radiology', label: 'Radiology' },
-  { id: 'pharmacy', label: 'Pharmacy' },
   { id: 'theatre', label: 'Theatre' },
-  { id: 'physio', label: 'Physiotherapy' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'transfers', label: 'Transfers' },
-  { id: 'discharge', label: 'Discharge' },
+  { id: 'account', label: 'Account' },
 ]
 
 const actions: { id: ActionKey; label: string; icon: ReactNode; tab?: WorkspaceTab }[] = [
@@ -668,7 +665,9 @@ export function PatientWorkspace({
             </div>
           ) : null}
 
+          {activeTab === 'account' && <IpdAdmissionAccount admissionId={admissionId} />}
           {activeTab === 'overview' && (
+            <div className="space-y-10">
             <OverviewTab
               admission={admission}
               patient={patient}
@@ -681,9 +680,37 @@ export function PatientWorkspace({
               latestVitals={vitals[0]}
               timeline={timeline}
             />
-          )}
-          {activeTab === 'reviews' && (
             <DoctorReviewsTab notes={progressNotes} onAdd={() => handleAction('doctor-review')} />
+            <VitalsTrendPanel vitals={vitals} onRecord={() => handleAction('vitals')} />
+            <TransfersTab transfers={transfers} ward={admission.ward.name} />
+            <DocumentsTab
+              admissionId={admissionId}
+              summaries={dischargeSummaries}
+              labs={patientLabs}
+              radiology={patientRadiology}
+              labAttachments={labAttachments}
+            />
+            <DischargeTab
+              admissionId={admissionId}
+              admissionStatus={admission.status}
+              summaries={dischargeSummaries}
+              hasCompleteSummary={hasCompleteSummary}
+              onComplete={(id) => completeSummary.mutate(id)}
+              onDischarge={(e) => submitClinicalForm(dischargeAdmission, e)}
+              onCreateSummary={(e) => submitClinicalForm(createDischargeSummary, e)}
+              onCancel={() => {
+                if (
+                  window.confirm(
+                    'Cancel this admission? Use this only if the patient did not proceed. The bed will be released and the encounter will not be marked discharged.',
+                  )
+                ) {
+                  cancelAdmission.mutate()
+                }
+              }}
+              dischargePending={dischargeAdmission.isPending}
+              cancelPending={cancelAdmission.isPending}
+            />
+            </div>
           )}
           {activeTab === 'nursing' && (
             <NursingNotesTab observations={observations} onAdd={() => handleAction('nursing-note')} />
@@ -808,6 +835,7 @@ export function PatientWorkspace({
           {activeTab === 'transfers' && <TransfersTab transfers={transfers} ward={admission.ward.name} />}
           {activeTab === 'discharge' && (
             <DischargeTab
+              admissionId={admissionId}
               admissionStatus={admission.status}
               summaries={dischargeSummaries}
               hasCompleteSummary={hasCompleteSummary}
@@ -1376,6 +1404,7 @@ function TransfersTab({
 }
 
 function DischargeTab({
+  admissionId,
   admissionStatus,
   summaries,
   hasCompleteSummary,
@@ -1386,6 +1415,7 @@ function DischargeTab({
   dischargePending,
   cancelPending,
 }: {
+  admissionId: string
   admissionStatus: string
   summaries: { id: string; status: string; finalDiagnosis: string }[]
   hasCompleteSummary: boolean
@@ -1404,6 +1434,7 @@ function DischargeTab({
 
   return (
     <div className="space-y-6">
+      <IpdAdmissionAccount admissionId={admissionId} compact />
       <h3 className="text-lg font-bold">Discharge checklist</h3>
       <ul className="space-y-2">
         {checklist.map((item) => (

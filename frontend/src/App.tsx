@@ -36,7 +36,7 @@ import { ReferralWorkspace } from './components/referrals/ReferralWorkspace'
 import { LabModule } from './components/investigations/LabModule'
 import { ImagingModule } from './components/investigations/ImagingModule'
 import { OrdersHub } from './components/orders/OrdersHub'
-import { PharmacyModule } from './components/orders/PharmacyModule'
+import { PharmacyModule, pharmacyScreenByNav } from './components/orders/PharmacyModule'
 import { ReportsHub } from './components/reports/ReportsHub'
 import { GlobalPatientSearch } from './components/layout/GlobalPatientSearch'
 import { resolveScreen } from './lib/screen-aliases'
@@ -59,6 +59,7 @@ import { formDataFromElement } from './lib/form-utils'
 import { apiRequest } from './lib/api'
 import { useAuthStore } from './lib/auth-store'
 import { endSession } from './lib/auth-session'
+import { markUserActivity } from './lib/inactivity'
 import { useAuthSession } from './hooks/useAuthSession'
 import { LoginScreen } from './components/auth/LoginScreen'
 import { SINGLE_TENANT_MODE } from './lib/tenant-config'
@@ -248,7 +249,16 @@ function App() {
 
         <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
           {Object.entries(groupedNavigation).map(([group, items]) => (
-            <NavGroup key={group} title={group} defaultOpen={group === 'Front Office' || group === 'Outpatient'}>
+            <NavGroup
+              key={group}
+              title={group}
+              defaultOpen={
+                group === 'Front Office' ||
+                group === 'Queue Management' ||
+                group === 'Pharmacy' ||
+                group === 'Outpatient'
+              }
+            >
               {items.map((item) => {
                 const Icon = item.icon
                 const active = activeScreen === item.label
@@ -348,8 +358,21 @@ function App() {
         </header>
 
         {inactivityWarning ? (
-          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-950">
-            {inactivityWarning}
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+              <p className="text-lg font-semibold text-slate-900">You have been inactive.</p>
+              <p className="mt-2 text-sm text-slate-700">{inactivityWarning}</p>
+              <button
+                type="button"
+                className="mt-5 w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white"
+                onClick={() => {
+                  markUserActivity()
+                  useAuthStore.getState().setInactivityWarning(null)
+                }}
+              >
+                Continue Session
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -377,7 +400,7 @@ function App() {
           {activeScreen === 'Patient Registry' ? (
             <PatientRegistry onOpenPatient={setSelectedPatientId} />
           ) : null}
-          {activeScreen === 'Care Queues' || activeScreen === 'Worklists' ? (
+          {activeScreen === 'All Queues' || activeScreen === 'Care Queues' || activeScreen === 'Worklists' ? (
             <OperationalWorklists onOpenPatient={setSelectedPatientId} initialModule="opd" />
           ) : null}
           {activeScreen === 'Doctor Queue' ? (
@@ -389,8 +412,12 @@ function App() {
               onOpenSickSheets={() => goToScreen('Sick Sheets')}
             />
           ) : null}
-          {activeScreen === 'Laboratory' ? <LabModule /> : null}
-          {activeScreen === 'Radiology' ? <ImagingModule /> : null}
+          {activeScreen === 'Laboratory' || activeScreen === 'Lab Queue' ? (
+            <LabModule key={activeScreen} initialTab={activeScreen === 'Lab Queue' ? 'worklist' : 'overview'} />
+          ) : null}
+          {activeScreen === 'Radiology' || activeScreen === 'Imaging Queue' ? (
+            <ImagingModule key={activeScreen} initialTab="worklist" />
+          ) : null}
           {activeScreen === 'Appointments' ? <AppointmentCenter /> : null}
           {activeScreen === 'Referrals' ? <ReferralWorkspace /> : null}
           {activeScreen === 'Medical Documents' ? <MedicalDocumentsCenter /> : null}
@@ -406,7 +433,9 @@ function App() {
           {activeScreen === 'Nursing' ? <IpdModule initialScreen="nursing" /> : null}
           {activeScreen === 'Emergency' ? <EmergencyCommandCenter /> : null}
           {activeScreen === 'Orders' ? <OrdersHub /> : null}
-          {activeScreen === 'Pharmacy' ? <PharmacyModule /> : null}
+          {pharmacyScreenByNav[activeScreen] ? (
+            <PharmacyModule key={activeScreen} initialTab={pharmacyScreenByNav[activeScreen]} />
+          ) : null}
           {activeScreen === 'Inventory & Store' ? <InventoryModule /> : null}
           {activeScreen === 'Theatre' ? <TheatreWorkspace /> : null}
           {activeScreen === 'Maternity' ? <MaternityServiceLine /> : null}

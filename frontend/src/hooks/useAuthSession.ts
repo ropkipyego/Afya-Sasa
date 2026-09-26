@@ -28,7 +28,7 @@ export function useAuthSession() {
         }
         const seconds = Math.max(1, Math.ceil(state.remainingMs / 1000))
         setInactivityWarning(
-          `This workstation will sign out in ${seconds}s because nobody is using it. Move the mouse or press a key to stay signed in.`,
+          `You have been inactive. You will be logged out in ${seconds} seconds.`,
         )
       })
       return () => {

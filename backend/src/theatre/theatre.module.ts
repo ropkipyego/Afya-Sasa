@@ -13,9 +13,11 @@ import {
 } from './theatre.entities';
 import { TheatreController } from './theatre.controller';
 import { TheatreService } from './theatre.service';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
+    PaymentsModule,
     TypeOrmModule.forFeature([
       Patient,
       Encounter,

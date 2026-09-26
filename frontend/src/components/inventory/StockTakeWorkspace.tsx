@@ -95,8 +95,17 @@ export function StockTakeWorkspace() {
       <Card className="p-6">
         <PageHeader
           title="Stock take"
-          description="Upload the hospital count sheet. Nothing changes live stock until you confirm a stock-take post."
+          description="New → Import → Validate → Preview → Confirm → Post. Counted quantity is not live stock until you confirm."
         />
+        <ol className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {['New', 'Import', 'Validate', preview ? 'Preview' : 'Awaiting file', preview ? 'Confirm' : 'Not posted'].map(
+            (step) => (
+              <li key={step} className="rounded-full border border-slate-200 bg-white px-3 py-1">
+                {step}
+              </li>
+            ),
+          )}
+        </ol>
         <Alert tone="warning" className="mt-4">
           There is no draft/approval session in the backend yet. Preview validates the sheet. Posting
           with confirmation writes receipts for counted quantities. Do not post during an unsupervised count.
@@ -157,7 +166,7 @@ export function StockTakeWorkspace() {
                 if (!file) return
                 try {
                   setFileName(file.name)
-                  previewCsv.mutate(await readSpreadsheetAsCsv(file))
+                  previewCsv.mutate(await readSpreadsheetAsCsv(file, ['Pharmacy_Import', 'Pharmacy_Review']))
                 } catch (error) {
                   notify(
                     'Could not read file',
@@ -229,7 +238,7 @@ export function StockTakeWorkspace() {
               onClick={() => {
                 if (
                   window.confirm(
-                    `Post this stock take? This will receive counted quantities for ${preview.heldOpeningQty} rows into live stock at the selected location.`,
+                    `Post this stock take? ${preview.heldOpeningQty} counted rows will become inventory receipts. Catalogue-only rows stay unposted. Existing batches are not rewritten unless those rows match.`,
                   )
                 ) {
                   importCsv.mutate({ csv: pendingCsv, confirmStockTake: true })

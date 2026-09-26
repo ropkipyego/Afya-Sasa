@@ -38,12 +38,17 @@ export const navigation: NavItem[] = [
   { group: 'Front Office', label: 'OPD Check-In', icon: Hospital, permission: 'encounters:create', shortLabel: 'Check-in' },
   { group: 'Front Office', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
 
+  // Queue management — one place for waiting work
+  { group: 'Queue Management', label: 'Triage Queue', icon: HeartPulse, permission: 'triage:read', shortLabel: 'Triage' },
+  { group: 'Queue Management', label: 'Doctor Queue', icon: Stethoscope, permission: 'consultations:read', shortLabel: 'Doctor' },
+  { group: 'Queue Management', label: 'Lab Queue', icon: FlaskConical, permission: 'lab_requests:read', shortLabel: 'Lab queue' },
+  { group: 'Queue Management', label: 'Pharmacy Queue', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Rx queue' },
+  { group: 'Queue Management', label: 'Imaging Queue', icon: ScanLine, permission: 'radiology_requests:read', shortLabel: 'Imaging queue' },
+  { group: 'Queue Management', label: 'All Queues', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'All queues' },
+
   // Outpatient
-  { group: 'Outpatient', label: 'Triage Queue', icon: HeartPulse, permission: 'triage:read', shortLabel: 'Triage' },
-  { group: 'Outpatient', label: 'Doctor Queue', icon: Stethoscope, permission: 'consultations:read', shortLabel: 'Doctor' },
   { group: 'Outpatient', label: 'Referrals', icon: FileText, permission: 'referrals:read' },
   { group: 'Outpatient', label: 'Sick Sheets', icon: Printer, permission: 'sick_sheets:read', shortLabel: 'Sick sheet' },
-  { group: 'Outpatient', label: 'Care Queues', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Queues' },
 
   // Documents
   { group: 'Documents', label: 'Medical Documents', icon: FileText, permission: 'patients:history', shortLabel: 'Med docs' },
@@ -64,8 +69,14 @@ export const navigation: NavItem[] = [
   // Emergency
   { group: 'Emergency', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read', shortLabel: 'ED' },
 
-  // Specialty & supply
+  // Pharmacy — main-sidebar dropdowns, not an inner operations pane
   { group: 'Pharmacy', label: 'Pharmacy', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Pharmacy' },
+  { group: 'Pharmacy', label: 'Pharmacy Dispensing', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Dispense' },
+  { group: 'Pharmacy', label: 'Pharmacy Sales', icon: Landmark, permission: 'pharmacy:read', shortLabel: 'Sales' },
+  { group: 'Pharmacy', label: 'Pharmacy Stock', icon: Package, permission: 'pharmacy:read', shortLabel: 'Stock' },
+  { group: 'Pharmacy', label: 'Pharmacy Stock Take', icon: ClipboardList, permission: 'pharmacy:read', shortLabel: 'Stock take' },
+  { group: 'Pharmacy', label: 'Pharmacy Products', icon: Package, permission: 'pharmacy:read', shortLabel: 'Products' },
+  { group: 'Pharmacy', label: 'Pharmacy Reports', icon: LayoutDashboard, permission: 'pharmacy:read', shortLabel: 'Rx reports' },
 
   { group: 'Finance', label: 'Finance', icon: Landmark, permission: 'payments:initiate', shortLabel: 'Finance' },
 
@@ -86,6 +97,7 @@ export const navigation: NavItem[] = [
 
 export const groupIcons: Record<string, LucideIcon> = {
   'Front Office': UserPlus,
+  'Queue Management': ClipboardList,
   Outpatient: Stethoscope,
   Documents: FileText,
   Laboratory: FlaskConical,
@@ -104,14 +116,18 @@ export const groupIcons: Record<string, LucideIcon> = {
 export const workflowDescriptions: Record<string, string> = {
   'Register Patient': 'Search globally in the header first — register only if no match exists.',
   'OPD Check-In': 'Step-by-step check-in — patient, clinic, visit type, then confirm.',
-  'Triage Queue': 'Nurse workspace with vitals, alerts, and previous visits.',
-  'Doctor Queue': 'Prioritised queue with SOAP notes, orders, files, and completion.',
+  'Triage Queue': 'Nurse queue — vitals, category, then send to the doctor.',
+  'Doctor Queue': 'Doctor queue — SOAP, orders, files, complete the visit.',
+  'Lab Queue': 'Laboratory worklist — samples waiting on the bench.',
+  'Pharmacy Queue': 'Prescriptions waiting to be dispensed.',
+  'Imaging Queue': 'Radiology worklist — studies waiting to be done or reported.',
+  'All Queues': 'Hospital-wide queue board — OPD, ED, IPD, lab, imaging, and pharmacy.',
   Appointments: 'Appointment center with status workflow and calendar views.',
   Referrals: 'Referral workspace with letter generation and status tracking.',
   'Medical Documents': 'Unified document repository linked to patient profile timeline.',
   'Sick Sheets': 'Issue, print, and store sick leave certificates.',
-  Worklists: 'Cross-department patient queues — filter by OPD, lab, imaging, IPD, or ED.',
-  'Care Queues': 'Cross-department patient queues — filter by OPD, lab, imaging, IPD, or ED.',
+  Worklists: 'Hospital-wide queue board.',
+  'Care Queues': 'Hospital-wide queue board.',
   'Patient Registry': 'Browse all registered patients with age-band filters and basic demographics.',
   Finance: 'Finance desk — cashier, revenue, and SHA. Not Front Office. Same payment engine, not a new billing system.',
   Payments: 'Hospital-wide cashier — M-Pesa STK, cash, card, insurance, and QuickBooks for any service.',
@@ -119,7 +135,13 @@ export const workflowDescriptions: Record<string, string> = {
   Laboratory: 'Lab overview, sample worklist, and clinician results inbox.',
   Radiology: 'Imaging overview and reporting worklist.',
   Emergency: 'ED command center — triage, bays, observation, disposition.',
-  Pharmacy: 'Pharmacy desk — queue, dispense, OTC, and pharmacy-location stock. Store stays under Inventory.',
+  Pharmacy: 'Pharmacy control center — today’s work and shortcuts.',
+  'Pharmacy Dispensing': 'OPD and IPD prescriptions. Stock is deducted only when you confirm.',
+  'Pharmacy Sales': 'Pharmacy collections from the existing payment ledger.',
+  'Pharmacy Stock': 'Usable stock at the PHARMACY location.',
+  'Pharmacy Stock Take': 'Count sheet import, preview, then confirm before posting.',
+  'Pharmacy Products': 'Medication catalogue and sell prices.',
+  'Pharmacy Reports': 'Pharmacy department export.',
   Maternity: 'Maternity service line — ANC, labour, delivery, postnatal.',
   Orders: 'Clinical orders from all departments — lab, imaging, procedures.',
   'Inventory & Store': 'Supply overview, requisitions, buying list, transfers, and goods receipt. Not the pharmacy queue.',

@@ -14,6 +14,8 @@ import {
   waitLabel,
 } from '../investigations/lab-ui'
 
+export type DispenseFilter = 'opd' | 'ipd' | 'pending' | 'partial' | 'history'
+
 type PharmacyOrder = {
   id: string
   orderNo: string
@@ -21,7 +23,8 @@ type PharmacyOrder = {
   priority: string
   orderedAt: string
   patient?: { id?: string; firstName: string; lastName: string; patientNo: string }
-  encounter?: { id?: string } | null
+  encounter?: { id?: string; type?: string | null } | null
+  admission?: { id?: string; ward?: { name?: string } | null; bed?: { bedNo?: string } | null } | null
   metadata?: {
     kind?: string
     parentOrderId?: string
@@ -83,7 +86,11 @@ function scriptLine(order: PharmacyOrder) {
   return [order.metadata?.medication, order.metadata?.dose, order.metadata?.frequency].filter(Boolean).join(' · ')
 }
 
-export function PharmacyWorkspace() {
+function isIpd(order: PharmacyOrder) {
+  return Boolean(order.admission?.id || order.encounter?.type === 'inpatient')
+}
+
+export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFilter }) {
   const queryClient = useQueryClient()
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<LineDraft[]>([])
@@ -134,7 +141,15 @@ export function PharmacyWorkspace() {
     const map = new Map<string, PharmacyOrder[]>()
     for (const order of orders) {
       if (order.metadata?.kind === 'prescription') continue
-      if (order.status === 'cancelled' || remainingQty(order) === 0 || order.status === 'dispensed') continue
+      if (order.status === 'cancelled') continue
+      if (filter === 'history') {
+        if (order.status !== 'dispensed' && remainingQty(order) !== 0) continue
+      } else if (remainingQty(order) === 0 || order.status === 'dispensed') {
+        continue
+      }
+      if (filter === 'opd' && isIpd(order)) continue
+      if (filter === 'ipd' && !isIpd(order)) continue
+      if (filter === 'partial' && order.status !== 'partially_dispensed' && dispensedQty(order) <= 0) continue
       const id = groupId(order)
       const list = map.get(id) ?? []
       list.push(order)
@@ -146,7 +161,7 @@ export function PharmacyWorkspace() {
       first: lines[0],
       waiting: lines.some((line) => line.status !== 'dispensed'),
     }))
-  }, [orders])
+  }, [filter, orders])
 
   const active = groups.find((group) => group.id === activeGroupId) ?? null
 
@@ -228,8 +243,18 @@ export function PharmacyWorkspace() {
   return (
     <div className="space-y-6">
       <LabSection
-        title="Prescription queue"
-        description={`${groups.length} waiting. Open one prescription to process every medication line together.`}
+        title={
+          filter === 'ipd'
+            ? 'IPD pharmacy requests'
+            : filter === 'opd'
+              ? 'OPD prescriptions'
+              : filter === 'partial'
+                ? 'Partial dispensing'
+                : filter === 'history'
+                  ? 'Dispense history'
+                  : 'Pending requests'
+        }
+        description={`${groups.length} ${filter === 'history' ? 'closed' : 'waiting'}. Ward/bed appears only when the order is linked to an admission.`}
       >
         {isLoading ? (
           <div className="h-48 animate-skeleton rounded-2xl" />
@@ -253,7 +278,15 @@ export function PharmacyWorkspace() {
                 status={group.lines.some((line) => line.status === 'partially_dispensed') ? 'partial' : group.first.status}
                 priority={group.first.priority}
                 wait={waitLabel(group.first.orderedAt)}
-                subtitle={`${group.lines.length} line${group.lines.length === 1 ? '' : 's'} · ${group.lines.map((line) => line.metadata?.medication).filter(Boolean).join(', ')}`}
+                subtitle={[
+                  isIpd(group.first) ? 'IPD' : 'OPD',
+                  group.first.admission?.ward?.name,
+                  group.first.admission?.bed?.bedNo ? `Bed ${group.first.admission.bed.bedNo}` : null,
+                  `${group.lines.length} line${group.lines.length === 1 ? '' : 's'}`,
+                  group.lines.map((line) => line.metadata?.medication).filter(Boolean).join(', '),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               />
             ))}
           </div>

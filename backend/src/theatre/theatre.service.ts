@@ -5,6 +5,8 @@ import type { RequestContext } from '../common/request-context';
 import { Admission } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
+import { AccommodationChargeService } from '../payments/accommodation-charge.service';
+import { resolveChargeUnitPrice, type HospitalChargeItem } from '../payments/hospital-charges';
 import {
   SurgicalProcedure,
   SurgeryBooking,
@@ -40,6 +42,7 @@ export class TheatreService {
     @InjectRepository(Patient) private readonly patients: Repository<Patient>,
     @InjectRepository(Encounter) private readonly encounters: Repository<Encounter>,
     @InjectRepository(Admission) private readonly admissions: Repository<Admission>,
+    private readonly operationalCharges: AccommodationChargeService,
   ) {}
 
   createTheatre(dto: CreateTheatreDto, request: RequestContext) {
@@ -204,7 +207,37 @@ export class TheatreService {
         await this.theatres.update(booking.theatre.id, { status: 'available' });
       }
     }
-    return this.bookings.findOneOrFail({ where: { id }, relations: { theatre: true } });
+    const fresh = await this.bookings.findOneOrFail({
+      where: { id },
+      relations: { theatre: true, patient: true, procedure: true, encounter: true, admission: true },
+    });
+    if (dto.status === 'completed') {
+      await this.postTheatreCharge(fresh, request);
+    }
+    return fresh;
+  }
+
+  private async postTheatreCharge(booking: SurgeryBooking, request: RequestContext) {
+    const catalogue = await this.operationalCharges.getCatalogue(request);
+    const item =
+      catalogue.items.find((row) => row.code === booking.procedure?.code?.toUpperCase()) ??
+      catalogue.items.find(
+        (row) => row.name.toLowerCase() === (booking.procedure?.name ?? '').toLowerCase(),
+      );
+    const amount = item ? resolveTheatrePrice(item) : null;
+    if (amount == null || !booking.patient?.id) return;
+    await this.operationalCharges.upsertServiceCharge({
+      patientId: booking.patient.id,
+      encounterId: booking.encounter?.id ?? null,
+      admissionId: booking.admission?.id ?? null,
+      serviceLine: 'other',
+      serviceEntityId: booking.id,
+      description: `${booking.bookingNo} · ${booking.procedure?.name ?? 'Theatre procedure'}`,
+      amount,
+      source: 'THEATRE',
+      kind: 'theatre_complete',
+      userId: request.user?.sub ?? null,
+    });
   }
 
   async assignStaff(id: string, dto: AssignSurgeryStaffDto, request: RequestContext) {
@@ -269,4 +302,8 @@ export class TheatreService {
     const total = await this.bookings.count();
     return `SURG-${year}-${String(total + 1).padStart(5, '0')}`;
   }
+}
+
+function resolveTheatrePrice(item: HospitalChargeItem) {
+  return resolveChargeUnitPrice(item, new Date().toISOString().slice(0, 10));
 }

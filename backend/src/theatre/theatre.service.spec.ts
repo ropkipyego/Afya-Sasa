@@ -15,6 +15,10 @@ describe('TheatreService.updateBookingStatus', () => {
         findOneOrFail: jest.fn().mockResolvedValue({ id: 'bk-1', status: 'completed' }),
       },
       theatres: { update: theatresUpdate },
+      operationalCharges: {
+        getCatalogue: jest.fn().mockResolvedValue({ items: [] }),
+        upsertServiceCharge: jest.fn(),
+      },
     });
 
     await service.updateBookingStatus(
@@ -40,6 +44,10 @@ describe('TheatreService.updateBookingStatus', () => {
         findOneOrFail: jest.fn().mockResolvedValue({ id: 'bk-1', status: 'completed' }),
       },
       theatres: { update: theatresUpdate },
+      operationalCharges: {
+        getCatalogue: jest.fn().mockResolvedValue({ items: [] }),
+        upsertServiceCharge: jest.fn(),
+      },
     });
 
     await service.updateBookingStatus(

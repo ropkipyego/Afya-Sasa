@@ -29,6 +29,12 @@ export function canAccessControlCenterSection(
   if (section === 'wards') {
     return permissions.includes('wards:manage') || permissions.includes('beds:manage')
   }
+  if (section === 'charges') {
+    return (
+      permissions.includes('settings:manage') ||
+      permissions.includes('payments:manage')
+    )
+  }
   const required = permissionForControlCenterSection(section)
   return permissions.includes(required)
 }

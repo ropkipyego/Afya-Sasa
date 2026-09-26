@@ -4,6 +4,7 @@ import { ImagingDashboard } from './ImagingDashboard'
 import { RadiologyWorklist } from './RadiologyWorklist'
 import { ImagingResultsEntry } from './ImagingResultsEntry'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
+import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
 
 type ImagingTab = 'overview' | 'worklist' | 'upload'
 
@@ -12,7 +13,8 @@ export function ImagingModule({ initialTab = 'worklist' }: { initialTab?: Imagin
   const [worklistRequestId, setWorklistRequestId] = useState<string | null>(null)
 
   return (
-    <div className="workspace-shell animate-fade-in">
+    <div className="workspace-shell animate-fade-in space-y-5">
+      <DepartmentWorkspaceHeader department="Radiology" />
       <WorkspaceTabs
         active={tab}
         onChange={setTab}

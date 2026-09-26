@@ -10,6 +10,7 @@ import {
 } from './control-center-sections'
 import { canAccessControlCenterSection } from '../../lib/control-center-permissions'
 import { apiRequest } from '../../lib/api'
+import { formatKes } from '../../lib/clinical-catalog'
 
 export function ControlCenterHome({
   permissions,
@@ -30,9 +31,31 @@ export function ControlCenterHome({
         pendingLabs: number
         pendingRadiology: number
         emergencyCases: number
+        maternityCases?: number
+        theatreCases?: number
+        todayAppointments?: number
+        totalPatients?: number
+        occupancy?: { occupied: number; total: number; percent: number }
+        chargesToday?: number
+        collectionsToday?: number
+        outstanding?: number
+        dischargesToday?: number | null
       }>('/reports/operations'),
     enabled: canReadOps,
     refetchInterval: 30_000,
+  })
+  const { data: chargeJob } = useQuery({
+    queryKey: ['accommodation-charge-job', 'control-center'],
+    queryFn: () =>
+      apiRequest<{
+        lastRunAt: string | null
+        lastGenerated: number
+        lastSkipped: number
+        lastMessage: string | null
+        unpricedAutomaticItems: Array<{ name: string }>
+      }>('/payments/charges/accommodation/job'),
+    enabled: canReadOps,
+    refetchInterval: 60_000,
   })
 
   const cards = useMemo(
@@ -48,13 +71,35 @@ export function ControlCenterHome({
       {canReadOps && ops ? (
         <section>
           <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">Today</h3>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <TodayTile label="OPD visits" value={ops.patientsToday} />
-            <TodayTile label="Admissions" value={ops.admissions} />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <TodayTile label="Registered patients" value={ops.totalPatients ?? 0} />
+            <TodayTile label="OPD visits today" value={ops.patientsToday} />
+            <TodayTile label="Active admissions" value={ops.admissions} />
+            <TodayTile label="Emergency active" value={ops.emergencyCases} />
             <TodayTile label="Lab pending" value={ops.pendingLabs} />
             <TodayTile label="Radiology pending" value={ops.pendingRadiology} />
-            <TodayTile label="Emergency" value={ops.emergencyCases} />
+            <TodayTile label="Theatre today" value={ops.theatreCases ?? 0} />
+            <TodayTile label="Maternity active" value={ops.maternityCases ?? 0} />
+            <TodayTile label="Appointments today" value={ops.todayAppointments ?? 0} />
+            <TodayTile
+              label="Bed occupancy"
+              value={ops.occupancy ? `${ops.occupancy.occupied}/${ops.occupancy.total}` : '—'}
+            />
+            <TodayTile label="Discharges today" value={ops.dischargesToday ?? 0} />
+            <TodayTile label="Today's charges" value={formatKes(ops.chargesToday ?? 0)} />
+            <TodayTile label="Today's collections" value={formatKes(ops.collectionsToday ?? 0)} />
+            <TodayTile label="Outstanding" value={formatKes(ops.outstanding ?? 0)} />
           </div>
+          {chargeJob ? (
+            <p className="mt-3 text-xs text-slate-500">
+              Automatic accommodation: last run{' '}
+              {chargeJob.lastRunAt ? new Date(chargeJob.lastRunAt).toLocaleString() : 'not yet'}
+              {` · ${chargeJob.lastGenerated} created · ${chargeJob.lastSkipped} skipped`}
+              {chargeJob.unpricedAutomaticItems?.length
+                ? ` · waiting for rates: ${chargeJob.unpricedAutomaticItems.map((row) => row.name).join(', ')}`
+                : ''}
+            </p>
+          ) : null}
         </section>
       ) : null}
       <div className="relative max-w-xl">
@@ -109,7 +154,7 @@ export function ControlCenterHome({
   )
 }
 
-function TodayTile({ label, value }: { label: string; value: number }) {
+function TodayTile({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>

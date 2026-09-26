@@ -299,7 +299,7 @@ export class InventoryService {
 
       const order = await orders.findOne({
         where: { id: dto.clinicalOrderId, orderType: 'pharmacy' },
-        relations: { patient: true, encounter: true },
+        relations: { patient: true, encounter: true, admission: true },
         lock: { mode: 'pessimistic_write' },
       });
       if (!order) {
@@ -419,6 +419,7 @@ export class InventoryService {
           lineId: order.id,
           patientId: order.patient.id,
           encounterId: order.encounter?.id ?? null,
+          admissionId: order.admission?.id ?? null,
           description: `${item.name} × ${quantity} ${item.unit}`,
           suggestedAmount,
         },
@@ -1067,6 +1068,7 @@ export class InventoryService {
       serviceEntityId: dto.prescriptionGroupId ?? results[0].billing.serviceEntityId,
       patientId: results[0].billing.patientId,
       encounterId: results[0].billing.encounterId,
+      admissionId: results[0].billing.admissionId ?? null,
       description: results.map((row) => row.billing.description).join(' · '),
       suggestedAmount: suggestedAmount > 0 ? Math.round(suggestedAmount * 100) / 100 : null,
       orderNo: results[0].orderNo,
@@ -1086,6 +1088,7 @@ export class InventoryService {
     billing: {
       patientId: string;
       encounterId: string | null;
+      admissionId?: string | null;
       serviceEntityId: string;
       description: string;
       suggestedAmount: number | null;
@@ -1097,6 +1100,7 @@ export class InventoryService {
     await this.payments.upsertPharmacyCharge({
       patientId: billing.patientId,
       encounterId: billing.encounterId,
+      admissionId: billing.admissionId ?? null,
       serviceEntityId: billing.serviceEntityId,
       description: billing.description,
       amountDelta: billing.suggestedAmount,

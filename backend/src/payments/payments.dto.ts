@@ -133,6 +133,84 @@ export class RecordManualPaymentDto {
   amount?: number;
 }
 
+export class SaveHospitalChargeCatalogueDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  policy?: {
+    dayCount?: string;
+    sameDay?: string;
+    dayAnchor?: string;
+    timeZone?: string;
+    blockDischargeOnBalance?: boolean;
+  };
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  items?: Array<{
+    code: string;
+    name: string;
+    category?: string;
+    chargeType?: string;
+    unit?: string;
+    unitPrice?: number | null;
+    active?: boolean;
+    automatic?: boolean;
+    recurrence?: string;
+    effectiveFrom?: string | null;
+    wardTypes?: string[];
+    payerPrices?: Record<string, number>;
+    priceHistory?: Array<{ from: string; unitPrice: number }>;
+  }>;
+}
+
+export class CreateManualChargeDto {
+  @ApiProperty()
+  @Transform(trimString)
+  @IsString()
+  @IsNotEmpty()
+  patientId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  encounterId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  admissionId?: string;
+
+  @ApiProperty()
+  @Transform(trimString)
+  @IsString()
+  @IsNotEmpty()
+  chargeItemCode!: string;
+
+  @ApiProperty({ example: 1 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  quantity!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitPrice?: number;
+
+  @ApiProperty()
+  @Transform(trimString)
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  serviceDate?: string;
+}
+
 export class ImportOrderableCatalogDto {
   @ApiProperty({ description: 'CSV with orderable LIS tests' })
   @IsString()

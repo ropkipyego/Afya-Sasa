@@ -38,6 +38,7 @@ const moduleLabels: Record<string, string> = {
   ipd: 'Inpatient',
   laboratory: 'Laboratory',
   radiology: 'Radiology',
+  pharmacy: 'Pharmacy',
 }
 
 const listLabels: Record<string, string> = {
@@ -65,6 +66,9 @@ const listLabels: Record<string, string> = {
   collected: 'Sample collected',
   processing: 'Processing',
   verified: 'Verified',
+  pending: 'Pending dispense',
+  partial: 'Partially dispensed',
+  dispensed: 'Dispensed',
   scheduled: 'Scheduled',
   'in-progress': 'In progress',
   reported: 'Reported',
@@ -143,8 +147,8 @@ export function OperationalWorklists({
     <div className="space-y-6 animate-fade-in">
       <Card>
         <PageHeader
-          title="Care queues"
-          description="Unified, paginated queues across registration, OPD, ED, IPD, lab, and radiology."
+          title="Queue management"
+          description="Triage and doctor queues are also under Queue Management in the main menu. This board lists every department queue the hospital already runs."
         />
       </Card>
 

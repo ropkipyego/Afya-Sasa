@@ -44,11 +44,13 @@ export function PharmacyDashboard({
   onOpenStockTake,
   onOpenReceive,
   onOpenProducts,
+  onOpenSales,
 }: {
   onOpenDispense?: () => void
   onOpenStockTake?: () => void
   onOpenReceive?: () => void
   onOpenProducts?: () => void
+  onOpenSales?: () => void
 }) {
   const { data: orders = [], isLoading: ordersLoading } = useQuery({
     queryKey: ['clinical-orders', 'pharmacy'],
@@ -132,16 +134,22 @@ export function PharmacyDashboard({
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
         <button type="button" className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white" onClick={onOpenDispense}>
-          Open pharmacy queue
+          Pending requests
+        </button>
+        <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenDispense}>
+          Dispense
         </button>
         <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenStockTake}>
-          New stock take
+          Stock take
         </button>
         <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenReceive}>
           Receive stock
         </button>
         <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenProducts}>
           Products
+        </button>
+        <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenSales}>
+          Sales
         </button>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
