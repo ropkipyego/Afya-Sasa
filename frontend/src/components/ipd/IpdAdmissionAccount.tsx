@@ -78,6 +78,7 @@ export function IpdAdmissionAccount({
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['ipd-account', admissionId],
     queryFn: () => apiRequest<AdmissionAccount>(`/payments/admissions/${admissionId}/account`),
+    staleTime: 0,
   })
 
   const process = useMutation({

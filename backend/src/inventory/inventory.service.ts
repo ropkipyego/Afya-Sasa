@@ -13,6 +13,7 @@ import {
 import { classifyDrug } from './drug-class';
 import { TenantSettings } from '../core/core.entities';
 import { PaymentsService } from '../payments/payments.service';
+import { lookupCatalogueTariff, readHospitalChargeCatalogue } from '../payments/hospital-charges';
 import {
   CreateInventoryItemDto,
   CreateRequisitionDto,
@@ -102,6 +103,45 @@ export class InventoryService {
       const drugClass = item.drugClass ?? classifyDrug(item.name, item.category);
       return { ...item, ...price, drugClass };
     });
+  }
+
+  async lookupByBarcode(code: string, request?: RequestContext) {
+    const scanned = code.trim();
+    if (!scanned) throw new BadRequestException('Barcode is required');
+    const skuMatch = await this.items.findOne({
+      where: { sku: scanned.toUpperCase(), active: true },
+    });
+    const batchMatches = await this.batches.find({
+      where: { batchNo: scanned },
+      relations: { item: true, location: true },
+      take: 20,
+    });
+    const item = skuMatch ?? batchMatches[0]?.item ?? null;
+    if (!item) {
+      throw new NotFoundException('No product or batch matches this barcode. Check SKU or batch number.');
+    }
+    const batches = skuMatch
+      ? await this.batches.find({
+          where: { item: { id: item.id } },
+          relations: { location: true },
+          order: { expiryDate: 'ASC' },
+        })
+      : batchMatches.filter((row) => row.item?.id === item.id);
+    const pricing = await this.readPricingMap(request);
+    const price = pricing[item.sku] ?? { cost: 0, markup: 0, sell: 0 };
+    return {
+      match: skuMatch ? 'sku' : 'batch',
+      item: { ...item, ...price },
+      batches: batches.map((batch) => ({
+        id: batch.id,
+        batchNo: batch.batchNo,
+        expiryDate: batch.expiryDate,
+        qtyOnHand: batch.qtyOnHand,
+        locationId: batch.location?.id ?? null,
+        locationName: batch.location?.name ?? null,
+        expired: batch.expiryDate ? batch.expiryDate < new Date().toISOString().slice(0, 10) : false,
+      })),
+    };
   }
 
   async createItem(dto: CreateInventoryItemDto, request: RequestContext) {
@@ -397,7 +437,17 @@ export class InventoryService {
       await this.syncPrescriptionHeader(orders, order);
 
       const pricing = await this.readPricingMap(request);
-      const unitSell = Number(pricing[item.sku]?.sell ?? 0);
+      let unitSell = Number(pricing[item.sku]?.sell ?? 0);
+      if (!(unitSell > 0)) {
+        const settings = await this.loadSettings(request);
+        const catalogue = readHospitalChargeCatalogue((settings?.clinicalCatalog as Record<string, unknown>) ?? null);
+        unitSell =
+          lookupCatalogueTariff(catalogue.items, {
+            code: item.sku,
+            name: item.name,
+            category: 'pharmacy',
+          }) ?? 0;
+      }
       const suggestedAmount =
         Number.isFinite(unitSell) && unitSell > 0
           ? Math.round(unitSell * quantity * 100) / 100

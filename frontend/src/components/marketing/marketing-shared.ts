@@ -69,10 +69,33 @@ export type MarketingPeriodTotals = {
   followUpsCompleted: number
 }
 
+export const MARKETING_SOURCES = [
+  'Google',
+  'Website',
+  'WhatsApp',
+  'Facebook',
+  'Instagram',
+  'TikTok',
+  'Referral',
+  'Existing patient',
+  'Walk-in',
+  'Other',
+] as const
+
 export type MarketingDashboard = {
   today: MarketingPeriodTotals
   week: MarketingPeriodTotals
   month: MarketingPeriodTotals
+  sources?: string[]
+  byActivityType?: MarketingGroupRow[]
+  byService?: MarketingGroupRow[]
+  attribution?: {
+    enquiryToAppointment: number | null
+    appointmentToAttended: number | null
+    campaignToEnquiry: number | null
+    message: string
+    reason: string
+  }
 }
 
 export type MarketingGroupRow = {

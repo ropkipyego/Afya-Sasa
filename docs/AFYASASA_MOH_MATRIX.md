@@ -1,0 +1,23 @@
+# AfyaSasa MOH matrix
+
+| Tool | Status | Submission |
+| --- | --- | --- |
+| MOH705A | WORKING (projection) | MANUAL SUBMISSION / print |
+| MOH705B | WORKING (projection) | MANUAL SUBMISSION / print |
+| MOH706 | WORKING (projection) | MANUAL SUBMISSION / print |
+| MOH717 | WORKING (projection) | FACILITY SUMMARY / print |
+| MOH204A | REQUIRES OFFICIAL MOH SPEC | Do not invent |
+| MOH209 | REQUIRES OFFICIAL MOH SPEC | Radiology data exists |
+| MOH240B–G | REQUIRES OFFICIAL MOH SPEC | Lab data exists |
+| MOH262 | REQUIRES OFFICIAL MOH SPEC | |
+| MOH301 | REQUIRES OFFICIAL MOH SPEC | Admission data exists |
+| MOH333 | REQUIRES OFFICIAL MOH SPEC | Maternity data exists |
+| MOH361–366 HIV/SGBV | REQUIRES PROGRAM + SPEC | |
+| MOH405 / 406 | REQUIRES OFFICIAL MOH SPEC | ANC/PNC data exists |
+| MOH407 / 408 / 510 / 511 / 512 | REQUIRES OFFICIAL MOH SPEC | |
+| PEP / TB / OT / Physio forms | REQUIRES OFFICIAL MOH SPEC or BUSINESS DECISION | |
+| Cards 201/216/257/258/268/HEI/ICF | REQUIRES OFFICIAL MOH SPEC | |
+| Tally 701/702/704 | REQUIRES OFFICIAL MOH SPEC | |
+| Other summaries (710, 713, 731, …) | REQUIRES OFFICIAL MOH SPEC | |
+| HRI 107A / 107B | REQUIRES OFFICIAL MOH/HRI SPECIFICATION | Not invented |
+| KHIS/DHIS auto-submit | REQUIRES NO CHANGE until official API confirmed | Do not fake |

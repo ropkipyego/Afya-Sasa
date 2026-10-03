@@ -10,6 +10,7 @@ import {
   CreateEncounterDto,
   CreateSickSheetDto,
   CreateTriageDto,
+  AssignAttendingDoctorDto,
   UpdateConsultationDto,
   UpdateEncounterStatusDto,
 } from './opd.dto';
@@ -53,6 +54,16 @@ export class OpdController {
     return this.opdService.updateStatus(id, dto.status, request);
   }
 
+  @Patch('encounters/:id/attending-doctor')
+  @RequirePermissions('encounters:update')
+  assignAttendingDoctor(
+    @Param('id') id: string,
+    @Body() dto: AssignAttendingDoctorDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.opdService.assignAttendingDoctor(id, dto.attendingDoctorId ?? null, request);
+  }
+
   @Get('triage/queue')
   @RequirePermissions('triage:read')
   triageQueue() {
@@ -83,8 +94,8 @@ export class OpdController {
 
   @Get('doctor/queue')
   @RequirePermissions('consultations:read')
-  doctorQueue(@Query('doctorId') doctorId?: string, @Req() request?: RequestContext) {
-    return this.opdService.doctorQueue(doctorId ?? request?.user?.sub);
+  doctorQueue(@Req() request: RequestContext, @Query('doctorId') doctorId?: string) {
+    return this.opdService.doctorQueue(request, doctorId);
   }
 
   @Post('encounters/:id/consultations')

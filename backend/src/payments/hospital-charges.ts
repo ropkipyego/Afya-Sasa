@@ -707,6 +707,30 @@ export function chargeItemForWardType(items: HospitalChargeItem[], wardType: str
   return items.find((item) => item.code === fallbackCode) ?? items.find((item) => item.code === 'ACC-GENERAL') ?? null;
 }
 
+/** Exact code, then exact name. Never merge on similar names. */
+export function lookupCatalogueTariff(
+  items: HospitalChargeItem[],
+  query: { code?: string | null; name?: string | null; category?: HospitalChargeCategory | null },
+  serviceDate = new Date().toISOString().slice(0, 10),
+): number | null {
+  const code = query.code?.trim().toUpperCase();
+  if (code) {
+    const exact = items.find((item) => item.active !== false && item.code.toUpperCase() === code);
+    if (exact) return resolveChargeUnitPrice(exact, serviceDate);
+  }
+  const name = query.name?.trim().toLowerCase();
+  if (name) {
+    const matches = items.filter(
+      (item) =>
+        item.active !== false &&
+        item.name.trim().toLowerCase() === name &&
+        (!query.category || item.category === query.category),
+    );
+    if (matches.length === 1) return resolveChargeUnitPrice(matches[0], serviceDate);
+  }
+  return null;
+}
+
 export function resolveChargeUnitPrice(
   item: HospitalChargeItem,
   serviceDate: string,

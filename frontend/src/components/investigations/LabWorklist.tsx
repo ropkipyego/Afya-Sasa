@@ -83,6 +83,7 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [activeId, setActiveId] = useState<string | null>(initialRequestId ?? null)
+  const [specimenBarcode, setSpecimenBarcode] = useState('')
   const [showNewRequest, setShowNewRequest] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [fileBusyId, setFileBusyId] = useState<string | null>(null)
@@ -234,6 +235,42 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
           </Button>
         }
       >
+        <label className="mb-4 block max-w-md text-sm">
+          <span className="font-medium text-slate-700">Scan specimen barcode</span>
+          <input
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            value={specimenBarcode}
+            onChange={(event) => setSpecimenBarcode(event.target.value)}
+            onKeyDown={async (event) => {
+              if (event.key !== 'Enter' || !specimenBarcode.trim()) return
+              event.preventDefault()
+              try {
+                const scan = await apiRequest<{
+                  requestId: string | null
+                  patientName: string | null
+                  identity: string
+                }>('/laboratory/samples/scan', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    barcode: specimenBarcode.trim(),
+                    expectedRequestId: activeId || undefined,
+                  }),
+                })
+                if (scan.requestId) setActiveId(scan.requestId)
+                notify('Specimen scanned', scan.patientName || scan.identity, 'success')
+                setSpecimenBarcode('')
+                await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
+              } catch (error) {
+                notify(
+                  'Specimen not accepted',
+                  error instanceof Error ? error.message : 'Unknown barcode',
+                  'warning',
+                )
+              }
+            }}
+            placeholder="Scan label — identifies the specimen, not the patient"
+          />
+        </label>
         {showNewRequest ? (
           <div className="mb-6 rounded-2xl border border-teal-200 bg-teal-50/40 p-5">
             <PatientSearchAutocomplete selected={selectedPatient} onSelect={setSelectedPatient} />

@@ -58,6 +58,12 @@ export class InventoryController {
     return this.inventoryService.listItems({ category, request });
   }
 
+  @Get('barcode/:code')
+  @RequirePermissions('inventory:read', 'pharmacy:read', 'inventory:manage', 'pharmacy:dispense')
+  lookupBarcode(@Param('code') code: string, @Req() request: RequestContext) {
+    return this.inventoryService.lookupByBarcode(decodeURIComponent(code), request);
+  }
+
   @Post('items')
   @RequirePermissions('inventory:manage')
   createItem(@Body() dto: CreateInventoryItemDto, @Req() request: RequestContext) {

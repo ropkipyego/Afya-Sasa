@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -14,7 +14,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Alert, Button, Card, PageHeader } from '../ui'
-import { apiRequest } from '../../lib/api'
+import { apiRequest, formatApiError } from '../../lib/api'
 import { formatKes } from '../../lib/clinical-catalog'
 
 type DailyPoint = { date: string; count: number }
@@ -36,17 +36,32 @@ type AnalyticsData = {
     surgeries: number
     referrals: number
     avgDailyOpd: number
-    bedOccupancyPercent: number
     occupiedBeds: number
     totalBeds: number
-    charges?: number
-    collections?: number
-    outstanding?: number
-    accommodationCharges?: number
+    currentInpatients?: number
+    charges?: number | null
+    collections?: number | null
+    outstanding?: number | null
+    accommodationCharges?: number | null
+    bedOccupancyPercent: number | null
   }
   comparison: Record<string, Comparison>
   trends: Record<string, DailyPoint[]>
   breakdowns: Record<string, Record<string, number>>
+  financeVisible?: boolean
+  chargesEnabled?: boolean
+  accountingIntegration?: 'pending' | string
+  attention?: {
+    unassignedOpd: number
+    waitingForDoctor: number
+    pendingLabVerification: number
+    pendingRadiologyReports: number
+    pendingDischarge: number | null
+    bedConflicts: number | null
+    biometricDeviceStatus: string
+    failedIntegrations: number | null
+    notificationFailures: number | null
+  }
 }
 
 type IntelligenceData = {
@@ -78,12 +93,12 @@ type DashboardConfig = {
 const CONFIG_KEY = 'afyasasa-executive-dashboard-config'
 
 const presets = [
-  { id: '1d', label: 'Today', days: 1 },
-  { id: '7d', label: '7 days', days: 7 },
-  { id: '30d', label: '30 days', days: 30 },
-  { id: '90d', label: '90 days', days: 90 },
-  { id: '180d', label: '6 months', days: 180 },
-  { id: '365d', label: '12 months', days: 365 },
+  { id: 'today', label: 'Today', mode: 'today' },
+  { id: 'yesterday', label: 'Yesterday', mode: 'yesterday' },
+  { id: 'week', label: 'This week', mode: 'week' },
+  { id: 'month', label: 'This month', mode: 'month' },
+  { id: '7d', label: '7 days', mode: 'days', days: 7 },
+  { id: '30d', label: '30 days', mode: 'days', days: 30 },
 ] as const
 
 function defaultConfig(): DashboardConfig {
@@ -116,6 +131,21 @@ function isoDaysAgo(days: number) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function startOfUtcWeek(date = new Date()) {
+  const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  const weekday = copy.getUTCDay() || 7
+  copy.setUTCDate(copy.getUTCDate() - (weekday - 1))
+  return copy.toISOString().slice(0, 10)
+}
+
+function startOfUtcMonth(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString().slice(0, 10)
+}
+
+function yesterdayIso() {
+  return isoDaysAgo(2)
 }
 
 function DeltaBadge({ comparison }: { comparison?: Comparison }) {
@@ -208,37 +238,69 @@ function BreakdownTable({ title, rows }: { title: string; rows: Record<string, n
   )
 }
 
+function AttentionLink({
+  label,
+  value,
+  href,
+}: {
+  label: string
+  value: number | null
+  href: string
+}) {
+  return (
+    <button
+      type="button"
+      className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left"
+      onClick={() => window.dispatchEvent(new CustomEvent('afyasasa:navigate', { detail: href }))}
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+        {value == null ? 'Data unavailable' : value}
+      </p>
+      <p className="mt-1 text-xs text-teal-700">Open {href}</p>
+    </button>
+  )
+}
+
 function KpiCard({
   label,
   value,
   icon: Icon,
   comparison,
   suffix,
+  unavailable,
 }: {
   label: string
   value: number | string
   icon: typeof Activity
-  comparison?: Comparison
+  comparison?: Comparison | null
   suffix?: string
+  unavailable?: boolean
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <Icon className="h-5 w-5 text-teal-700" />
-        <DeltaBadge comparison={comparison} />
+        {!unavailable && comparison ? <DeltaBadge comparison={comparison} /> : null}
       </div>
       <p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-3xl font-bold tabular-nums text-slate-900">
-        {value}
-        {suffix ? <span className="text-lg font-semibold">{suffix}</span> : null}
+        {unavailable ? (
+          <span className="text-lg font-semibold text-slate-500">Data unavailable</span>
+        ) : (
+          <>
+            {value}
+            {suffix ? <span className="text-lg font-semibold">{suffix}</span> : null}
+          </>
+        )}
       </p>
     </div>
   )
 }
 
 export function ExecutiveAnalyticsDashboard() {
-  const [presetDays, setPresetDays] = useState(30)
-  const [from, setFrom] = useState(isoDaysAgo(30))
+  const [presetId, setPresetId] = useState<string>('month')
+  const [from, setFrom] = useState(startOfUtcMonth())
   const [to, setTo] = useState(todayIso())
   const [configOpen, setConfigOpen] = useState(false)
   const [config, setConfig] = useState<DashboardConfig>(loadConfig)
@@ -247,16 +309,39 @@ export function ExecutiveAnalyticsDashboard() {
     queryKey: ['executive-analytics', from, to],
     queryFn: () =>
       apiRequest<AnalyticsData>(`/reports/executive-analytics?from=${from}&to=${to}`),
+    staleTime: 20_000,
   })
   const { data: intelligence } = useQuery({
     queryKey: ['executive-intelligence', from, to],
     queryFn: () =>
       apiRequest<IntelligenceData>(`/reports/intelligence?from=${from}&to=${to}`),
+    staleTime: 20_000,
   })
 
-  const applyPreset = (days: number) => {
-    setPresetDays(days)
-    setFrom(isoDaysAgo(days))
+  const applyPreset = (preset: (typeof presets)[number]) => {
+    setPresetId(preset.id)
+    if (preset.mode === 'today') {
+      setFrom(todayIso())
+      setTo(todayIso())
+      return
+    }
+    if (preset.mode === 'yesterday') {
+      const yesterday = yesterdayIso()
+      setFrom(yesterday)
+      setTo(yesterday)
+      return
+    }
+    if (preset.mode === 'week') {
+      setFrom(startOfUtcWeek())
+      setTo(todayIso())
+      return
+    }
+    if (preset.mode === 'month') {
+      setFrom(startOfUtcMonth())
+      setTo(todayIso())
+      return
+    }
+    setFrom(isoDaysAgo(preset.days))
     setTo(todayIso())
   }
 
@@ -291,23 +376,12 @@ export function ExecutiveAnalyticsDashboard() {
     URL.revokeObjectURL(url)
   }
 
-  const checklist = useMemo(
-    () => [
-      { label: 'Date range applied', done: Boolean(from && to) },
-      { label: 'KPI summary loaded', done: Boolean(data?.summary) },
-      { label: 'Trend series available', done: Boolean(data?.trends?.opdVisits?.length) },
-      { label: 'Prior-period comparison', done: Boolean(data?.comparison?.opdVisits) },
-      { label: 'Module breakdowns', done: Boolean(data?.breakdowns) },
-    ],
-    [data, from, to],
-  )
-
   return (
     <div className="space-y-6 animate-fade-in">
       <Card className="bg-gradient-to-br from-slate-900 via-slate-800 to-teal-900 p-8 text-white">
         <PageHeader
-          title="Executive analytics"
-          description="BI-style hospital performance — configurable date ranges, trends, and comparisons for directors and medical superintendents."
+          title="Director dashboard"
+          description="Read-only hospital overview from live clinical and operational tables. Payments are not called revenue. QuickBooks remains the accounting system."
         />
         <p className="mt-2 text-xs text-slate-300">
           Comparing {data?.range.from ?? from} → {data?.range.to ?? to}
@@ -327,9 +401,9 @@ export function ExecutiveAnalyticsDashboard() {
                 <Button
                   key={preset.id}
                   type="button"
-                  variant={presetDays === preset.days ? 'primary' : 'secondary'}
+                  variant={presetId === preset.id ? 'primary' : 'secondary'}
                   className="text-xs"
-                  onClick={() => applyPreset(preset.days)}
+                  onClick={() => applyPreset(preset)}
                 >
                   {preset.label}
                 </Button>
@@ -343,7 +417,7 @@ export function ExecutiveAnalyticsDashboard() {
               className="input mt-1 block"
               value={from}
               onChange={(e) => {
-                setPresetDays(0)
+                setPresetId('custom')
                 setFrom(e.target.value)
               }}
             />
@@ -355,7 +429,7 @@ export function ExecutiveAnalyticsDashboard() {
               className="input mt-1 block"
               value={to}
               onChange={(e) => {
-                setPresetDays(0)
+                setPresetId('custom')
                 setTo(e.target.value)
               }}
             />
@@ -400,23 +474,15 @@ export function ExecutiveAnalyticsDashboard() {
         ) : null}
       </Card>
 
-      <Card className="p-5">
-        <h3 className="text-sm font-bold text-slate-800">Dashboard readiness</h3>
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {checklist.map((item) => (
-            <li
-              key={item.label}
-              className={`rounded-lg px-3 py-2 text-sm ${
-                item.done ? 'bg-emerald-50 text-emerald-900' : 'bg-slate-50 text-slate-600'
-              }`}
-            >
-              {item.done ? '✓' : '○'} {item.label}
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      {error ? <Alert tone="error">{error.message}</Alert> : null}
+      {error ? (
+        <Alert tone="error">
+          <p className="font-semibold">Unable to load the Director dashboard.</p>
+          <p>{formatApiError(error, 'The server did not complete the request.')}</p>
+          <Button type="button" variant="secondary" className="mt-3" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </Alert>
+      ) : null}
 
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -458,10 +524,18 @@ export function ExecutiveAnalyticsDashboard() {
                   comparison={data.comparison.discharges}
                 />
                 <KpiCard
+                  label="Current inpatients"
+                  value={data.summary.currentInpatients ?? 0}
+                  icon={BedDouble}
+                />
+                <KpiCard
                   label="Bed occupancy"
-                  value={data.summary.bedOccupancyPercent}
+                  value={data.summary.bedOccupancyPercent ?? 0}
                   suffix="%"
                   icon={BedDouble}
+                  unavailable={
+                    data.summary.bedOccupancyPercent == null || data.summary.totalBeds === 0
+                  }
                 />
               </>
             ) : null}
@@ -490,28 +564,107 @@ export function ExecutiveAnalyticsDashboard() {
               />
             ) : null}
             <KpiCard label="Avg daily OPD" value={data.summary.avgDailyOpd} icon={Activity} />
-            <KpiCard
-              label="Charges posted"
-              value={formatKes(data.summary.charges ?? 0)}
-              icon={Activity}
-            />
-            <KpiCard
-              label="Collections"
-              value={formatKes(data.summary.collections ?? 0)}
-              icon={Activity}
-            />
-            <KpiCard
-              label="Outstanding"
-              value={formatKes(data.summary.outstanding ?? 0)}
-              icon={Activity}
-            />
-            <KpiCard
-              label="Accommodation charges"
-              value={formatKes(data.summary.accommodationCharges ?? 0)}
-              icon={BedDouble}
-            />
             <KpiCard label="Appointments" value={data.summary.appointments} icon={CalendarRange} />
           </div>
+
+          <Card className="space-y-3 p-5">
+            <h3 className="text-sm font-bold text-slate-800">Finance snapshot</h3>
+            <p className="text-xs text-slate-500">
+              Charges are posted amounts. Payments received are collections. Outstanding is unpaid
+              charge balance. These are not a general ledger. Accounting integration pending.
+            </p>
+            {data.financeVisible === false ? (
+              <Alert tone="info">You do not have permission to view financial totals.</Alert>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiCard
+                  label="Charges generated"
+                  value={formatKes(data.summary.charges ?? 0)}
+                  icon={Activity}
+                  comparison={data.comparison.charges}
+                  unavailable={data.chargesEnabled === false}
+                />
+                <KpiCard
+                  label="Payments received"
+                  value={formatKes(data.summary.collections ?? 0)}
+                  icon={Activity}
+                  comparison={data.comparison.collections}
+                />
+                <KpiCard
+                  label="Outstanding balances"
+                  value={formatKes(data.summary.outstanding ?? 0)}
+                  icon={Activity}
+                  comparison={data.comparison.outstanding}
+                  unavailable={data.chargesEnabled === false}
+                />
+                <KpiCard
+                  label="Accommodation charges"
+                  value={formatKes(data.summary.accommodationCharges ?? 0)}
+                  icon={BedDouble}
+                  unavailable={data.chargesEnabled === false}
+                />
+              </div>
+            )}
+          </Card>
+
+          {data.attention ? (
+            <Card className="space-y-3 p-5">
+              <h3 className="text-sm font-bold text-slate-800">Operational attention</h3>
+              <p className="text-xs text-slate-500">
+                Live counts from canonical tables. Zero means the database currently has none.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <AttentionLink
+                  label="Unassigned OPD encounters"
+                  value={data.attention.unassignedOpd}
+                  href="Doctor Queue"
+                />
+                <AttentionLink
+                  label="Patients waiting for doctor"
+                  value={data.attention.waitingForDoctor}
+                  href="Doctor Queue"
+                />
+                <AttentionLink
+                  label="Pending lab verification"
+                  value={data.attention.pendingLabVerification}
+                  href="Laboratory"
+                />
+                <AttentionLink
+                  label="Pending radiology reports"
+                  value={data.attention.pendingRadiologyReports}
+                  href="Radiology"
+                />
+                <AttentionLink
+                  label="Pending discharge summaries"
+                  value={data.attention.pendingDischarge}
+                  href="Inpatient (IPD)"
+                />
+                <AttentionLink
+                  label="Bed assignment conflicts"
+                  value={data.attention.bedConflicts}
+                  href="Inpatient (IPD)"
+                />
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Biometric device
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                    {data.attention.biometricDeviceStatus}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Failed integrations
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                    {data.attention.failedIntegrations == null
+                      ? 'Data unavailable'
+                      : data.attention.failedIntegrations}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          ) : null}
 
           {intelligence?.findings?.length ? (
             <Card className="space-y-3 p-5">
@@ -616,7 +769,7 @@ export function ExecutiveAnalyticsDashboard() {
           ) : null}
 
           <p className="text-xs text-slate-500">
-            Generated {new Date(data.generatedAt).toLocaleString()}
+            Last updated: {new Date(data.generatedAt).toLocaleString()}
           </p>
         </>
       ) : null}

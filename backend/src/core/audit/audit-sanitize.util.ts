@@ -13,6 +13,15 @@ const REDACTED_KEYS = new Set([
   'clientsecret',
   'client_secret',
   'passkey',
+  'devicesecret',
+  'device_secret',
+  'devicehmac',
+  'template',
+  'templatecipher',
+  'fingerprint',
+  'fmd',
+  'fir',
+  'biometricpayload',
 ]);
 
 export function sanitizeAuditPayload(

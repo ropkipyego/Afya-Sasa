@@ -7,6 +7,7 @@ import {
   classifyZeroPrice,
   defaultHospitalChargeCatalogue,
   isBillablePrice,
+  lookupCatalogueTariff,
   planAccommodationCharges,
   previewCatalogueRows,
   resolveChargeUnitPrice,
@@ -197,5 +198,15 @@ describe('billable catalogue preview', () => {
     expect(preview[1].flags).toContain('near_duplicate');
     expect(preview[2].importable).toBe(false);
     expect(preview[2].flags).toContain('zero_price');
+  });
+
+  it('looks up a tariff by exact code or exact name only', () => {
+    const items = [
+      { ...defaultHospitalChargeCatalogue().items[0], code: 'OPD-GP', name: 'General consultation', unitPrice: 1000 },
+      { ...defaultHospitalChargeCatalogue().items[0], code: 'OPD-SPEC', name: 'Specialist consultation', unitPrice: 2500 },
+    ];
+    expect(lookupCatalogueTariff(items, { code: 'OPD-GP' })).toBe(1000);
+    expect(lookupCatalogueTariff(items, { name: 'Specialist consultation' })).toBe(2500);
+    expect(lookupCatalogueTariff(items, { name: 'consultation' })).toBeNull();
   });
 });

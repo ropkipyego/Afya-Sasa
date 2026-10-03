@@ -95,6 +95,13 @@ export class UpdateEncounterStatusDto {
     | 'completed';
 }
 
+export class AssignAttendingDoctorDto {
+  @ApiProperty({ description: 'Clinical staff user id, or empty to unassign' })
+  @IsOptional()
+  @IsString()
+  attendingDoctorId?: string | null;
+}
+
 export class CreateTriageDto {
   @ApiProperty()
   @IsString()

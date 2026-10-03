@@ -293,7 +293,7 @@ export function clinicConsultationFee(
   clinicName?: string | null,
 ) {
   const fee = Number(clinicByName(catalog, clinicName)?.consultationFee ?? 0)
-  return Number.isFinite(fee) ? fee : 0
+  return Number.isFinite(fee) && fee > 0 ? fee : 0
 }
 
 export function formatKes(amount?: number | string | null) {

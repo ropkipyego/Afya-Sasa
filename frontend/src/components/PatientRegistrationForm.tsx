@@ -23,6 +23,7 @@ import { formDataFromElement } from '../lib/form-utils'
 import { printPatientCard } from '../lib/print-patient-card'
 import { notify } from '../lib/notify'
 import { ShaEligibilityCard } from './sha/ShaEligibilityCard'
+import { BiometricEnrollButton, BiometricIdentifyButton } from './biometrics/BiometricActions'
 
 export type RegisteredPatient = {
   id: string
@@ -367,6 +368,18 @@ export function PatientRegistrationForm({
               setSearchMatch(patient)
             }}
           />
+          <div className="mt-3">
+            <BiometricIdentifyButton
+              onMatch={(patient) => {
+                setSearchMatch({
+                  id: patient.id,
+                  patientNo: patient.patientNo,
+                  firstName: patient.firstName,
+                  lastName: patient.lastName,
+                })
+              }}
+            />
+          </div>
           {searchMatch ? (
             <Alert tone="warning" className="mt-4" title="Possible existing record">
               <strong>
@@ -392,11 +405,32 @@ export function PatientRegistrationForm({
           {message ? <Alert tone="success" className="mt-4">{message}</Alert> : null}
           {registeredPatient ? (
             <Card className="mt-4 border-teal-200 bg-teal-50 p-5">
-              <p className="text-sm font-semibold text-teal-900">
-                {registeredPatient.firstName} {registeredPatient.lastName} ({registeredPatient.patientNo}) is
-                registered.
+              <p className="text-xs font-bold uppercase tracking-wide text-teal-800">
+                Patient registered successfully
               </p>
+              <p className="mt-2 text-lg font-bold text-slate-900">
+                {registeredPatient.patientNo} · {registeredPatient.firstName} {registeredPatient.lastName}
+              </p>
+              <p className="text-sm text-slate-700">
+                DOB {registeredPatient.dateOfBirth?.slice(0, 10) || '—'} · {registeredPatient.gender}
+                {registeredPatient.primaryPhone ? ` · ${registeredPatient.primaryPhone}` : ''}
+              </p>
+              <p className="mt-2 text-sm text-slate-600">Fingerprint: Not enrolled</p>
               <div className="mt-4 flex flex-wrap gap-3">
+                <BiometricEnrollButton patient={registeredPatient} />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setRegisteredPatient(null)
+                    setMessage(null)
+                  }}
+                >
+                  Skip for now
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => onViewPatient?.(registeredPatient.id)}>
+                  Continue
+                </Button>
                 <Button type="button" onClick={() => onQuickCheckIn?.(registeredPatient)}>
                   Quick Check-In
                 </Button>

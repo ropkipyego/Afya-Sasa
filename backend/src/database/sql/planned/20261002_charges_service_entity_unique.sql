@@ -1,0 +1,11 @@
+-- PLANNED — NOT APPLIED TO PRODUCTION
+-- Reason: prevent two active charges for the same service entity.
+-- Application already checks existing (service_line, service_entity_id) before insert.
+-- Live charge count is 0, but this still needs explicit authorization before apply.
+-- Do not run TypeORM migrate. Apply only with a supervised SQL session after backup.
+
+-- CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS charges_service_entity_active_uidx
+-- ON demo.charges (service_line, service_entity_id)
+-- WHERE deleted_at IS NULL
+--   AND service_entity_id IS NOT NULL
+--   AND status IN ('owed', 'partially_paid', 'paid');

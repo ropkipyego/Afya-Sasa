@@ -95,18 +95,21 @@ export function PaymentDesk() {
     queryKey: ['patient-payments', patient?.id],
     queryFn: () => listPatientPayments(patient!.id),
     enabled: Boolean(patient?.id),
+    staleTime: 0,
   })
 
   const { data: outstandingPharmacy = [], refetch: refetchOutstanding } = useQuery({
     queryKey: ['pharmacy-outstanding', patient?.id],
     queryFn: () => listOutstandingPharmacy(patient!.id),
     enabled: Boolean(patient?.id),
+    staleTime: 0,
   })
 
   const { data: patientCharges = [], refetch: refetchCharges } = useQuery({
     queryKey: ['patient-charges', patient?.id],
     queryFn: () => listPatientCharges(patient!.id),
     enabled: Boolean(patient?.id),
+    staleTime: 0,
   })
 
   const chargeTotals = useMemo(() => {

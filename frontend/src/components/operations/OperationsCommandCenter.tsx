@@ -8,15 +8,16 @@ import {
   ScanLine,
   Users,
 } from 'lucide-react'
-import { Card, PageHeader } from '../ui'
-import { apiRequest } from '../../lib/api'
+import { Alert, Button, Card, PageHeader } from '../ui'
+import { apiRequest, formatApiError } from '../../lib/api'
+import { formatKes } from '../../lib/clinical-catalog'
 
 type OpsData = {
   generatedAt: string
   patientsToday: number
   admissions: number
   dischargesToday: number | null
-  occupancy: { occupied: number; total: number; percent: number }
+  occupancy: { occupied: number; total: number; percent: number | null; available?: boolean }
   pendingLabs: number
   pendingRadiology: number
   criticalPatients: number
@@ -25,6 +26,12 @@ type OpsData = {
   theatreCases: number
   todayAppointments: number
   totalPatients: number
+  chargesToday?: number | null
+  collectionsToday?: number | null
+  outstanding?: number | null
+  financeVisible?: boolean
+  chargesEnabled?: boolean
+  accountingIntegration?: string
 }
 
 function MetricTile({
@@ -53,11 +60,26 @@ function MetricTile({
 }
 
 export function OperationsCommandCenter() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['operations-dashboard'],
     queryFn: () => apiRequest<OpsData>('/reports/operations'),
     refetchInterval: 30_000,
+    staleTime: 15_000,
   })
+
+  if (isError) {
+    return (
+      <div className="space-y-3">
+        <Alert tone="error">
+          <p className="font-semibold">Unable to load hospital operations.</p>
+          <p>{formatApiError(error, 'The server did not complete the request.')}</p>
+        </Alert>
+        <Button type="button" variant="secondary" onClick={() => refetch()}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (
@@ -73,8 +95,8 @@ export function OperationsCommandCenter() {
     <div className="space-y-6 animate-fade-in">
       <Card className="bg-gradient-to-br from-slate-900 to-slate-800 text-white">
         <PageHeader
-          title="Hospital operations command center"
-          description="Executive view for management, nursing leads, and medical superintendent."
+          title="Hospital operations"
+          description="Live hospital activity for management, nursing leads, and the medical superintendent."
         />
         <p className="mt-2 text-xs text-slate-400">
           Last updated: {data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : '—'}
@@ -96,8 +118,12 @@ export function OperationsCommandCenter() {
         />
         <MetricTile
           label="Bed occupancy"
-          value={data?.occupancy.percent ?? 0}
-          suffix="%"
+          value={
+            data?.occupancy.available === false || data?.occupancy.percent == null
+              ? 'Data unavailable'
+              : data.occupancy.percent
+          }
+          suffix={data?.occupancy.percent == null ? undefined : '%'}
           icon={BedDouble}
           tone="border-teal-200 bg-teal-50 text-teal-900"
         />
@@ -157,11 +183,44 @@ export function OperationsCommandCenter() {
         />
       </div>
 
-      <Card className="border-dashed">
-        <p className="text-center text-sm text-slate-500">
-          Revenue and active users are placeholders for a future finance integration.
-        </p>
-      </Card>
+      {data?.financeVisible === false ? (
+        <Alert tone="info">Financial totals are hidden for this role.</Alert>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">
+            Charges, payments received, and outstanding balances are separate. Accounting
+            integration pending — QuickBooks remains the GL.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <MetricTile
+              label="Charges today"
+              value={
+                data?.chargesEnabled === false
+                  ? 'Data unavailable'
+                  : formatKes(data?.chargesToday ?? 0)
+              }
+              icon={Activity}
+              tone="border-amber-200 bg-amber-50 text-amber-950"
+            />
+            <MetricTile
+              label="Payments received today"
+              value={formatKes(data?.collectionsToday ?? 0)}
+              icon={Activity}
+              tone="border-emerald-200 bg-emerald-50 text-emerald-900"
+            />
+            <MetricTile
+              label="Outstanding balances"
+              value={
+                data?.chargesEnabled === false
+                  ? 'Data unavailable'
+                  : formatKes(data?.outstanding ?? 0)
+              }
+              icon={Activity}
+              tone="border-rose-200 bg-rose-50 text-rose-900"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

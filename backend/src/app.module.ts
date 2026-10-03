@@ -1,5 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -35,11 +35,13 @@ import { PaymentsModule } from './payments/payments.module';
 import { ShaModule } from './integration/sha/sha.module';
 import { VisitQueueModule } from './queue/visit-queue.module';
 import { ExportsModule } from './exports/exports.module';
+import { BiometricModule } from './biometric/biometric.module';
 import { TenantMiddleware } from './core/tenancy/tenant.middleware';
 import { RequestIdMiddleware } from './common/request-id.middleware';
 import { JwtAccessGuard, PermissionsGuard } from './core/auth/auth.guards';
 import { AuditInterceptor } from './core/audit/audit.interceptor';
 import { HttpLoggingInterceptor } from './common/http-logging.interceptor';
+import { ApiErrorFilter } from './common/errors/api-error.filter';
 
 @Module({
   imports: [
@@ -108,12 +110,14 @@ import { HttpLoggingInterceptor } from './common/http-logging.interceptor';
     ShaModule,
     VisitQueueModule,
     ExportsModule,
+    BiometricModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: JwtAccessGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_FILTER, useClass: ApiErrorFilter },
     { provide: APP_INTERCEPTOR, useClass: HttpLoggingInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],

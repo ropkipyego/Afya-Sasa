@@ -16,6 +16,7 @@ import {
   Package,
   Pill,
   Printer,
+  ScanFace,
   ScanLine,
   Settings,
   Stethoscope,
@@ -35,6 +36,7 @@ export const navigation: NavItem[] = [
   // Front Office
   { group: 'Front Office', label: 'Register Patient', icon: UserPlus, permission: 'patients:create', shortLabel: 'Register' },
   { group: 'Front Office', label: 'Patient Registry', icon: Users, permission: 'patients:read', shortLabel: 'Registry' },
+  { group: 'Front Office', label: 'Identify Patient', icon: ScanFace, permission: 'patients:search', shortLabel: 'Identify' },
   { group: 'Front Office', label: 'OPD Check-In', icon: Hospital, permission: 'encounters:create', shortLabel: 'Check-in' },
   { group: 'Front Office', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
 
@@ -114,6 +116,7 @@ export const groupIcons: Record<string, LucideIcon> = {
 }
 
 export const workflowDescriptions: Record<string, string> = {
+  'Identify Patient': 'Identify an existing patient with the DigitalPersona 4500, then open the normal patient file.',
   'Register Patient': 'Search globally in the header first — register only if no match exists.',
   'OPD Check-In': 'Step-by-step check-in — patient, clinic, visit type, then confirm.',
   'Triage Queue': 'Nurse queue — vitals, category, then send to the doctor.',

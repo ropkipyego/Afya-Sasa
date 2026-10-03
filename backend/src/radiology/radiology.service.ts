@@ -12,6 +12,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AdminService } from '../core/admin/admin.service';
 import { AccommodationChargeService } from '../payments/accommodation-charge.service';
+import { lookupCatalogueTariff } from '../payments/hospital-charges';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
 import {
@@ -93,7 +94,12 @@ export class RadiologyService {
         study.bodyPart?.trim().toLowerCase() === bodyPart.trim().toLowerCase(),
     );
     const sell = Number((match as { sell?: number } | undefined)?.sell);
-    return Number.isFinite(sell) && sell > 0 ? sell : null;
+    if (Number.isFinite(sell) && sell > 0) return sell;
+    const catalogue = await this.operationalCharges.getCatalogue(request);
+    return (
+      lookupCatalogueTariff(catalogue.items, { code: match?.code, name: match?.name, category: 'radiology' }) ??
+      lookupCatalogueTariff(catalogue.items, { code: modalityCode, category: 'radiology' })
+    );
   }
 
   async importCatalog(dto: ImportRadiologyCatalogDto, request: RequestContext) {

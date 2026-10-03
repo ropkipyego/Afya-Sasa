@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, MoreThanOrEqual, Not, Repository } from 'typeorm';
-import type { RequestContext } from '../common/request-context';
+import type { AuthenticatedUserContext, RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { User, Role, UserRole } from '../core/core.entities';
 import { defaultTenantCode } from '../common/tenant-defaults';
@@ -47,6 +47,24 @@ const OPEN_OPD_STATUSES: OpdEncounterStatus[] = [
   'awaiting_results',
   'admitted',
 ];
+
+const DOCTOR_QUEUE_STATUSES: OpdEncounterStatus[] = [
+  'triaged',
+  'in_consultation',
+  'awaiting_results',
+];
+
+const DOCTOR_QUEUE_SUPERVISOR_ROLES = new Set([
+  'administrator',
+  'superadmin',
+  'director',
+]);
+
+function canSeeHospitalDoctorQueue(user?: AuthenticatedUserContext) {
+  if (!user) return false;
+  if (user.roles.some((role) => DOCTOR_QUEUE_SUPERVISOR_ROLES.has(role))) return true;
+  return (user.permissions ?? []).includes('settings:manage');
+}
 
 /** Start of the current calendar day in Africa/Nairobi (UTC+3, no DST). */
 function startOfNairobiDay(now = new Date()): Date {
@@ -166,6 +184,7 @@ export class OpdService {
       queueType: 'OPD',
       request,
     });
+    this.publishEncounterUpdated(request, loaded.id, { status: loaded.status });
     return { ...loaded, queueToken: queueItem.token, queueItem };
   }
 
@@ -223,7 +242,42 @@ export class OpdService {
     request: RequestContext,
   ) {
     await this.workflow.requireTransition(id, status, request);
+    this.publishEncounterUpdated(request, id, { status });
     return this.getEncounter(id);
+  }
+
+  async assignAttendingDoctor(
+    id: string,
+    attendingDoctorId: string | null,
+    request: RequestContext,
+  ) {
+    const roles = request.user?.roles ?? [];
+    const permissions = request.user?.permissions ?? [];
+    const allowed =
+      roles.some((role) =>
+        ['administrator', 'superadmin', 'director', 'records_officer'].includes(role),
+      ) || permissions.includes('settings:manage');
+    if (!allowed) {
+      throw new BadRequestException('Only reception or an administrator can reassign the attending doctor');
+    }
+    const encounter = await this.getEncounterEntity(id);
+    let attendingDoctor: User | null = null;
+    if (attendingDoctorId) {
+      attendingDoctor = await this.users.findOne({
+        where: { id: attendingDoctorId, active: true },
+      });
+      if (!attendingDoctor) {
+        throw new BadRequestException('Preferred doctor not found or inactive');
+      }
+    }
+    await this.encounters.update(encounter.id, {
+      attendingDoctor: attendingDoctor ? ({ id: attendingDoctor.id } as never) : null,
+      updatedBy: request.user?.sub ?? null,
+    });
+    this.publishEncounterUpdated(request, encounter.id, {
+      attendingDoctorId: attendingDoctor?.id ?? null,
+    });
+    return this.getEncounter(encounter.id);
   }
 
   async triage(id: string, dto: CreateTriageDto, request: RequestContext) {
@@ -421,36 +475,57 @@ export class OpdService {
     };
   }
 
-  async doctorQueue(doctorId?: string) {
+  async doctorQueue(request: RequestContext, requestedDoctorId?: string) {
+    const actorId = request.user?.sub;
+    if (!actorId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+    const supervisor = canSeeHospitalDoctorQueue(request.user);
+    if (!supervisor && requestedDoctorId && requestedDoctorId !== actorId) {
+      throw new BadRequestException('Doctors may only load their own consultation queue');
+    }
+    const scopeDoctorId =
+      supervisor && requestedDoctorId ? requestedDoctorId : actorId;
+
     const encounters = await this.encounters.find({
       where: {
         type: 'opd',
-        status: In(['triaged', 'in_consultation', 'awaiting_results']),
+        status: In(DOCTOR_QUEUE_STATUSES),
       },
       relations: { patient: true, attendingDoctor: true },
       order: { startedAt: 'ASC' },
     });
     await this.notifyFrontOfficeOnLongQueueWait(encounters, 'doctor');
+
+    const visible =
+      supervisor && !requestedDoctorId
+        ? encounters
+        : encounters.filter(
+            (encounter) =>
+              !encounter.attendingDoctor || encounter.attendingDoctor.id === scopeDoctorId,
+          );
+
     const triageByEncounter = new Map(
       (
-        await this.triages.find({
-          where: encounters.map((encounter) => ({
-            encounter: { id: encounter.id },
-          })),
-          relations: { encounter: true },
-          order: { createdAt: 'DESC' },
-        })
+        visible.length
+          ? await this.triages.find({
+              where: visible.map((encounter) => ({
+                encounter: { id: encounter.id },
+              })),
+              relations: { encounter: true },
+              order: { createdAt: 'DESC' },
+            })
+          : []
       ).map((triage) => [triage.encounter?.id, triage]),
     );
-    const tokens = await this.visitQueue.mapForEncounters(encounters.map((row) => row.id));
-    return encounters
+    const tokens = await this.visitQueue.mapForEncounters(visible.map((row) => row.id));
+    return visible
       .map((encounter) => ({
         ...encounter,
         triage: triageByEncounter.get(encounter.id) ?? null,
         queueToken: tokens.get(encounter.id)?.token ?? null,
-        assignedToMe: doctorId
-          ? !encounter.attendingDoctor || encounter.attendingDoctor.id === doctorId
-          : true,
+        assignedToMe:
+          !encounter.attendingDoctor || encounter.attendingDoctor.id === actorId,
       }))
       .sort((a, b) => {
         const aMine = a.assignedToMe ? 0 : 1;
@@ -460,6 +535,17 @@ export class OpdService {
         const bPriority = TRIAGE_PRIORITY[b.triage?.colour ?? 'green'];
         return aPriority - bPriority || a.startedAt.getTime() - b.startedAt.getTime();
       });
+  }
+
+  private publishEncounterUpdated(
+    request: RequestContext,
+    encounterId: string,
+    extra: Record<string, unknown> = {},
+  ) {
+    this.realtime.publish(request.tenant?.code ?? defaultTenantCode(), 'encounter.updated', {
+      encounterId,
+      ...extra,
+    });
   }
 
   async createConsultation(
@@ -490,6 +576,10 @@ export class OpdService {
         updatedBy: request.user.sub,
       });
     }
+    this.publishEncounterUpdated(request, encounterId, {
+      status: 'in_consultation',
+      consultationId: consultation.id,
+    });
     return consultation;
   }
 
@@ -527,6 +617,10 @@ export class OpdService {
     });
     await this.scheduleFollowUpAppointment(consultation, request);
     await this.workflow.requireTransition(consultation.encounter.id, 'completed', request);
+    this.publishEncounterUpdated(request, consultation.encounter.id, {
+      status: 'completed',
+      consultationId: consultationId,
+    });
     return this.getEncounter(consultation.encounter.id);
   }
 

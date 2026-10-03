@@ -257,6 +257,15 @@ export const controlCenterCards: ControlCenterCard[] = [
     help: 'Live view of platform services and usage indicators.',
   },
   {
+    id: 'biometrics',
+    title: 'Biometric devices',
+    description: 'DigitalPersona 4500 workstations, heartbeat, and enable/disable.',
+    category: 'Users & security',
+    icon: <Scan className="h-6 w-6" />,
+    keywords: ['fingerprint', 'digitalpersona', 'biometric', '4500'],
+    help: 'Register a workstation, store the device secret on that PC only, and run the local agent. Manual ID search remains the fallback.',
+  },
+  {
     id: 'superadmin',
     title: 'Super admin',
     description: 'Advanced operations, deployment checks, and platform tools.',

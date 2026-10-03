@@ -25,6 +25,21 @@ export const MARKETING_OUTCOMES = [
 
 export type MarketingOutcome = (typeof MARKETING_OUTCOMES)[number];
 
+export const MARKETING_SOURCES = [
+  'Google',
+  'Website',
+  'WhatsApp',
+  'Facebook',
+  'Instagram',
+  'TikTok',
+  'Referral',
+  'Existing patient',
+  'Walk-in',
+  'Other',
+] as const;
+
+export type MarketingSource = (typeof MARKETING_SOURCES)[number];
+
 export const MARKETING_PERMISSIONS = {
   read: 'marketing:read',
   create: 'marketing:create',

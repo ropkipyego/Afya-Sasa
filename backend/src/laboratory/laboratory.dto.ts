@@ -148,6 +148,27 @@ export class ReceiveSampleDto {
   condition!: 'adequate' | 'haemolysed' | 'clotted' | 'insufficient' | 'contaminated';
 }
 
+export class ScanLabSampleDto {
+  @ApiProperty()
+  @IsString()
+  barcode!: string;
+
+  @ApiPropertyOptional({ description: 'When set, a different request barcode is rejected' })
+  @IsOptional()
+  @IsString()
+  expectedRequestId?: string;
+
+  @ApiPropertyOptional({ description: 'When set, a different patient barcode is rejected' })
+  @IsOptional()
+  @IsString()
+  expectedPatientId?: string;
+
+  @ApiPropertyOptional({ enum: ['collect', 'receive', 'process'] })
+  @IsOptional()
+  @IsIn(['collect', 'receive', 'process'])
+  action?: 'collect' | 'receive' | 'process';
+}
+
 export class CreateLabAttachmentDto {
   @ApiProperty()
   @IsString()

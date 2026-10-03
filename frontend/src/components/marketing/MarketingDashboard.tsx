@@ -46,6 +46,48 @@ export function MarketingDashboard({ onOpenDaily }: { onOpenDaily?: () => void }
       <PeriodBlock title="Today" totals={data.today} />
       <PeriodBlock title="This week" totals={data.week} />
       <PeriodBlock title="This month" totals={data.month} />
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        <h3 className="font-bold text-slate-900">Acquisition conversion</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          {data.attribution?.message ?? 'Insufficient attribution data'}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          {data.attribution?.reason ??
+            'Marketing visits are outreach records. They are not linked to appointments or patients.'}
+        </p>
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        <h3 className="font-bold text-slate-900">Controlled sources</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          These source names are ready for future enquiry capture. Historical patients are not
+          attributed retrospectively.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(data.sources ?? []).map((source) => (
+            <span
+              key={source}
+              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700"
+            >
+              {source}
+            </span>
+          ))}
+        </div>
+      </section>
+      {data.byService?.length ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
+          <h3 className="font-bold text-slate-900">Services promoted</h3>
+          <ul className="mt-3 space-y-2 text-sm">
+            {data.byService.map((row) => (
+              <li key={row.key} className="flex justify-between">
+                <span>{row.label}</span>
+                <span className="font-semibold tabular-nums">{row.activities}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <p className="text-sm text-slate-500">No service-promotion rows in this period.</p>
+      )}
     </div>
   )
 }

@@ -13,6 +13,7 @@ import { formatKes } from '../../lib/clinical-catalog'
 import { notify } from '../../lib/notify'
 import { calcAge, formatPatientName } from '../../lib/patient-utils'
 import { useAuthStore } from '../../lib/auth-store'
+import { PatientBiometricPanel } from '../biometrics/PatientBiometricPanel'
 
 type PatientFile = {
   id: string
@@ -55,7 +56,10 @@ type FileTab =
   | 'laboratory'
   | 'radiology'
   | 'admissions'
+  | 'appointments'
+  | 'theatre'
   | 'payments'
+  | 'fingerprints'
   | 'history'
   | 'documents'
 
@@ -101,6 +105,10 @@ export function PatientFileModal({
   const canEditPatient = useAuthStore((state) =>
     Boolean(state.user?.permissions.includes('patients:update')),
   )
+  const canSeePayments = useAuthStore((state) => {
+    const permissions = state.user?.permissions ?? []
+    return permissions.includes('payments:read') || permissions.includes('payments:initiate') || permissions.includes('settings:manage')
+  })
   const [tab, setTab] = useState<FileTab>('overview')
   const [printing, setPrinting] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -129,7 +137,7 @@ export function PatientFileModal({
   const { data: payments = [] } = useQuery({
     queryKey: ['patient-payments', patientId],
     queryFn: () => listPatientPayments(patientId),
-    enabled: tab === 'overview' || tab === 'payments',
+    enabled: canSeePayments && (tab === 'overview' || tab === 'payments'),
   })
   const { data: charges = [] } = useQuery({
     queryKey: ['patient-charges', patientId],
@@ -145,7 +153,7 @@ export function PatientFileModal({
           status: string
         }>
       >(`/payments/charges?patientId=${patientId}`),
-    enabled: tab === 'overview' || tab === 'payments',
+    enabled: canSeePayments && (tab === 'overview' || tab === 'payments'),
     retry: false,
   })
   const chartSection =
@@ -155,7 +163,9 @@ export function PatientFileModal({
     tab === 'laboratory' ||
     tab === 'radiology' ||
     tab === 'admissions' ||
-    tab === 'payments'
+    tab === 'appointments' ||
+    tab === 'theatre' ||
+    (tab === 'payments' && canSeePayments)
       ? tab
       : null
   const { data: chart } = useQuery({
@@ -294,10 +304,13 @@ export function PatientFileModal({
                 ['laboratory', 'Laboratory'],
                 ['radiology', 'Radiology'],
                 ['admissions', 'Admissions'],
-                ['payments', 'Payments'],
+                ['appointments', 'Appointments'],
+                ['theatre', 'Theatre'],
+                ...(canSeePayments ? [['payments', 'Payments']] : []),
+                ['fingerprints', 'Fingerprints'],
                 ['history', 'Timeline'],
                 ['documents', 'Documents'],
-              ] as const
+              ] as Array<[FileTab, string]>
             ).map(([id, label]) => (
               <button
                 key={id}
@@ -384,18 +397,20 @@ export function PatientFileModal({
                         <p className="mt-2 text-sm text-slate-500">None recorded</p>
                       )}
                     </Card>
-                    <Card className="p-4">
-                      <p className="text-xs font-bold uppercase text-slate-500">Recent cashier records</p>
-                      {payments.length ? (
-                        payments.slice(0, 3).map((row) => (
-                          <p key={row.id} className="mt-2 text-sm">
-                            {row.serviceDescription || row.serviceLine || 'Payment'} · {formatKes(row.amount)}
-                          </p>
-                        ))
-                      ) : (
-                        <p className="mt-2 text-sm text-slate-500">None on file</p>
-                      )}
-                    </Card>
+                    {canSeePayments ? (
+                      <Card className="p-4">
+                        <p className="text-xs font-bold uppercase text-slate-500">Recent cashier records</p>
+                        {payments.length ? (
+                          payments.slice(0, 3).map((row) => (
+                            <p key={row.id} className="mt-2 text-sm">
+                              {row.serviceDescription || row.serviceLine || 'Payment'} · {formatKes(row.amount)}
+                            </p>
+                          ))
+                        ) : (
+                          <p className="mt-2 text-sm text-slate-500">None on file</p>
+                        )}
+                      </Card>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -533,6 +548,8 @@ export function PatientFileModal({
                   )}
                 </Card>
               ) : null}
+
+              {tab === 'fingerprints' ? <PatientBiometricPanel patient={patient} /> : null}
 
               {tab === 'history' ? (
                 <div className="space-y-4">

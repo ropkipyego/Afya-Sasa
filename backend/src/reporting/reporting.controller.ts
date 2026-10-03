@@ -92,24 +92,32 @@ export class ReportingController {
 
   @Get('operations')
   @RequirePermissions('reports:read')
-  operations() {
-    return this.reportingService.operationsCommandCenter();
+  operations(@Req() request: RequestContext) {
+    return this.reportingService.operationsCommandCenter(request.user);
   }
 
   @Get('intelligence')
   @RequirePermissions('reports:read')
-  intelligence(@Query('from') from?: string, @Query('to') to?: string) {
+  intelligence(
+    @Req() request: RequestContext,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
     const today = new Date();
     const defaultTo = today.toISOString().slice(0, 10);
     const defaultFrom = new Date(today.getTime() - 29 * 86_400_000)
       .toISOString()
       .slice(0, 10);
-    return this.reportingService.intelligence(from ?? defaultFrom, to ?? defaultTo);
+    return this.reportingService.intelligence(from ?? defaultFrom, to ?? defaultTo, request.user);
   }
 
   @Get('executive-analytics')
   @RequirePermissions('reports:read')
-  executiveAnalytics(@Query('from') from?: string, @Query('to') to?: string) {
+  executiveAnalytics(
+    @Req() request: RequestContext,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
     const today = new Date();
     const defaultTo = today.toISOString().slice(0, 10);
     const defaultFrom = new Date(today.getTime() - 29 * 86_400_000)
@@ -118,6 +126,7 @@ export class ReportingController {
     return this.reportingService.executiveAnalytics(
       from ?? defaultFrom,
       to ?? defaultTo,
+      request.user,
     );
   }
 

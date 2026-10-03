@@ -470,11 +470,66 @@ export class AdminService {
       this.getSettings(request),
     ]);
 
+    const smtpHost = (process.env.SMTP_HOST ?? '').trim();
+    const smsProvider = (process.env.SMS_PROVIDER ?? '').trim();
+    const celcomPartner = (process.env.CELCOM_PARTNER_ID ?? '').trim();
+    const celcomLooksPlaceholder =
+      !celcomPartner || /your-partner-id|placeholder|changeme/i.test(celcomPartner);
+    const shaConfigured = Boolean(
+      (process.env.SHA_BASE_URL ?? '').trim() || (process.env.DHA_BASE_URL ?? '').trim(),
+    );
+    const minioEndpoint = (process.env.MINIO_ENDPOINT ?? process.env.S3_ENDPOINT ?? '').trim();
+    const redisHost = (process.env.REDIS_HOST ?? '').trim();
+
     return {
-      database: 'connected',
-      redis: 'configured',
-      storage: 'available',
-      queue: 'active',
+      database: { status: 'HEALTHY', detail: 'PostgreSQL query succeeded' },
+      redis: {
+        status: redisHost ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
+        detail: redisHost
+          ? 'Redis host is set. Connectivity is not probed on this endpoint.'
+          : 'REDIS_HOST is empty.',
+      },
+      storage: {
+        status: minioEndpoint ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
+        detail: minioEndpoint
+          ? 'Object storage endpoint is set. A live MinIO probe is not performed here.'
+          : 'MINIO_ENDPOINT is empty.',
+      },
+      queue: {
+        status: redisHost ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
+        detail: 'BullMQ is configured only when Redis is available.',
+      },
+      email: {
+        status: smtpHost ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
+        detail: smtpHost
+          ? 'SMTP_HOST is set. Delivery has not been proven from this health check.'
+          : 'SMTP_HOST is empty. Password-reset email will not be sent.',
+      },
+      sms: {
+        status:
+          !smsProvider || smsProvider === 'stub' || celcomLooksPlaceholder
+            ? 'NOT_CONFIGURED'
+            : 'NOT_VERIFIED',
+        detail:
+          !smsProvider || smsProvider === 'stub' || celcomLooksPlaceholder
+            ? 'SMS credentials are missing or still placeholders.'
+            : 'SMS provider is configured. Production send has not been verified here.',
+      },
+      biometric: {
+        status: 'NOT_VERIFIED',
+        detail: 'DigitalPersona tables exist. The HID SDK/agent has not been proven on a workstation.',
+      },
+      sha: {
+        status: shaConfigured ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
+        detail: shaConfigured
+          ? 'SHA/DHA URL is present. Production eligibility is not claimed.'
+          : 'SHA/DHA is not connected.',
+      },
+      accounting: {
+        status: 'NOT_CONFIGURED',
+        detail: 'QuickBooks remains the GL. Mapping is pending. No second ledger exists.',
+      },
+      api: { status: 'HEALTHY', detail: 'Admin system-health endpoint responded' },
       activeUsers,
       lockedUsers,
       auditEventsToday: auditToday,

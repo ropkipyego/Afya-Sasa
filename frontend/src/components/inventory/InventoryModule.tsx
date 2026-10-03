@@ -698,6 +698,7 @@ function ReceiveStockPanel({ initialItemId = '' }: { initialItemId?: string }) {
   const [batchNo, setBatchNo] = useState('')
   const [expiryDate, setExpiryDate] = useState('')
   const [reason, setReason] = useState('')
+  const [barcode, setBarcode] = useState('')
 
   const { data: locations = [] } = useQuery({
     queryKey: ['inventory-locations'],
@@ -750,6 +751,35 @@ function ReceiveStockPanel({ initialItemId = '' }: { initialItemId?: string }) {
         description="Pharmaceuticals must go to pharmacy with batch and expiry."
       />
       <div className="mt-4 space-y-4">
+        <label className="block text-sm">
+          <span className="font-medium text-slate-700">Scan SKU or batch</span>
+          <div className="mt-1 flex gap-2">
+            <input
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              value={barcode}
+              onChange={(event) => setBarcode(event.target.value)}
+              onKeyDown={async (event) => {
+                if (event.key !== 'Enter' || !barcode.trim()) return
+                event.preventDefault()
+                try {
+                  const match = await apiRequest<{
+                    item: { id: string }
+                    batches: Array<{ batchNo: string | null; expiryDate: string | null; locationId: string | null }>
+                  }>(`/inventory/barcode/${encodeURIComponent(barcode.trim())}`)
+                  setItemId(match.item.id)
+                  const batch = match.batches[0]
+                  if (batch?.batchNo) setBatchNo(batch.batchNo)
+                  if (batch?.expiryDate) setExpiryDate(batch.expiryDate)
+                  if (batch?.locationId) setLocationId(batch.locationId)
+                  notify('Barcode matched', 'Confirm batch, expiry, and quantity before posting.', 'success')
+                } catch (error) {
+                  notify('Unknown barcode', error instanceof Error ? error.message : 'No match', 'warning')
+                }
+              }}
+              placeholder="Scan then press Enter"
+            />
+          </div>
+        </label>
         <label className="block text-sm">
           <span className="font-medium text-slate-700">Item</span>
           <Select className="mt-1" value={itemId} onChange={(e) => setItemId(e.target.value)}>

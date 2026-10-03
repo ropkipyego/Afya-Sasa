@@ -29,10 +29,16 @@ export function SuperAdminPanel() {
     queryKey: ['system-health'],
     queryFn: () =>
       apiRequest<{
-        database: string
-        redis: string
-        storage: string
-        queue: string
+        database: string | { status: string; detail?: string }
+        redis: string | { status: string; detail?: string }
+        storage: string | { status: string; detail?: string }
+        queue: string | { status: string; detail?: string }
+        email?: { status: string; detail?: string }
+        sms?: { status: string; detail?: string }
+        biometric?: { status: string; detail?: string }
+        sha?: { status: string; detail?: string }
+        accounting?: { status: string; detail?: string }
+        api?: { status: string; detail?: string }
         activeUsers: number
         lockedUsers: number
         timestamp: string
@@ -106,6 +112,31 @@ export function SuperAdminPanel() {
           <Metric label="Locked users" value={health?.lockedUsers ?? 0} />
           <Metric label="Tenant" value={health?.tenant?.code ?? '—'} />
         </div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {(
+            [
+              ['API', health?.api],
+              ['Database', health?.database],
+              ['Redis', health?.redis],
+              ['MinIO', health?.storage],
+              ['Email', health?.email],
+              ['SMS', health?.sms],
+              ['Biometric', health?.biometric],
+              ['SHA/DHA', health?.sha],
+              ['Accounting', health?.accounting],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">
+                {typeof value === 'string' ? value : value?.status ?? 'Data unavailable'}
+              </p>
+              {typeof value === 'object' && value?.detail ? (
+                <p className="mt-1 text-xs text-slate-500">{value.detail}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
         <p className="mt-4 text-xs text-slate-500">Last check: {health?.timestamp ? new Date(health.timestamp).toLocaleString() : '—'}</p>
       </Card>
 
@@ -153,7 +184,7 @@ export function SuperAdminPanel() {
                   <tr>
                     <th className="px-4 py-3">Hospital</th>
                     <th className="px-4 py-3">Code</th>
-                    <th className="px-4 py-3">Schema</th>
+                    <th className="px-4 py-3">Data</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3" />
                   </tr>
@@ -163,7 +194,7 @@ export function SuperAdminPanel() {
                     <tr key={tenant.id}>
                       <td className="px-4 py-3 font-medium">{tenant.name}</td>
                       <td className="px-4 py-3 font-mono text-xs">{tenant.code}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{tenant.schemaName}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500">Hospital data</td>
                       <td className="px-4 py-3">
                         <span
                           className={
@@ -176,7 +207,7 @@ export function SuperAdminPanel() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {tenant.code !== 'demo' ? (
+                        {tenant.code !== 'jalaram' ? (
                           <Button
                             type="button"
                             variant="secondary"

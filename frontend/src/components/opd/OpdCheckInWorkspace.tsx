@@ -21,7 +21,7 @@ import {
   type ClinicalCatalog,
   clinicConsultationFee,
   doctorSelectOptionsForClinic,
-  formatKes,
+  formatConfiguredPrice,
 } from '../../lib/clinical-catalog'
 import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
 import { apiRequest, getApiErrorStatus } from '../../lib/api'
@@ -254,15 +254,17 @@ export function OpdCheckInWorkspace({
                 <option value="">Select clinic</option>
                 {(catalogData?.clinics ?? []).map((clinic: string) => (
                   <option key={clinic} value={clinic}>
-                    {clinic} — {formatKes(clinicConsultationFee(catalogData, clinic))}
+                    {clinic} — {formatConfiguredPrice(clinicConsultationFee(catalogData, clinic)) ?? 'Unpriced'}
                   </option>
                 ))}
               </SelectField>
               {visitDraft.clinicName ? (
                 <p className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
                   Consultation fee for <strong>{visitDraft.clinicName}</strong> is{' '}
-                  <strong>{formatKes(consultationFee)}</strong>. Cashier must collect this mapped
-                  amount — it is not typed from memory.
+                  <strong>{formatConfiguredPrice(consultationFee) ?? 'Unpriced'}</strong>
+                  {consultationFee > 0
+                    ? '. Cashier must collect this mapped amount — it is not typed from memory.'
+                    : '. No hospital tariff is configured for this clinic. Do not collect KSh 0.'}
                 </p>
               ) : null}
               <SelectField name="visitType" label="Visit type" required defaultValue={visitDraft.visitType}>
@@ -333,7 +335,9 @@ export function OpdCheckInWorkspace({
                 {
                   icon: CalendarCheck,
                   label: 'Consultation fee',
-                  value: visitDraft.clinicName ? formatKes(consultationFee) : '—',
+                  value: visitDraft.clinicName
+                    ? formatConfiguredPrice(consultationFee) ?? 'Unpriced'
+                    : '—',
                 },
                 {
                   icon: User,

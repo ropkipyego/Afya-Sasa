@@ -12,6 +12,7 @@ import {
   EnterLabResultDto,
   ImportLabCatalogDto,
   ReceiveSampleDto,
+  ScanLabSampleDto,
 } from './laboratory.dto';
 import { LaboratoryService } from './laboratory.service';
 
@@ -87,6 +88,18 @@ export class LaboratoryController {
   @RequirePermissions('lab_requests:read')
   detail(@Param('id') id: string) {
     return this.laboratoryService.detail(id);
+  }
+
+  @Get('samples/barcode/:code')
+  @RequirePermissions('lab_requests:read', 'lab_samples:collect', 'lab_samples:receive')
+  findSampleByBarcode(@Param('code') code: string) {
+    return this.laboratoryService.findSampleByBarcode(decodeURIComponent(code));
+  }
+
+  @Post('samples/scan')
+  @RequirePermissions('lab_samples:collect', 'lab_samples:receive', 'lab_requests:read')
+  scanSample(@Body() dto: ScanLabSampleDto, @Req() request: RequestContext) {
+    return this.laboratoryService.scanSample(dto, request);
   }
 
   @Post('requests/:id/samples')

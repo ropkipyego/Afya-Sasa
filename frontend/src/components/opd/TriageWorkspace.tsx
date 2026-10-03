@@ -19,7 +19,7 @@ import {
 } from '../ui'
 import { WorkflowBadge } from '../WorkflowBadge'
 import { PatientContextHeader } from '../PatientContextHeader'
-import { PatientTimeline, type TimelineEvent } from '../PatientTimeline'
+import type { TimelineEvent } from '../PatientTimeline'
 import { VitalsForm } from '../VitalsFields'
 import { apiRequest } from '../../lib/api'
 import { formDataFromElement } from '../../lib/form-utils'
@@ -171,30 +171,44 @@ export function TriageWorkspace() {
               className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
               onClick={() => setActiveId(null)}
             />
-            <div className="relative z-10 flex max-h-[95dvh] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
-              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-6">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-teal-700">
-                    Triage assessment
+            <div className="relative z-10 flex h-[min(92dvh,52rem)] max-h-[92dvh] min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">
+                    Triage
                   </p>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {activeEncounter.patient.firstName} {activeEncounter.patient.lastName} ·{' '}
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {activeEncounter.patient.firstName} {activeEncounter.patient.lastName}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
                     {activeEncounter.encounterNo}
                     {activeEncounter.queueToken ? ` · ${activeEncounter.queueToken}` : ''}
+                    {` · ${activeEncounter.patient.patientNo}`}
                   </p>
                 </div>
                 <button
                   type="button"
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200"
                   onClick={() => setActiveId(null)}
                   aria-label="Close"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </button>
               </div>
 
+              <div className="shrink-0 border-b border-slate-100 px-4 py-2">
+                <PatientContextHeader
+                  patient={activeEncounter.patient}
+                  workflowStep="in_triage"
+                  sticky={false}
+                  showWorkflow={false}
+                  queueToken={activeEncounter.queueToken}
+                  className="border-0 shadow-none"
+                />
+              </div>
+
               <ClinicalForm
-                className="flex min-h-0 flex-1 flex-col"
+                className="flex min-h-0 flex-1 flex-col space-y-0 overflow-hidden"
                 onSubmit={(event) => {
                   event.preventDefault()
                   triage.mutate({
@@ -203,20 +217,18 @@ export function TriageWorkspace() {
                   })
                 }}
               >
-                <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 sm:p-6">
-                <PatientContextHeader patient={activeEncounter.patient} workflowStep="in_triage" />
-
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-3">
                 {alerts.length ? (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
-                    <div className="flex items-center gap-2 text-sm font-bold text-red-900">
-                      <AlertTriangle className="h-4 w-4" />
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-red-900">
+                      <AlertTriangle className="h-3.5 w-3.5" />
                       Clinical alerts
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {alerts.map((alert) => (
                         <span
                           key={alert.label}
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${alert.tone}`}
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${alert.tone}`}
                         >
                           {alert.label}
                         </span>
@@ -225,38 +237,27 @@ export function TriageWorkspace() {
                   </div>
                 ) : null}
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <Card padding="sm">
-                    <div className="flex items-center gap-2 text-xs font-bold uppercase text-slate-500">
-                      <Clock className="h-4 w-4" />
+                {previousVisits.length ? (
+                  <div className="rounded-xl border border-slate-200 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase text-slate-500">
+                      <Clock className="h-3.5 w-3.5" />
                       Previous visits
                     </div>
-                    <ul className="mt-3 space-y-2 text-sm">
-                      {previousVisits.map((visit) => (
-                        <li key={visit.id} className="rounded-lg bg-slate-50 px-3 py-2">
-                          <p className="font-medium">{visit.title}</p>
-                          <p className="text-xs text-slate-500">{visit.summary}</p>
+                    <ul className="mt-1 space-y-1 text-xs text-slate-600">
+                      {previousVisits.slice(0, 3).map((visit) => (
+                        <li key={visit.id}>
+                          <span className="font-medium text-slate-800">{visit.title}</span>
+                          {visit.summary ? ` — ${visit.summary}` : ''}
                         </li>
                       ))}
-                      {!previousVisits.length ? (
-                        <li className="text-slate-500">No prior visits on record.</li>
-                      ) : null}
                     </ul>
-                  </Card>
-                  <PatientTimeline
-                    events={(timeline?.events ?? []).slice(0, 4)}
-                    title="Recent timeline"
-                    description="Last clinical events"
-                  />
-                </div>
+                  </div>
+                ) : null}
 
-                <Card className="border-l-4 border-l-teal-500 p-4 sm:p-6">
-                  <div className="mb-4 flex items-center gap-2">
-                    <HeartPulse className="h-5 w-5 text-teal-600" />
-                    <PageHeader
-                      title="Vitals & category"
-                      description="Abnormal values generate alerts for the doctor."
-                    />
+                <div className="rounded-xl border border-l-4 border-slate-200 border-l-teal-500 p-3">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                    <HeartPulse className="h-4 w-4 text-teal-600" />
+                    Vitals and category
                   </div>
                     <FormSection title="Triage category" columns={3}>
                       <SelectField name="colour" label="Triage colour" required>
@@ -292,10 +293,10 @@ export function TriageWorkspace() {
                     <FormSection title="Vitals" description="Normal ranges shown below each field." columns={1}>
                       <VitalsForm />
                     </FormSection>
-                </Card>
+                </div>
                 </div>
 
-                <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:px-6">
+                <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3">
                     <FormActions>
                       <Button
                         type="button"
@@ -304,8 +305,8 @@ export function TriageWorkspace() {
                       >
                         Cancel
                       </Button>
-                      <Button type="submit" loading={triage.isPending} className="min-h-12">
-                        Submit triage → doctor queue
+                      <Button type="submit" loading={triage.isPending} className="min-h-11">
+                        Submit triage
                       </Button>
                     </FormActions>
                 </div>

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -10,6 +11,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { canViewDirectorFinance } from '../common/errors/director-access';
 import type { RequestContext } from '../common/request-context';
 import { Public, RequirePermissions } from '../core/auth/auth.decorators';
 import {
@@ -94,7 +96,18 @@ export class PatientsController {
 
   @Get(':id/chart')
   @RequirePermissions('patients:read', 'patients:history')
-  chart(@Param('id') id: string, @Query('section') section?: string) {
+  chart(
+    @Param('id') id: string,
+    @Query('section') section?: string,
+    @Req() request?: RequestContext,
+  ) {
+    const key = (section ?? '').trim().toLowerCase();
+    const permissions = request?.user?.permissions ?? [];
+    const canSeeFinance =
+      canViewDirectorFinance(request?.user) || permissions.includes('payments:initiate');
+    if ((key === 'payments' || key === 'finance') && !canSeeFinance) {
+      throw new ForbiddenException('Financial records are not available for this role');
+    }
     return this.patientsService.chart(id, section);
   }
 

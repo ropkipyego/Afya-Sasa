@@ -8,9 +8,9 @@ export function ReportingCenterPanel() {
     queryKey: ['system-health'],
     queryFn: () =>
       apiRequest<{
-        database: string
-        storage: string
-        queue: string
+        database: string | { status: string }
+        storage: string | { status: string }
+        queue: string | { status: string }
         auditEventsToday: number
       }>('/admin/system-health'),
   })
@@ -23,9 +23,9 @@ export function ReportingCenterPanel() {
           description="Operational and clinical reports with CSV and printable exports."
         />
         <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-500">
-          <span>DB: {health?.database ?? '—'}</span>
-          <span>Storage: {health?.storage ?? '—'}</span>
-          <span>Queue: {health?.queue ?? '—'}</span>
+          <span>DB: {typeof health?.database === 'string' ? health.database : health?.database?.status ?? '—'}</span>
+          <span>Storage: {typeof health?.storage === 'string' ? health.storage : health?.storage?.status ?? '—'}</span>
+          <span>Queue: {typeof health?.queue === 'string' ? health.queue : health?.queue?.status ?? '—'}</span>
           <span>Audit today: {health?.auditEventsToday ?? 0}</span>
         </div>
       </Card>

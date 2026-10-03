@@ -19,6 +19,7 @@ import {
   readLabTestPricing,
   type LabTestPrice,
 } from './lab-pricing';
+import { lookupCatalogueTariff, readHospitalChargeCatalogue } from '../payments/hospital-charges';
 import {
   calculateDerivedResults,
   flagResultsForPatient,
@@ -85,7 +86,13 @@ export class LabCatalogService {
 
   async sumSellPrices(codes: string[], request?: RequestContext) {
     const pricing = await this.readPricingMap(request);
-    return codes.reduce((sum, code) => sum + (pricing[code.toUpperCase()]?.sell ?? 0), 0);
+    const settings = await this.loadSettings(request);
+    const catalogue = readHospitalChargeCatalogue((settings?.clinicalCatalog as Record<string, unknown>) ?? null);
+    return codes.reduce((sum, code) => {
+      const fromLab = pricing[code.toUpperCase()]?.sell ?? 0;
+      if (fromLab > 0) return sum + fromLab;
+      return sum + (lookupCatalogueTariff(catalogue.items, { code, category: 'laboratory' }) ?? 0);
+    }, 0);
   }
 
   async updateTestPricing(code: string, sell: number, request: RequestContext) {

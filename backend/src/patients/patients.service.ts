@@ -598,6 +598,45 @@ export class PatientsService {
         })),
       };
     }
+    if (key === 'appointments') {
+      const items = await this.appointments.find({
+        where: { patient: { id } },
+        order: { appointmentDate: 'DESC', appointmentTime: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'appointments',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'appointment',
+          title: `${row.type.replace(/_/g, ' ')} · ${row.appointmentDate} ${row.appointmentTime}`,
+          status: row.status,
+          occurredAt: row.createdAt,
+          summary: row.reason,
+        })),
+      };
+    }
+    if (key === 'theatre' || key === 'procedures') {
+      const items = await this.surgeries.find({
+        where: { patient: { id } },
+        relations: { procedure: true, theatre: true },
+        order: { createdAt: 'DESC' },
+        take,
+      });
+      return {
+        section: key,
+        source: 'surgery_bookings',
+        items: items.map((row) => ({
+          id: row.id,
+          kind: 'theatre',
+          title: row.procedure?.name ?? row.bookingNo,
+          status: row.status,
+          occurredAt: row.scheduledStartAt ?? row.createdAt,
+          summary: `${row.bookingNo} · ${row.theatre?.name ?? 'Theatre'} · ${row.priority}`,
+        })),
+      };
+    }
     if (key === 'admissions') {
       const items = await this.admissions.find({
         where: { patient: { id } },

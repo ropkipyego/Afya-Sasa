@@ -51,6 +51,7 @@ import { OperationalWorklists } from './components/worklists/OperationalWorklist
 import { PatientRegistry } from './components/patients/PatientRegistry'
 import { TheatreWorkspace } from './components/theatre/TheatreWorkspace'
 import { PatientFileModal } from './components/patients/PatientFileModal'
+import { IdentifyPatientWorkspace } from './components/biometrics/IdentifyPatientWorkspace'
 import { PatientQrLanding } from './components/patients/PatientQrLanding'
 import { WorkflowBadge } from './components/WorkflowBadge'
 import { mapEncounterStatusToWorkflow } from './lib/workflow-status'
@@ -134,6 +135,11 @@ function App() {
     return resolveScreen(saved || 'OPD Check-In')
   })
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [activePatient, setActivePatient] = useState<{
+    id: string
+    patientNo: string
+    name: string
+  } | null>(null)
   const [checkInPatient, setCheckInPatient] = useState<CheckInPatient | null>(null)
   const [ipdFocusAdmissionId, setIpdFocusAdmissionId] = useState<string | null>(null)
   const [notificationOpen, setNotificationOpen] = useState(false)
@@ -154,6 +160,15 @@ function App() {
       sessionStorage.setItem('afyasasa.activeScreen', activeScreen)
     }
   }, [activeScreen])
+
+  useEffect(() => {
+    const onNavigate = (event: Event) => {
+      const screen = (event as CustomEvent<string>).detail
+      if (typeof screen === 'string') goToScreen(screen)
+    }
+    window.addEventListener('afyasasa:navigate', onNavigate)
+    return () => window.removeEventListener('afyasasa:navigate', onNavigate)
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('afyasasa.sidebarOpen', String(sidebarOpen))
@@ -377,6 +392,62 @@ function App() {
         ) : null}
 
         <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24 md:p-6 md:pb-24">
+          {activePatient ? (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm">
+              <p className="font-semibold text-teal-950">
+                Active patient {activePatient.patientNo} · {activePatient.name}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-teal-300 bg-white px-3 py-1 text-xs font-semibold text-teal-800"
+                  onClick={() => setSelectedPatientId(activePatient.id)}
+                >
+                  Open file
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1 text-xs font-semibold text-slate-600"
+                  onClick={() => setActivePatient(null)}
+                >
+                  Change patient
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {activeScreen === 'Identify Patient' ? (
+            <IdentifyPatientWorkspace
+              onIdentified={(patient) =>
+                setActivePatient({
+                  id: patient.id,
+                  patientNo: patient.patientNo,
+                  name: `${patient.firstName} ${patient.lastName}`.trim(),
+                })
+              }
+              onOpenPatient={(patientId) => setSelectedPatientId(patientId)}
+              onStartEncounter={(patient) => {
+                setActivePatient({
+                  id: patient.id,
+                  patientNo: patient.patientNo,
+                  name: `${patient.firstName} ${patient.lastName}`.trim(),
+                })
+                setCheckInPatient({
+                  id: patient.id,
+                  patientNo: patient.patientNo,
+                  firstName: patient.firstName,
+                  lastName: patient.lastName,
+                  dateOfBirth: patient.dateOfBirth,
+                  gender: patient.gender,
+                  primaryPhone: patient.primaryPhone ?? '',
+                })
+                goToScreen('OPD Check-In')
+              }}
+              onAppointments={(patientId) => {
+                setSelectedPatientId(patientId)
+                goToScreen('Appointments')
+              }}
+            />
+          ) : null}
           {activeScreen === 'Register Patient' ? (
             <PatientRegistrationForm
               onViewPatient={setSelectedPatientId}
@@ -684,12 +755,14 @@ function DoctorQueue({
   onOpenSickSheets: () => void
 }) {
   const queryClient = useQueryClient()
+  const userId = useAuthStore((state) => state.user?.id)
   const [selected, setSelected] = useState<EncounterItem | null>(null)
   const [recentSoap, setRecentSoap] = useState<Array<{ id: string; patient: string; savedAt: string }>>([])
   const { data: queue = [] } = useQuery({
-    queryKey: ['doctor-queue'],
+    queryKey: ['doctor-queue', userId],
     queryFn: () => apiRequest<EncounterItem[]>('/opd/doctor/queue'),
     refetchInterval: 20_000,
+    enabled: Boolean(userId),
   })
 
   useEffect(() => {

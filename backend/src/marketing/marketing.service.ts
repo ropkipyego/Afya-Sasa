@@ -10,7 +10,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { TenantSettings, User } from '../core/core.entities';
-import { MARKETING_ACTIVITY_TYPES, MARKETING_PERMISSIONS } from './marketing.constants';
+import {
+  MARKETING_ACTIVITY_TYPES,
+  MARKETING_PERMISSIONS,
+  MARKETING_SOURCES,
+} from './marketing.constants';
 import {
   CreateMarketingActivityDto,
   CreateMarketingVisitDto,
@@ -238,6 +242,17 @@ export class MarketingService {
       today: this.summarizePeriod(rows, today, today, today),
       week: this.summarizePeriod(rows, weekStart, today, today),
       month: this.summarizePeriod(rows, monthStart, today, today),
+      sources: [...MARKETING_SOURCES],
+      byActivityType: this.groupCount(rows, (row) => row.activityType),
+      byService: this.groupServices(rows),
+      attribution: {
+        enquiryToAppointment: null,
+        appointmentToAttended: null,
+        campaignToEnquiry: null,
+        message: 'Insufficient attribution data',
+        reason:
+          'Marketing visits record outreach work. They are not linked to appointments or patients, so conversion rates are not calculated.',
+      },
     };
   }
 

@@ -36,6 +36,7 @@ import {
   EnterLabResultDto,
   ImportLabCatalogDto,
   ReceiveSampleDto,
+  ScanLabSampleDto,
 } from './laboratory.dto';
 
 @Injectable()
@@ -480,6 +481,69 @@ export class LaboratoryService {
     if (!attachment) throw new NotFoundException('Lab attachment not found');
     await this.attachments.softRemove(attachment);
     return { id: attachmentId, requestId: attachment.request.id };
+  }
+
+  async findSampleByBarcode(code: string) {
+    const barcode = code.trim();
+    if (!barcode) throw new BadRequestException('Specimen barcode is required');
+    const sample = await this.samples.findOne({
+      where: { barcode },
+      relations: { request: { patient: true } },
+    });
+    if (!sample) throw new NotFoundException('No specimen matches this barcode');
+    return this.toSpecimenScan(sample);
+  }
+
+  async scanSample(dto: ScanLabSampleDto, request: RequestContext) {
+    const scan = await this.findSampleByBarcode(dto.barcode);
+    if (dto.expectedRequestId && scan.requestId !== dto.expectedRequestId) {
+      throw new BadRequestException(
+        'This barcode belongs to a different lab request. The patient was not changed.',
+      );
+    }
+    if (dto.expectedPatientId && scan.patientId !== dto.expectedPatientId) {
+      throw new BadRequestException(
+        'This barcode belongs to a different patient. The current patient was not changed.',
+      );
+    }
+    if (scan.requestStatus === 'cancelled') {
+      throw new BadRequestException('This lab request is cancelled');
+    }
+    if (scan.requestStatus === 'verified' && dto.action === 'process') {
+      throw new BadRequestException('This specimen is already verified');
+    }
+    if (dto.action === 'receive') {
+      if (scan.receivedAt) {
+        throw new BadRequestException('This specimen has already been received');
+      }
+      await this.receiveSample(scan.sampleId, { condition: 'adequate' }, request);
+      return this.findSampleByBarcode(dto.barcode);
+    }
+    if (dto.action === 'process' && scan.requestStatus === 'sample_collected') {
+      await this.requests.update(scan.requestId, { status: 'processing' });
+      return this.findSampleByBarcode(dto.barcode);
+    }
+    return scan;
+  }
+
+  private toSpecimenScan(sample: LabSample & { request?: LabRequest & { patient?: Patient } }) {
+    return {
+      sampleId: sample.id,
+      barcode: sample.barcode,
+      specimenType: sample.type,
+      collectedAt: sample.collectedAt,
+      receivedAt: sample.receivedAt,
+      condition: sample.condition,
+      requestId: sample.request?.id ?? null,
+      requestNo: sample.request?.requestNo ?? null,
+      requestStatus: sample.request?.status ?? null,
+      patientId: sample.request?.patient?.id ?? null,
+      patientNo: sample.request?.patient?.patientNo ?? null,
+      patientName: sample.request?.patient
+        ? `${sample.request.patient.firstName} ${sample.request.patient.lastName}`
+        : null,
+      identity: 'specimen',
+    };
   }
 
   async receiveSample(sampleId: string, dto: ReceiveSampleDto, request: RequestContext) {

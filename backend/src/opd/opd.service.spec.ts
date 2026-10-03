@@ -68,6 +68,7 @@ describe('OpdService.completeConsultation', () => {
         create: jest.fn((row) => row),
       },
       workflow: { requireTransition },
+      realtime: { publish: jest.fn() },
       getEncounter: jest.fn().mockResolvedValue({ id: 'enc-1' }),
     });
 
@@ -99,10 +100,96 @@ describe('OpdService.completeConsultation', () => {
       },
       appointments: { findOne: jest.fn(), save: appointmentSave, create: jest.fn() },
       workflow: { requireTransition: jest.fn() },
+      realtime: { publish: jest.fn() },
       getEncounter: jest.fn().mockResolvedValue({ id: 'enc-1' }),
     });
 
     await service.completeConsultation('c1', { user: { sub: 'u1' } } as never);
     expect(appointmentSave).not.toHaveBeenCalled();
+  });
+});
+
+describe('OpdService.doctorQueue', () => {
+  const doctorA = 'doc-a';
+  const doctorB = 'doc-b';
+  const assignedToA = {
+    id: 'enc-a',
+    status: 'triaged',
+    startedAt: new Date('2026-10-02T07:00:00Z'),
+    attendingDoctor: { id: doctorA },
+    patient: { firstName: 'Ann', lastName: 'A' },
+  };
+  const assignedToB = {
+    id: 'enc-b',
+    status: 'triaged',
+    startedAt: new Date('2026-10-02T07:05:00Z'),
+    attendingDoctor: { id: doctorB },
+    patient: { firstName: 'Ben', lastName: 'B' },
+  };
+  const unassigned = {
+    id: 'enc-u',
+    status: 'in_consultation',
+    startedAt: new Date('2026-10-02T07:10:00Z'),
+    attendingDoctor: null,
+    patient: { firstName: 'Una', lastName: 'C' },
+  };
+
+  function queueService() {
+    const service = Object.create(OpdService.prototype) as OpdService;
+    Object.assign(service, {
+      encounters: {
+        find: jest.fn().mockResolvedValue([assignedToA, assignedToB, unassigned]),
+      },
+      triages: { find: jest.fn().mockResolvedValue([]) },
+      visitQueue: { mapForEncounters: jest.fn().mockResolvedValue(new Map()) },
+      notifyFrontOfficeOnLongQueueWait: jest.fn(),
+    });
+    return service;
+  }
+
+  it('returns only unassigned and Doctor A assignments to Doctor A', async () => {
+    const service = queueService();
+    const rows = await service.doctorQueue({
+      user: { sub: doctorA, email: 'a@test', roles: ['doctor'], permissions: ['consultations:read'] },
+    } as never);
+
+    expect(rows.map((row) => row.id)).toEqual(['enc-a', 'enc-u']);
+    expect(rows.every((row) => row.assignedToMe)).toBe(true);
+  });
+
+  it('hides Doctor A assignments from Doctor B', async () => {
+    const service = queueService();
+    const rows = await service.doctorQueue({
+      user: { sub: doctorB, email: 'b@test', roles: ['doctor'], permissions: ['consultations:read'] },
+    } as never);
+
+    expect(rows.map((row) => row.id)).toEqual(['enc-b', 'enc-u']);
+    expect(rows.some((row) => row.id === 'enc-a')).toBe(false);
+  });
+
+  it('rejects a doctor asking for another doctor queue', async () => {
+    const service = queueService();
+    await expect(
+      service.doctorQueue(
+        {
+          user: { sub: doctorB, email: 'b@test', roles: ['doctor'], permissions: ['consultations:read'] },
+        } as never,
+        doctorA,
+      ),
+    ).rejects.toThrow(/own consultation queue/);
+  });
+
+  it('lets an administrator see the whole hospital queue', async () => {
+    const service = queueService();
+    const rows = await service.doctorQueue({
+      user: {
+        sub: 'admin-1',
+        email: 'admin@test',
+        roles: ['administrator'],
+        permissions: ['consultations:read'],
+      },
+    } as never);
+
+    expect(rows.map((row) => row.id).sort()).toEqual(['enc-a', 'enc-b', 'enc-u']);
   });
 });
