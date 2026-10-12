@@ -25,6 +25,7 @@ services:
       TYPEORM_MIGRATIONS_RUN: "false"
       AFYASASA_ALLOW_DEMO_SEED: "false"
       AFYASASA_CHARGES_ENABLED: "true"
+      AFYASASA_LAB_AMENDMENT_ENABLED: "false"
 
   frontend:
     restart: unless-stopped

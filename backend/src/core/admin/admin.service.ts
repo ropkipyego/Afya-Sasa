@@ -38,6 +38,7 @@ import {
 } from './admin.dto';
 import { RealtimeService } from '../../realtime/realtime.service';
 import { TokenRevocationService } from '../auth/token-revocation.service';
+import { MailService } from '../mail/mail.service';
 import { SuperadminPolicyService } from '../rbac/superadmin-policy.service';
 import { ADMINISTRATOR_ROLE_NAME, SUPERADMIN_ROLE_NAME } from '../rbac/rbac.constants';
 
@@ -69,6 +70,7 @@ export class AdminService {
     private readonly realtime: RealtimeService,
     private readonly tokenRevocation: TokenRevocationService,
     private readonly superadminPolicy: SuperadminPolicyService,
+    private readonly mailService: MailService,
   ) {}
 
   async listUsers() {
@@ -189,7 +191,9 @@ export class AdminService {
     });
     await this.tokenRevocation.invalidateUser(id);
     await this.revokeRefreshTokensForUsers([id]);
-    return this.toUserResponse(await this.getUser(id));
+    const updated = await this.getUser(id);
+    await this.mailService.sendPasswordChanged(updated.email, id);
+    return this.toUserResponse(updated);
   }
 
   async unlockUser(id: string, request: RequestContext) {
@@ -1028,6 +1032,7 @@ export class AdminService {
       active: user.active,
       forcePasswordChange: user.forcePasswordChange,
       lockedUntil: user.lockedUntil,
+      lastLoginAt: user.lastLoginAt,
       roles: assignments.map((assignment) => assignment.role),
       departments: departments.map((assignment) => ({
         ...assignment.department,

@@ -15,30 +15,86 @@ function toNumber(value: number | string | boolean | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function pickReferenceRange(
+export const UNASSESSED_RANGE_LABEL = 'Not established';
+
+export function mapPatientToRangeDemographics(input: {
+  gender?: string | null;
+  dateOfBirth?: string | Date | null;
+}): PatientDemographics {
+  const raw = (input.gender ?? '').toString().trim().toLowerCase();
+  const gender: PatientDemographics['gender'] =
+    raw === 'male' || raw === 'm' ? 'M' : raw === 'female' || raw === 'f' ? 'F' : 'UNKNOWN';
+  if (input.dateOfBirth == null || input.dateOfBirth === '') {
+    return { gender, ageDays: null };
+  }
+  const dob = input.dateOfBirth instanceof Date ? input.dateOfBirth : new Date(input.dateOfBirth);
+  if (Number.isNaN(dob.getTime())) {
+    return { gender, ageDays: null };
+  }
+  const ageDays = Math.floor((Date.now() - dob.getTime()) / 86_400_000);
+  if (!Number.isFinite(ageDays) || ageDays < 0) {
+    return { gender, ageDays: null };
+  }
+  return { gender, ageDays };
+}
+
+export function normalizeRangeDemographics(
+  patient?: Partial<PatientDemographics> | null,
+): PatientDemographics {
+  const gender =
+    patient?.gender === 'M' || patient?.gender === 'F' ? patient.gender : 'UNKNOWN';
+  const ageDays =
+    typeof patient?.ageDays === 'number' && Number.isFinite(patient.ageDays) && patient.ageDays >= 0
+      ? Math.floor(patient.ageDays)
+      : null;
+  return { gender, ageDays };
+}
+
+export function pickReferenceRange(
   ranges: SeedReferenceRange[],
   patient: PatientDemographics,
 ): SeedReferenceRange | null {
   const matching = ranges.filter((range) => {
-    if (range.gender !== 'ALL' && range.gender !== patient.gender) return false;
-    if (range.ageMinDays !== undefined && patient.ageDays < range.ageMinDays) return false;
-    if (range.ageMaxDays !== undefined && patient.ageDays > range.ageMaxDays) return false;
+    if (range.gender !== 'ALL') {
+      if (patient.gender !== 'M' && patient.gender !== 'F') return false;
+      if (range.gender !== patient.gender) return false;
+    }
+    const ageBounded = range.ageMinDays !== undefined || range.ageMaxDays !== undefined;
+    if (ageBounded) {
+      if (patient.ageDays == null) return false;
+      if (range.ageMinDays !== undefined && patient.ageDays < range.ageMinDays) return false;
+      if (range.ageMaxDays !== undefined && patient.ageDays > range.ageMaxDays) return false;
+    }
     return true;
   });
 
   if (!matching.length) return null;
 
-  return matching.sort((a, b) => {
-    const specificityA =
-      (a.gender === 'ALL' ? 0 : 1) +
-      (a.ageMinDays !== undefined ? 1 : 0) +
-      (a.ageMaxDays !== undefined ? 1 : 0);
-    const specificityB =
-      (b.gender === 'ALL' ? 0 : 1) +
-      (b.ageMinDays !== undefined ? 1 : 0) +
-      (b.ageMaxDays !== undefined ? 1 : 0);
-    return specificityB - specificityA;
-  })[0];
+  const ranked = matching.sort((a, b) => rangeSpecificity(b) - rangeSpecificity(a));
+  const winner = ranked[0];
+  const tied = ranked.filter((row) => rangeSpecificity(row) === rangeSpecificity(winner));
+  if (tied.length > 1 && tied.some((row) => !sameInterval(row, winner))) {
+    return null;
+  }
+  return winner;
+}
+
+function rangeSpecificity(range: SeedReferenceRange) {
+  return (
+    (range.gender === 'ALL' ? 0 : 1) +
+    (range.ageMinDays !== undefined ? 1 : 0) +
+    (range.ageMaxDays !== undefined ? 1 : 0)
+  );
+}
+
+function sameInterval(a: SeedReferenceRange, b: SeedReferenceRange) {
+  return (
+    a.rangeLow === b.rangeLow &&
+    a.rangeHigh === b.rangeHigh &&
+    a.criticalLow === b.criticalLow &&
+    a.criticalHigh === b.criticalHigh &&
+    a.normalTextValue === b.normalTextValue
+  );
 }
 
 export function calculateEgfrCkdEpi(
@@ -122,6 +178,7 @@ const FORMULA_RESOLVERS: Record<
   egfr_ckd_epi: (values, patient) => {
     const creatinine = values.get('CREAT');
     if (creatinine === undefined) return null;
+    if ((patient.gender !== 'M' && patient.gender !== 'F') || patient.ageDays == null) return null;
     const value = calculateEgfrCkdEpi(creatinine, patient.ageDays / 365.25, patient.gender);
     return value === null ? null : { parameterCode: 'EGFR', value, unit: 'mL/min/1.73m²' };
   },
@@ -172,34 +229,51 @@ export function calculateDerivedResults(
   return derived;
 }
 
+function unassessed(label?: string): { flag: ResultFlag; referenceRangeLabel: string } {
+  return { flag: 'UNASSESSED', referenceRangeLabel: label || UNASSESSED_RANGE_LABEL };
+}
+
+function numericRangeLabel(range: SeedReferenceRange): string | undefined {
+  if (range.rangeLow !== undefined && range.rangeHigh !== undefined) {
+    return `${range.rangeLow}-${range.rangeHigh}`;
+  }
+  if (range.rangeLow !== undefined) return `≥ ${range.rangeLow}`;
+  if (range.rangeHigh !== undefined) return `≤ ${range.rangeHigh}`;
+  return range.normalTextValue ?? undefined;
+}
+
 export function flagResult(
   value: number | string | boolean,
   ranges: SeedReferenceRange[],
   patient: PatientDemographics,
 ): { flag: ResultFlag; referenceRangeLabel?: string } {
-  const matched = pickReferenceRange(ranges, patient);
-  if (!matched) return { flag: 'NORMAL' };
+  const matched = pickReferenceRange(ranges ?? [], normalizeRangeDemographics(patient));
+  if (!matched) return unassessed();
 
   if (typeof value === 'string' || typeof value === 'boolean') {
     const textValue = typeof value === 'boolean' ? (value ? 'Positive' : 'Negative') : value;
-    if (matched.normalTextValue && textValue.toLowerCase() !== matched.normalTextValue.toLowerCase()) {
+    if (!matched.normalTextValue) return unassessed();
+    if (textValue.toLowerCase() !== matched.normalTextValue.toLowerCase()) {
       return { flag: 'HIGH', referenceRangeLabel: matched.normalTextValue };
     }
-    return { flag: 'NORMAL', referenceRangeLabel: matched.normalTextValue ?? undefined };
+    return { flag: 'NORMAL', referenceRangeLabel: matched.normalTextValue };
   }
 
   const numeric = toNumber(value);
-  if (numeric === null) return { flag: 'NORMAL' };
+  if (numeric === null) return unassessed(numericRangeLabel(matched));
 
   const { rangeLow, rangeHigh, criticalLow, criticalHigh } = matched;
-  const label =
-    rangeLow !== undefined && rangeHigh !== undefined ? `${rangeLow}-${rangeHigh}` : undefined;
+  const label = numericRangeLabel(matched);
 
   if (criticalLow !== undefined && numeric <= criticalLow) {
     return { flag: 'CRITICAL', referenceRangeLabel: label };
   }
   if (criticalHigh !== undefined && numeric >= criticalHigh) {
     return { flag: 'CRITICAL', referenceRangeLabel: label };
+  }
+  const hasApprovedInterval = rangeLow !== undefined || rangeHigh !== undefined;
+  if (!hasApprovedInterval) {
+    return unassessed(label);
   }
   if (rangeLow !== undefined && numeric < rangeLow) {
     return { flag: 'LOW', referenceRangeLabel: label };
@@ -234,8 +308,8 @@ export function flagResultsForPatient(
 }
 
 export function mapFlagToLegacyResultFlag(
-  flag: ResultFlag,
-): 'normal' | 'low' | 'high' | 'critically_low' | 'critically_high' {
+  flag: ResultFlag | string,
+): 'normal' | 'low' | 'high' | 'critically_low' | 'critically_high' | 'unassessed' {
   switch (flag) {
     case 'LOW':
       return 'low';
@@ -243,8 +317,12 @@ export function mapFlagToLegacyResultFlag(
       return 'high';
     case 'CRITICAL':
       return 'critically_high';
-    default:
+    case 'NORMAL':
       return 'normal';
+    case 'UNASSESSED':
+      return 'unassessed';
+    default:
+      return 'unassessed';
   }
 }
 
@@ -253,7 +331,7 @@ export function resolveLegacyResultFlag(
   value: number | string | boolean,
   ranges: SeedReferenceRange[],
   patient: PatientDemographics,
-): 'normal' | 'low' | 'high' | 'critically_low' | 'critically_high' {
+): 'normal' | 'low' | 'high' | 'critically_low' | 'critically_high' | 'unassessed' {
   if (flag !== 'CRITICAL') return mapFlagToLegacyResultFlag(flag);
   const numeric = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(numeric)) return 'critically_high';

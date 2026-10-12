@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { parseStkCallback } from './mpesa-callback.contract';
 
 type StkResult = {
   checkoutRequestId: string;
@@ -61,6 +62,7 @@ export class MpesaService {
         : 'https://sandbox.safaricom.co.ke';
 
     const response = await fetch(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
+      signal: AbortSignal.timeout(15_000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -101,30 +103,7 @@ export class MpesaService {
   }
 
   parseCallback(body: Record<string, unknown>) {
-    const stk = body.Body as { stkCallback?: Record<string, unknown> } | undefined;
-    const callback = stk?.stkCallback ?? body;
-    const resultCode = Number(callback.ResultCode ?? callback.resultCode ?? -1);
-    const checkoutRequestId = String(
-      callback.CheckoutRequestID ?? callback.checkoutRequestId ?? '',
-    );
-    const metadata = (callback.CallbackMetadata as { Item?: Array<{ Name: string; Value: unknown }> })
-      ?.Item;
-    let mpesaReceiptNumber: string | null = null;
-    let amount: number | null = null;
-    let phone: string | null = null;
-    for (const item of metadata ?? []) {
-      if (item.Name === 'MpesaReceiptNumber') mpesaReceiptNumber = String(item.Value);
-      if (item.Name === 'Amount') amount = Number(item.Value);
-      if (item.Name === 'PhoneNumber') phone = String(item.Value);
-    }
-    return {
-      success: resultCode === 0,
-      checkoutRequestId,
-      mpesaReceiptNumber,
-      amount,
-      phone,
-      raw: body,
-    };
+    return parseStkCallback(body);
   }
 
   private async fetchAccessToken() {
@@ -137,7 +116,7 @@ export class MpesaService {
     const auth = Buffer.from(`${key}:${secret}`).toString('base64');
     const response = await fetch(
       `${baseUrl}/oauth/v1/generate?grant_type=client_credentials`,
-      { headers: { Authorization: `Basic ${auth}` } },
+      { headers: { Authorization: `Basic ${auth}` }, signal: AbortSignal.timeout(10_000) },
     );
     const payload = (await response.json()) as { access_token?: string; errorMessage?: string };
     if (!response.ok || !payload.access_token) {

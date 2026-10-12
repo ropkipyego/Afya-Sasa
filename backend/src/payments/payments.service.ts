@@ -10,6 +10,7 @@ import { prescriptionGroupId } from '../clinical-order/pharmacy-prescription';
 import { Charge, chargeRemaining, chargesEnabled } from './charge.entities';
 import { InitiateMpesaStkDto, RecordManualPaymentDto } from './payments.dto';
 import { PaymentTransaction, QuickbooksSyncQueueItem, type PaymentServiceLine } from './payment.entities';
+import { amountsMatch } from './mpesa-callback.contract';
 import { MpesaService } from './mpesa.service';
 
 @Injectable()
@@ -165,21 +166,38 @@ export class PaymentsService {
 
   async handleMpesaCallback(body: Record<string, unknown>) {
     const parsed = this.mpesa.parseCallback(body);
-    if (!parsed.checkoutRequestId) return { ok: false };
+    if (!parsed.ok) return { ok: false, reason: parsed.reason };
 
     const txn = await this.transactions.findOne({
       where: { externalReference: parsed.checkoutRequestId },
       relations: { labRequest: true, encounter: true, patient: true },
     });
     if (!txn) return { ok: false, reason: 'transaction_not_found' };
+    if (parsed.success && !amountsMatch(txn.amount, parsed.amount)) {
+      return { ok: false, reason: 'amount_mismatch' };
+    }
 
     if (parsed.success) {
-      await this.transactions.update(txn.id, {
-        status: 'completed',
-        externalReference: parsed.mpesaReceiptNumber ?? txn.externalReference,
-        rawCallback: parsed.raw as never,
-        amount: parsed.amount != null ? String(parsed.amount) : txn.amount,
-      });
+      const claimed = await this.transactions
+        .createQueryBuilder()
+        .update()
+        .set({
+          status: 'completed',
+          rawCallback: parsed.raw as never,
+          amount: parsed.amount != null ? String(parsed.amount) : txn.amount,
+          metadata: {
+            ...(txn.metadata ?? {}),
+            checkoutRequestId: parsed.checkoutRequestId,
+            ...(parsed.mpesaReceiptNumber
+              ? { mpesaReceiptNumber: parsed.mpesaReceiptNumber }
+              : {}),
+          },
+        })
+        .where('id = :id AND status = :status', { id: txn.id, status: 'initiated' })
+        .execute();
+      if (!claimed.affected) {
+        return { ok: true, duplicate: true };
+      }
       const chargeId =
         txn.chargeId ??
         (txn.metadata && typeof txn.metadata.chargeId === 'string' ? txn.metadata.chargeId : null);
@@ -208,16 +226,21 @@ export class PaymentsService {
         });
       }
     } else {
-      await this.transactions.update(txn.id, {
-        status: 'failed',
-        rawCallback: parsed.raw as never,
-      });
+      const claimed = await this.transactions
+        .createQueryBuilder()
+        .update()
+        .set({ status: 'failed', rawCallback: parsed.raw as never })
+        .where('id = :id AND status = :status', { id: txn.id, status: 'initiated' })
+        .execute();
+      if (!claimed.affected) {
+        return { ok: true, duplicate: true };
+      }
       if (txn.labRequest) {
         await this.labRequests.update(txn.labRequest.id, { paymentStatus: 'failed' });
       }
     }
 
-    return { ok: true };
+    return { ok: true, duplicate: false };
   }
 
   listTransactions(limit = 50, patientId?: string) {

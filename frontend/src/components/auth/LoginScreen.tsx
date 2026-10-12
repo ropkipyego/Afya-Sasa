@@ -55,6 +55,13 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
       : null
   const [mode, setMode] = useState<'login' | 'forgot' | 'reset'>(initialResetToken ? 'reset' : 'login')
   const [resetToken, setResetToken] = useState(initialResetToken ?? '')
+
+  useEffect(() => {
+    if (!initialResetToken || typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    url.searchParams.delete('resetToken')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [initialResetToken])
   const [newPassword, setNewPassword] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -65,6 +72,7 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
     queryKey: ['public-hospitals'],
     queryFn: () => fetchPublicHospitals(DEFAULT_TENANT),
     staleTime: 60_000,
+    enabled: mode !== 'reset',
   })
 
   useEffect(() => {
@@ -107,11 +115,7 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
         method: 'POST',
         body: JSON.stringify({ email }),
       })
-      if (import.meta.env.DEV && result.resetToken) {
-        setInfo(`${result.message} Dev token: ${result.resetToken}`)
-      } else {
-        setInfo(result.message)
-      }
+      setInfo(result.message)
     },
   })
 
@@ -146,7 +150,7 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
-          {mode === 'login' && selectedHospital && HIDE_TENANT_SELECTOR ? (
+          {mode !== 'reset' && selectedHospital && HIDE_TENANT_SELECTOR ? (
             <div className="mb-6">
               <HospitalIdentityCard hospital={selectedHospital} />
             </div>
@@ -169,14 +173,17 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
           >
             {mode === 'reset' ? (
               <>
-                <label className="block">
-                  <span className="text-sm font-medium text-slate-700">Reset token</span>
-                  <input
-                    className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                    value={resetToken}
-                    onChange={(event) => setResetToken(event.target.value)}
-                  />
-                </label>
+                {!resetToken ? (
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-700">Reset token</span>
+                    <input
+                      className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-3 font-mono text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                      value={resetToken}
+                      onChange={(event) => setResetToken(event.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                ) : null}
                 <label className="block">
                   <span className="text-sm font-medium text-slate-700">New password</span>
                   <div className="mt-1.5">

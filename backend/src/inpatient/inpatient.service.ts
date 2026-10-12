@@ -23,6 +23,7 @@ import {
   DischargeSummary,
   Ward,
 } from './inpatient.entities';
+import { bedBlockedByActiveAdmission, bedClaimSucceeded } from './bed-occupancy';
 import {
   CreateAdmissionDto,
   CreateBedDto,
@@ -294,6 +295,13 @@ export class InpatientService {
       }
     }
 
+    const occupant = await this.admissions.findOne({
+      where: { bed: { id: bed.id }, status: 'active' },
+    });
+    if (bedBlockedByActiveAdmission(occupant?.id)) {
+      throw new BadRequestException('This bed already has an active admission.');
+    }
+
     const userId = request.user?.sub ?? null;
     const admissionNo = await this.generateAdmissionNo();
     const admissionId = await this.dataSource.transaction(async (manager) => {
@@ -308,7 +316,7 @@ export class InpatientService {
           updatedBy: userId,
         },
       );
-      if (!occupied.affected) {
+      if (!bedClaimSucceeded(occupied.affected)) {
         throw new BadRequestException(
           'Bed is no longer available. Refresh the bed list and try again.',
         );
@@ -391,6 +399,12 @@ export class InpatientService {
       throw new BadRequestException(
         `Destination bed is not available (current status: ${toBed.status}). Cleaning, reserved, occupied, and maintenance beds cannot be selected.`,
       );
+    }
+    const destinationOccupant = await this.admissions.findOne({
+      where: { bed: { id: toBed.id }, status: 'active' },
+    });
+    if (bedBlockedByActiveAdmission(destinationOccupant?.id)) {
+      throw new BadRequestException('Destination bed already has an active admission.');
     }
     const userId = request.user?.sub ?? null;
     await this.dataSource.transaction(async (manager) => {

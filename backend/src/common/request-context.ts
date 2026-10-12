@@ -16,6 +16,8 @@ export interface AuthenticatedUserContext {
   forcePasswordChange?: boolean;
   sid?: string;
   iat?: number;
+  /** Trusted tenant code captured at login/refresh. */
+  tid?: string;
 }
 
 export interface RequestContext extends Request {

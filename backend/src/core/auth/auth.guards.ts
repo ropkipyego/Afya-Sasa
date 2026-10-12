@@ -16,6 +16,7 @@ import type {
   RequestContext,
 } from '../../common/request-context';
 import { TokenRevocationService } from './token-revocation.service';
+import { assertAccessTenantMatches } from '../../common/tenant-bind';
 
 @Injectable()
 export class JwtAccessGuard implements CanActivate {
@@ -56,10 +57,14 @@ export class JwtAccessGuard implements CanActivate {
       if (await this.tokenRevocation.isSessionInactive(payload.sid, payload.iat)) {
         throw new UnauthorizedException('Session expired due to inactivity');
       }
+      assertAccessTenantMatches({
+        tokenTenantCode: payload.tid,
+        requestTenantCode: request.tenant?.code,
+      });
       request.user = payload;
       return true;
     } catch (error) {
-      if (error instanceof UnauthorizedException) throw error;
+      if (error instanceof UnauthorizedException || error instanceof ForbiddenException) throw error;
       throw new UnauthorizedException('Invalid or expired access token');
     }
   }

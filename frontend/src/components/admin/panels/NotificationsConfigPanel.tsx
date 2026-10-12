@@ -16,6 +16,33 @@ type SmsLog = {
   sentAt?: string | null
   createdAt: string
 }
+type EmailStatus = {
+  status: string
+  deliveryEnabled: boolean
+  smtpHostConfigured: boolean
+  smtpPort: number
+  tlsMode: string
+  tlsCertificateVerification: boolean
+  smtpAuthConfigured: boolean
+  fromAddress: string
+  publicOriginConfigured: boolean
+  publicOriginUsesHttps: boolean
+  lastAcceptedAt: string | null
+  lastFailureReason: string | null
+}
+
+type EmailDeliveryRow = {
+  id: string
+  purpose: string
+  recipientDomain: string
+  subject: string
+  status: string
+  attempts: number
+  lastErrorSafe?: string | null
+  acceptedAt?: string | null
+  createdAt: string
+}
+
 type BulkSmsResult = {
   ok: boolean
   provider: string
@@ -56,6 +83,14 @@ export function NotificationsConfigPanel() {
   const { data: templates = [] } = useQuery({
     queryKey: ['notification-templates'],
     queryFn: () => apiRequest<Template[]>('/notifications/templates'),
+  })
+  const { data: emailStatus } = useQuery({
+    queryKey: ['admin-email-status'],
+    queryFn: () => apiRequest<EmailStatus>('/admin/email/status'),
+  })
+  const { data: emailDeliveries = [] } = useQuery({
+    queryKey: ['admin-email-deliveries'],
+    queryFn: () => apiRequest<EmailDeliveryRow[]>('/admin/email/deliveries?limit=20'),
   })
   const { data: smsLogs = [] } = useQuery({
     queryKey: ['sms-logs'],
@@ -113,6 +148,52 @@ export function NotificationsConfigPanel() {
             </ul>
           </div>
         </div>
+      </Card>
+
+      <Card className="p-8">
+        <PageHeader
+          title="Email delivery"
+          description="Password resets, security alerts, and authorised report notices. SMTP stays off until the mail administrator confirms host and credentials."
+        />
+        <dl className="mt-6 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-slate-500">Status</dt>
+            <dd className="font-semibold">{emailStatus?.status ?? '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">From</dt>
+            <dd>{emailStatus?.fromAddress ?? 'noreply@jalaram.co.ke'}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">SMTP host configured</dt>
+            <dd>{emailStatus?.smtpHostConfigured ? 'yes' : 'no'}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">TLS certificate verification</dt>
+            <dd>{emailStatus?.tlsCertificateVerification ? 'enforced' : '—'}</dd>
+          </div>
+        </dl>
+        {emailStatus?.lastFailureReason ? (
+          <p className="mt-3 text-sm text-rose-700">{emailStatus.lastFailureReason}</p>
+        ) : null}
+        <ul className="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200">
+          {emailDeliveries.map((row) => (
+            <li key={row.id} className="px-4 py-3 text-sm">
+              <div className="flex flex-wrap justify-between gap-2">
+                <span className="font-medium">
+                  {row.purpose} @{row.recipientDomain}
+                </span>
+                <span className="text-xs text-slate-500">
+                  {row.status} · {row.attempts} attempt(s)
+                </span>
+              </div>
+              <p className="text-slate-600">{row.subject}</p>
+            </li>
+          ))}
+          {!emailDeliveries.length ? (
+            <li className="px-4 py-6 text-sm text-slate-500">No email delivery attempts recorded.</li>
+          ) : null}
+        </ul>
       </Card>
 
       <Card className="p-8">

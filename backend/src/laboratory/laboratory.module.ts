@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../core/audit/audit.module';
 import { ClinicalOrderModule } from '../clinical-order/clinical-order.module';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { Admission } from '../inpatient/inpatient.entities';
@@ -31,6 +32,7 @@ import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
+    AuditModule,
     ClinicalOrderModule,
     WorkflowModule,
     NotificationsModule,

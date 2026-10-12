@@ -30,6 +30,7 @@ type AdminUserItem = {
   active: boolean
   forcePasswordChange?: boolean
   lockedUntil?: string | null
+  lastLoginAt?: string | null
   roles: RoleItem[]
   departments?: { id: string; name: string; isPrimary?: boolean }[]
 }
@@ -145,6 +146,8 @@ export function UserAccessCenterPanel() {
 
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [departmentFilter, setDepartmentFilter] = useState('')
   const [addMode, setAddMode] = useState<'user' | 'doctor'>('user')
   const [editingUser, setEditingUser] = useState<AdminUserItem | null>(null)
   const [editRoleIds, setEditRoleIds] = useState<string[]>([])
@@ -334,9 +337,14 @@ export function UserAccessCenterPanel() {
         (user.specialisation ?? '').toLowerCase().includes(query)
       const matchesRole =
         !roleFilter || user.roles.some((role) => role.id === roleFilter || role.name === roleFilter)
-      return matchesSearch && matchesRole
+      const matchesStatus =
+        !statusFilter ||
+        (statusFilter === 'active' ? user.active : statusFilter === 'inactive' ? !user.active : true)
+      const matchesDepartment =
+        !departmentFilter || user.departments?.some((department) => department.id === departmentFilter)
+      return matchesSearch && matchesRole && matchesStatus && matchesDepartment
     })
-  }, [users, search, roleFilter])
+  }, [users, search, roleFilter, statusFilter, departmentFilter])
 
   const stats = [
     { label: 'Active users', value: summary?.activeUsers ?? users.filter((u) => u.active).length },
@@ -611,9 +619,30 @@ export function UserAccessCenterPanel() {
                 </option>
               ))}
             </select>
+            <select
+              className="input"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">All account status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <select
+              className="input"
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+            >
+              <option value="">All departments</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Showing {filteredUsers.length} of {users.length} accounts
+            Showing {filteredUsers.length} of {users.length} user accounts. Last login is not proof of being on duty.
           </p>
           {usersLoading ? (
             <p className="mt-4 text-sm text-slate-500">Loading staff accounts...</p>
@@ -654,6 +683,10 @@ export function UserAccessCenterPanel() {
                     <p className="text-xs text-slate-500">
                       Departments:{' '}
                       {user.departments?.map((d) => d.name).join(', ') || 'none'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Last login:{' '}
+                      {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'never recorded'}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-1">

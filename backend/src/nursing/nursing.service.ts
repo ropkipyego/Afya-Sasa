@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
@@ -95,6 +95,21 @@ export class NursingService {
   async createMar(dto: CreateMarDto, request: RequestContext) {
     const admission = await this.admissions.findOne({ where: { id: dto.admissionId } });
     if (!admission) throw new NotFoundException('Admission not found');
+    const scheduledTime = new Date(dto.scheduledTime);
+    const duplicate = await this.mar.findOne({
+      where: {
+        admission: { id: dto.admissionId },
+        medicationName: dto.medicationName,
+        dosage: dto.dosage,
+        scheduledTime,
+        status: In(['scheduled', 'given']),
+      },
+    });
+    if (duplicate) {
+      throw new ConflictException(
+        'A medication administration record already exists for this admission, drug, dose and scheduled time.',
+      );
+    }
     return this.mar.save(
       this.mar.create({
         admission,
@@ -103,7 +118,7 @@ export class NursingService {
         dosage: dto.dosage,
         route: dto.route,
         frequency: dto.frequency,
-        scheduledTime: new Date(dto.scheduledTime),
+        scheduledTime,
         actualTime: null,
         status: 'scheduled',
         withholdReason: null,

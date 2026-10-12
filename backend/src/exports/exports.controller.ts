@@ -2,7 +2,8 @@ import { Controller, Get, Param, Query, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import type { RequestContext } from '../common/request-context';
-import { EXPORT_DATASETS, ExportsService } from './exports.service';
+import { RequirePermissions } from '../core/auth/auth.decorators';
+import { ExportsService } from './exports.service';
 
 @ApiBearerAuth()
 @ApiTags('Exports')
@@ -11,11 +12,41 @@ export class ExportsController {
   constructor(private readonly exports: ExportsService) {}
 
   @Get()
-  list() {
-    return EXPORT_DATASETS.map((dataset) => ({ dataset }));
+  @RequirePermissions(
+    'reports:read',
+    'encounters:read',
+    'lab_requests:read',
+    'radiology_requests:read',
+    'pharmacy:read',
+    'admissions:read',
+    'emergency:read',
+    'payments:read',
+    'surgery_bookings:read',
+    'pregnancies:read',
+    'icu_admissions:read',
+    'hdu_admissions:read',
+    'vitals:read',
+  )
+  list(@Req() request: RequestContext) {
+    return this.exports.listAuthorized(request.user?.permissions ?? []);
   }
 
   @Get(':dataset')
+  @RequirePermissions(
+    'reports:read',
+    'encounters:read',
+    'lab_requests:read',
+    'radiology_requests:read',
+    'pharmacy:read',
+    'admissions:read',
+    'emergency:read',
+    'payments:read',
+    'surgery_bookings:read',
+    'pregnancies:read',
+    'icu_admissions:read',
+    'hdu_admissions:read',
+    'vitals:read',
+  )
   async download(
     @Param('dataset') dataset: string,
     @Query('format') format: 'csv' | 'xlsx' = 'csv',

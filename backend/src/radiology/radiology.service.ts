@@ -1,4 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  canAccessRadiologyReportContent,
+  redactRadiologyAttachment,
+} from './radiology-access';
+import {
+  canTransitionRadiology,
+  radiologyReportIsLocked,
+  type RadiologyStatus,
+} from './radiology-lifecycle';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
@@ -302,6 +311,7 @@ export class RadiologyService {
         where,
         relations: { patient: true, modality: true, encounter: true },
         order: { createdAt: 'DESC' },
+        take: 500,
       });
     }
 
@@ -317,7 +327,7 @@ export class RadiologyService {
     return { items, total, limit: take, offset: skip };
   }
 
-  async detail(id: string) {
+  async detail(id: string, actor?: RequestContext['user']) {
     const radiologyRequest = await this.requests.findOne({
       where: { id },
       relations: { patient: true, modality: true, encounter: true, admission: true },
@@ -333,10 +343,32 @@ export class RadiologyService {
         order: { createdAt: 'DESC' },
       }),
     ]);
-    return { ...radiologyRequest, reports, attachments };
+    if (canAccessRadiologyReportContent(actor, radiologyRequest)) {
+      return { ...radiologyRequest, reports, attachments };
+    }
+    return {
+      ...radiologyRequest,
+      reports: reports.map((report) => ({
+        id: report.id,
+        createdAt: report.createdAt,
+        verifiedAt: report.verifiedAt,
+        findings: null,
+        impression: null,
+        recommendation: null,
+        redacted: true,
+      })),
+      attachments: attachments.map((attachment) => redactRadiologyAttachment(attachment)),
+    };
   }
 
   async updateStatus(id: string, dto: UpdateRadiologyStatusDto, request: RequestContext) {
+    const current = await this.requests.findOne({ where: { id } });
+    if (!current) throw new NotFoundException('Radiology request not found');
+    if (!canTransitionRadiology(current.status as RadiologyStatus, dto.status as RadiologyStatus)) {
+      throw new BadRequestException(
+        `Radiology request cannot move from ${current.status} to ${dto.status}.`,
+      );
+    }
     await this.requests.update(id, {
       status: dto.status,
       updatedBy: request.user?.sub ?? null,
@@ -407,11 +439,22 @@ export class RadiologyService {
       },
     });
     if (!report) throw new NotFoundException('Radiology report not found');
-    await this.reports.update(id, {
-      verifiedBy: request.user?.sub ?? null,
-      verifiedAt: new Date(),
-      updatedBy: request.user?.sub ?? null,
-    });
+    if (radiologyReportIsLocked(report.verifiedAt)) {
+      throw new BadRequestException('Report is already verified');
+    }
+    const claimed = await this.reports
+      .createQueryBuilder()
+      .update()
+      .set({
+        verifiedBy: request.user?.sub ?? null,
+        verifiedAt: new Date(),
+        updatedBy: request.user?.sub ?? null,
+      })
+      .where('id = :id AND verified_at IS NULL', { id })
+      .execute();
+    if (!claimed.affected) {
+      throw new BadRequestException('Report is already verified');
+    }
     await this.requests.update(report.request.id, { status: 'verified' });
 
     await this.notifications.notifyInvestigationStakeholders(

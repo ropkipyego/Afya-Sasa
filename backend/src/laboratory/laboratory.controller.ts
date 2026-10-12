@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import {
+  AmendLabResultDto,
+  CancelLabRequestDto,
   CollectSampleDto,
   CreateLabAttachmentDto,
   CreateLabPanelDto,
@@ -146,6 +148,32 @@ export class LaboratoryController {
   @RequirePermissions('lab_results:verify')
   verifyRequest(@Param('id') id: string, @Req() request: RequestContext) {
     return this.laboratoryService.verifyRequest(id, request);
+  }
+
+  @Post('requests/:id/cancel')
+  @RequirePermissions('lab_requests:cancel')
+  cancelRequest(
+    @Param('id') id: string,
+    @Body() dto: CancelLabRequestDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.laboratoryService.cancelRequest(id, dto, request);
+  }
+
+  @Post('results/:id/amend')
+  @RequirePermissions('lab_results:amend')
+  amendResult(
+    @Param('id') id: string,
+    @Body() dto: AmendLabResultDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.laboratoryService.amendResult(id, dto, request);
+  }
+
+  @Get('requests/:id/report')
+  @RequirePermissions('lab_results:read')
+  renderReport(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.laboratoryService.renderReport(id, request);
   }
 
   @Get('results/inbox')

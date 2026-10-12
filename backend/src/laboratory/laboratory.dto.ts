@@ -146,6 +146,11 @@ export class ReceiveSampleDto {
   @ApiProperty({ enum: ['adequate', 'haemolysed', 'clotted', 'insufficient', 'contaminated'] })
   @IsIn(['adequate', 'haemolysed', 'clotted', 'insufficient', 'contaminated'])
   condition!: 'adequate' | 'haemolysed' | 'clotted' | 'insufficient' | 'contaminated';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  rejectionReason?: string;
 }
 
 export class ScanLabSampleDto {
@@ -167,6 +172,11 @@ export class ScanLabSampleDto {
   @IsOptional()
   @IsIn(['collect', 'receive', 'process'])
   action?: 'collect' | 'receive' | 'process';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsIn(['adequate', 'haemolysed', 'clotted', 'insufficient', 'contaminated'])
+  condition?: 'adequate' | 'haemolysed' | 'clotted' | 'insufficient' | 'contaminated';
 }
 
 export class CreateLabAttachmentDto {
@@ -249,6 +259,32 @@ export class EnterLabPanelResultsDto {
   @ValidateNested({ each: true })
   @Type(() => EnterLabPanelResultValueDto)
   results!: EnterLabPanelResultValueDto[];
+}
+
+export class CancelLabRequestDto {
+  @ApiProperty()
+  @IsString()
+  reason!: string;
+}
+
+export class AmendLabResultDto {
+  @ApiProperty()
+  @IsString()
+  value!: string;
+
+  @ApiProperty()
+  @IsString()
+  reason!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  comment?: string;
 }
 
 export class UpdateLabTestPricingDto {

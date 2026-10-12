@@ -101,23 +101,32 @@ function requestTestSummary(items?: LabRequestItem[]) {
 }
 
 function toCatalogPatient(patient: { dateOfBirth?: string; gender?: string }) {
-  const gender: 'M' | 'F' = patient.gender === 'male' ? 'M' : 'F'
-  const ageDays = patient.dateOfBirth
-    ? Math.max(0, Math.floor((Date.now() - new Date(patient.dateOfBirth).getTime()) / 86_400_000))
-    : 365 * 30
-  return { gender, ageDays }
+  const raw = (patient.gender ?? '').toLowerCase()
+  const gender = raw === 'male' ? 'M' : raw === 'female' ? 'F' : 'UNKNOWN'
+  if (!patient.dateOfBirth) {
+    return { gender, ageDays: null as number | null }
+  }
+  const dob = new Date(patient.dateOfBirth)
+  if (Number.isNaN(dob.getTime())) {
+    return { gender, ageDays: null as number | null }
+  }
+  const ageDays = Math.floor((Date.now() - dob.getTime()) / 86_400_000)
+  return { gender, ageDays: ageDays >= 0 ? ageDays : null }
 }
 
 function formatRefHint(ranges?: RefRange[]) {
-  if (!ranges?.length) return undefined
-  const range = ranges.find((row) => row.gender === 'ALL') ?? ranges[0]
+  if (!ranges?.length) return 'No reference interval configured'
+  const range = ranges.find(
+    (row) => row.gender === 'ALL' && row.ageMinDays == null && row.ageMaxDays == null,
+  )
+  if (!range) return 'Reference interval depends on recorded sex and age'
   if (range.normalTextValue) return `Ref: ${range.normalTextValue}`
   if (range.rangeLow != null && range.rangeHigh != null) {
     return `Ref: ${range.rangeLow}–${range.rangeHigh}`
   }
   if (range.rangeLow != null) return `Ref: ≥ ${range.rangeLow}`
   if (range.rangeHigh != null) return `Ref: ≤ ${range.rangeHigh}`
-  return undefined
+  return 'No reference interval configured'
 }
 
 function ParameterField({
@@ -162,7 +171,7 @@ function ParameterField({
   }
 
   const fieldFooter =
-    previewFlag && previewFlag !== 'normal' ? (
+    previewFlag && previewFlag !== 'normal' && previewFlag !== 'NORMAL' ? (
       <div className="mt-1">
         <LabFlagBadge flag={previewFlag} />
       </div>
@@ -445,6 +454,20 @@ export function LabResultsEntry() {
 
   const savedResults = activeItem?.results ?? []
   const enteredCount = Object.values(parameterValues).filter((value) => value.trim()).length
+  const dirty = Object.entries(parameterValues).some(([code, value]) => {
+    const saved = savedResults.find((row) => row.parameter?.code === code)?.value ?? ''
+    return (value ?? '').trim() !== saved.trim()
+  })
+
+  useEffect(() => {
+    if (!dirty) return
+    const onLeave = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onLeave)
+    return () => window.removeEventListener('beforeunload', onLeave)
+  }, [dirty])
 
   return (
     <div className="space-y-6">
@@ -517,6 +540,7 @@ export function LabResultsEntry() {
           title="Result entry"
           description="Enter structured panel results or attach a PDF report."
           onClose={() => {
+            if (dirty && !window.confirm('Discard unsaved result entries?')) return
             setSelectedId(null)
             setActiveItemId('')
             setParameterValues({})

@@ -64,8 +64,8 @@ export class RadiologyController {
 
   @Get('requests/:id')
   @RequirePermissions('radiology_requests:read')
-  detail(@Param('id') id: string) {
-    return this.radiologyService.detail(id);
+  detail(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.radiologyService.detail(id, request.user);
   }
 
   @Post('requests')

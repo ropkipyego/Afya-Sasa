@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ShaIdentificationType } from './sha.types';
 
+export const SHA_ELIGIBILITY_TIMEOUT_MS = 15_000;
+export const SHA_TOKEN_TIMEOUT_MS = 10_000;
+
 type TokenCache = { accessToken: string; expiresAt: number };
 
 export type ShaEligibilityApiResponse = {
@@ -57,28 +60,37 @@ export class ShaClient {
   }
 
   async checkEligibility(identificationType: ShaIdentificationType, identificationNumber: string) {
-    const token = await this.getAccessToken();
-    const url = new URL(`${this.baseUrl}/patients/eligibility`);
-    url.searchParams.set('identification_type', identificationType);
-    url.searchParams.set('identification_number', identificationNumber);
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'X-Facility-Id': this.facilityFrCode,
-        'X-Facility-Id-Type': 'fr-code',
-        Accept: 'application/json',
-      },
-    });
-    const body = (await response.json().catch(() => ({}))) as ShaEligibilityApiResponse & {
-      message?: string;
-      error?: string;
-    };
-    if (!response.ok) {
-      const message = body.message || body.error || `SHA eligibility failed (${response.status})`;
-      this.logger.warn(message);
-      throw new Error(message);
+    try {
+      const token = await this.getAccessToken();
+      const url = new URL(`${this.baseUrl}/patients/eligibility`);
+      url.searchParams.set('identification_type', identificationType);
+      url.searchParams.set('identification_number', identificationNumber);
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Facility-Id': this.facilityFrCode,
+          'X-Facility-Id-Type': 'fr-code',
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(SHA_ELIGIBILITY_TIMEOUT_MS),
+      });
+      const body = (await response.json().catch(() => ({}))) as ShaEligibilityApiResponse & {
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        const message = body.message || body.error || `SHA eligibility failed (${response.status})`;
+        this.logger.warn(`SHA eligibility HTTP ${response.status}`);
+        throw new Error(message);
+      }
+      return body;
+    } catch (error) {
+      if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+        this.logger.warn('SHA eligibility timed out');
+        throw new Error('SHA eligibility timed out');
+      }
+      throw error;
     }
-    return body;
   }
 
   private async getAccessToken() {
@@ -88,6 +100,7 @@ export class ShaClient {
     const response = await fetch(`${this.baseUrl}/tenants/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      signal: AbortSignal.timeout(SHA_TOKEN_TIMEOUT_MS),
       body: JSON.stringify({
         client_id: this.clientId,
         client_secret: this.clientSecret,

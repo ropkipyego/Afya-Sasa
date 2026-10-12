@@ -128,16 +128,47 @@ export function LabPriorityChip({ priority }: { priority: string }) {
 }
 
 export function LabFlagBadge({ flag }: { flag?: string | null }) {
-  if (!flag || flag === 'normal') {
-    return <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">Normal</span>
+  const normalized = (flag ?? '').toLowerCase()
+  if (!normalized) {
+    return (
+      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">
+        No flag
+      </span>
+    )
+  }
+  if (normalized === 'unassessed') {
+    return (
+      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-700">
+        No reference interval
+      </span>
+    )
+  }
+  const known = new Set(['normal', 'low', 'high', 'critically_low', 'critically_high', 'critical'])
+  if (!known.has(normalized)) {
+    return (
+      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-700">
+        Unrecognised flag
+      </span>
+    )
+  }
+  if (normalized === 'normal') {
+    return (
+      <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">
+        Normal
+      </span>
+    )
   }
   const tone =
-    flag.includes('critical') || flag === 'CRITICAL'
+    normalized.includes('critical')
       ? 'bg-rose-100 text-rose-800'
-      : flag === 'high' || flag === 'HIGH'
+      : normalized === 'high'
         ? 'bg-orange-100 text-orange-800'
         : 'bg-amber-100 text-amber-900'
-  return <span className={clsx('rounded-md px-2 py-0.5 text-[10px] font-bold uppercase', tone)}>{flag.replaceAll('_', ' ')}</span>
+  return (
+    <span className={clsx('rounded-md px-2 py-0.5 text-[10px] font-bold uppercase', tone)}>
+      {normalized.replaceAll('_', ' ')}
+    </span>
+  )
 }
 
 export function LabEmptyState({

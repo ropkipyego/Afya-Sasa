@@ -68,6 +68,10 @@ export function ControlCenterHome({
 
   return (
     <div className="space-y-8">
+      <p className="text-sm text-slate-600">
+        Administrator Control Center. Directors should use Reports for analytics. Operational tiles below
+        are counts from source tables, not a duty roster.
+      </p>
       {canReadOps && ops ? (
         <section>
           <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">Today</h3>

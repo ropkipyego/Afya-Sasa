@@ -72,6 +72,7 @@ export class AuthController {
       request.ip,
       request.headers['user-agent'] as string | undefined,
       readRefreshToken(request),
+      request.tenant?.code,
     );
     setRefreshCookie(response, result.refreshToken);
     return result;
@@ -86,7 +87,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const token = readRefreshToken(request, dto.refreshToken);
-    const result = await this.authService.refresh(token ?? '');
+    const result = await this.authService.refresh(token ?? '', request.tenant?.code);
     setRefreshCookie(response, result.refreshToken);
     return result;
   }
@@ -146,6 +147,7 @@ export class AuthController {
       dto.newPassword,
       'web',
       request.ip,
+      request.tenant?.code,
     );
     setRefreshCookie(response, result.refreshToken);
     return result;

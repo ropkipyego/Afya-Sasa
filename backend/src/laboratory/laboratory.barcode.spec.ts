@@ -39,6 +39,16 @@ describe('LaboratoryService specimen barcode', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('refuses receive without an explicit specimen condition', async () => {
+    const lab = service();
+    await expect(
+      lab.scanSample(
+        { barcode: 'JH-SMP-1', action: 'receive' },
+        { user: { sub: 'u1' } } as never,
+      ),
+    ).rejects.toThrow(/condition/);
+  });
+
   it('rejects an unknown barcode', async () => {
     const lab = service();
     Object.assign(lab, { samples: { findOne: jest.fn().mockResolvedValue(null) } });

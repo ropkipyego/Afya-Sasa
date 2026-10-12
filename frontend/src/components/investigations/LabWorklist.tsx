@@ -17,6 +17,7 @@ import { notify } from '../../lib/notify'
 import { printLabStickers } from '../../lib/print-lab-stickers'
 import { formatPatientNoShort } from '../../lib/patient-utils'
 import { openPatientFile } from '../../lib/patient-file'
+import { useAuthStore } from '../../lib/auth-store'
 import { downloadClinicalFile, uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
 import {
   LabKanbanColumn,
@@ -41,6 +42,9 @@ type LabSampleRow = {
   barcode: string
   type: string
   testName?: string
+  condition?: string | null
+  receivedAt?: string | null
+  rejectionReason?: string | null
 }
 
 type LabRequestRow = {
@@ -67,6 +71,7 @@ const stages = [
   { id: 'processing', label: 'Processing', tone: 'border-violet-200/80 bg-gradient-to-b from-violet-50 to-white' },
   { id: 'resulted', label: 'Resulted', tone: 'border-teal-200/80 bg-gradient-to-b from-teal-50 to-white' },
   { id: 'verified', label: 'Verified', tone: 'border-emerald-200/80 bg-gradient-to-b from-emerald-50 to-white' },
+  { id: 'cancelled', label: 'Cancelled', tone: 'border-slate-200/80 bg-gradient-to-b from-slate-50 to-white' },
 ] as const
 
 function itemSummary(items?: LabRequestRow['items']) {
@@ -80,6 +85,9 @@ function itemSummary(items?: LabRequestRow['items']) {
 
 export function LabWorklist({ initialRequestId }: { initialRequestId?: string | null }) {
   const queryClient = useQueryClient()
+  const canCancelRequest = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('lab_requests:cancel')),
+  )
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [activeId, setActiveId] = useState<string | null>(initialRequestId ?? null)
@@ -87,6 +95,9 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
   const [showNewRequest, setShowNewRequest] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [fileBusyId, setFileBusyId] = useState<string | null>(null)
+  const [receiveCondition, setReceiveCondition] = useState('adequate')
+  const [rejectionReason, setRejectionReason] = useState('')
+  const [cancelReason, setCancelReason] = useState('')
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['lab-requests'],
@@ -170,6 +181,62 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
     onError: (error: Error) => notify('Result entry failed', error.message, 'critical'),
   })
 
+  const receiveSample = useMutation({
+    mutationFn: (sampleId: string) =>
+      apiRequest(`/laboratory/samples/${sampleId}/receive`, {
+        method: 'POST',
+        body: JSON.stringify({
+          condition: receiveCondition,
+          rejectionReason: receiveCondition === 'adequate' ? undefined : rejectionReason,
+        }),
+      }),
+    onSuccess: async () => {
+      notify(
+        receiveCondition === 'adequate' ? 'Specimen received' : 'Specimen rejected',
+        receiveCondition === 'adequate'
+          ? 'Condition recorded. Processing may continue.'
+          : 'Rejection reason stored. Recollect if ordered.',
+        receiveCondition === 'adequate' ? 'success' : 'warning',
+      )
+      await refreshClinical()
+    },
+    onError: (error: Error) => notify('Specimen receipt failed', error.message, 'critical'),
+  })
+
+  const cancelRequest = useMutation({
+    mutationFn: (requestId: string) =>
+      apiRequest(`/laboratory/requests/${requestId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: cancelReason }),
+      }),
+    onSuccess: async () => {
+      notify('Request cancelled', 'Cancellation reason recorded.', 'success')
+      setCancelReason('')
+      await refreshClinical()
+      setActiveId(null)
+    },
+    onError: (error: Error) => notify('Cancellation failed', error.message, 'critical'),
+  })
+
+  const printStructuredReport = async (requestId: string) => {
+    try {
+      const report = await apiRequest<{ html: string; requestNo: string }>(
+        `/laboratory/requests/${requestId}/report`,
+      )
+      const frame = window.open('', '_blank', 'noopener,noreferrer')
+      if (!frame) {
+        notify('Print blocked', 'Allow pop-ups to print the laboratory report.', 'warning')
+        return
+      }
+      frame.document.write(report.html)
+      frame.document.close()
+      frame.focus()
+      frame.print()
+    } catch (error) {
+      notify('Report unavailable', error instanceof Error ? error.message : 'Could not load report', 'critical')
+    }
+  }
+
   const verifyRequest = useMutation({
     mutationFn: (requestId: string) =>
       apiRequest(`/laboratory/requests/${requestId}/verify`, { method: 'POST' }),
@@ -213,6 +280,34 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
     }
   }
 
+  const scanSpecimen = async () => {
+    if (!specimenBarcode.trim()) return
+    try {
+      const scan = await apiRequest<{
+        requestId: string | null
+        patientName: string | null
+        identity: string
+      }>('/laboratory/samples/scan', {
+        method: 'POST',
+        body: JSON.stringify({
+          barcode: specimenBarcode.trim(),
+          expectedRequestId: activeId || undefined,
+          expectedPatientId: active?.patient?.id || undefined,
+        }),
+      })
+      if (!activeId && scan.requestId) setActiveId(scan.requestId)
+      notify('Specimen scanned', scan.patientName || scan.identity, 'success')
+      setSpecimenBarcode('')
+      await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
+    } catch (error) {
+      notify(
+        'Specimen not accepted',
+        error instanceof Error ? error.message : 'Unknown barcode',
+        'warning',
+      )
+    }
+  }
+
   const byStage = useMemo(() => {
     const map: Record<string, LabRequestRow[]> = {}
     for (const s of stages) map[s.id] = []
@@ -227,7 +322,7 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
     <div className="space-y-6">
       <LabSection
         title="Specimen workflow board"
-        description="Five-column board from order to verified release. Click a request to collect samples, attach a PDF, or verify."
+        description="Board from order through collection, receipt, result entry, verification, and cancellation. A PDF is not a substitute for structured results."
         action={
           <Button type="button" variant="secondary" onClick={() => setShowNewRequest((v) => !v)}>
             <Plus className="h-4 w-4" />
@@ -242,31 +337,9 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
             value={specimenBarcode}
             onChange={(event) => setSpecimenBarcode(event.target.value)}
             onKeyDown={async (event) => {
-              if (event.key !== 'Enter' || !specimenBarcode.trim()) return
+              if (event.key !== 'Enter') return
               event.preventDefault()
-              try {
-                const scan = await apiRequest<{
-                  requestId: string | null
-                  patientName: string | null
-                  identity: string
-                }>('/laboratory/samples/scan', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    barcode: specimenBarcode.trim(),
-                    expectedRequestId: activeId || undefined,
-                  }),
-                })
-                if (scan.requestId) setActiveId(scan.requestId)
-                notify('Specimen scanned', scan.patientName || scan.identity, 'success')
-                setSpecimenBarcode('')
-                await queryClient.invalidateQueries({ queryKey: ['lab-requests'] })
-              } catch (error) {
-                notify(
-                  'Specimen not accepted',
-                  error instanceof Error ? error.message : 'Unknown barcode',
-                  'warning',
-                )
-              }
+              await scanSpecimen()
             }}
             placeholder="Scan label — identifies the specimen, not the patient"
           />
@@ -338,10 +411,24 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
         <LabModal
           wide
           title="Request workspace"
-          description="Collect samples, attach instrument PDFs, and release verified results."
+          description="Collect, receive or reject specimens, enter results, then verify. Identity stays locked to this request while it is open."
           onClose={() => setActiveId(null)}
         >
           <div className="space-y-5">
+              <label className="block max-w-md text-sm">
+                <span className="font-medium text-slate-700">Confirm specimen barcode</span>
+                <input
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  value={specimenBarcode}
+                  onChange={(event) => setSpecimenBarcode(event.target.value)}
+                  onKeyDown={async (event) => {
+                    if (event.key !== 'Enter') return
+                    event.preventDefault()
+                    await scanSpecimen()
+                  }}
+                  placeholder="Scan label — identifies the specimen, not the patient"
+                />
+              </label>
               <LabPatientStrip
                 firstName={activeRequest.patient?.firstName}
                 lastName={activeRequest.patient?.lastName}
@@ -386,6 +473,8 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
                         {sample.barcode}
                         <span className="ml-2 font-sans text-slate-600">
                           · {sample.testName || sample.type}
+                          {sample.condition ? ` · ${sample.condition}` : ' · not received'}
+                          {sample.rejectionReason ? ` · ${sample.rejectionReason}` : ''}
                         </span>
                       </li>
                     ))}
@@ -426,7 +515,7 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
                     Reprint stickers ({activeRequest.samples!.length})
                   </Button>
                 ) : null}
-                {['resulted', 'processing', 'sample_collected'].includes(activeRequest.status) ? (
+                {['resulted', 'processing'].includes(activeRequest.status) ? (
                   <Button
                     type="button"
                     onClick={() => verifyRequest.mutate(activeRequest.id)}
@@ -435,7 +524,77 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
                     Verify & notify doctor
                   </Button>
                 ) : null}
+                {activeRequest.status === 'verified' ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => printStructuredReport(activeRequest.id)}
+                  >
+                    <Printer className="h-4 w-4" />
+                    Print structured report
+                  </Button>
+                ) : null}
               </div>
+
+              {activeRequest.status === 'sample_collected' && (activeRequest.samples ?? []).length ? (
+                <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-4 space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-violet-900">
+                    Receive or reject specimen
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Adequacy is not assumed. Record the observed condition before receipt.
+                  </p>
+                  <SelectField
+                    name="condition"
+                    label="Condition"
+                    value={receiveCondition}
+                    onChange={(event) => setReceiveCondition(event.target.value)}
+                  >
+                    <option value="adequate">Adequate</option>
+                    <option value="haemolysed">Haemolysed</option>
+                    <option value="clotted">Clotted</option>
+                    <option value="insufficient">Insufficient</option>
+                    <option value="contaminated">Contaminated</option>
+                  </SelectField>
+                  {receiveCondition !== 'adequate' ? (
+                    <Field
+                      name="rejectionReason"
+                      label="Rejection reason"
+                      value={rejectionReason}
+                      onChange={(event) => setRejectionReason(event.target.value)}
+                    />
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => receiveSample.mutate(activeRequest.samples![0].id)}
+                    loading={receiveSample.isPending}
+                  >
+                    Record receipt
+                  </Button>
+                </div>
+              ) : null}
+
+              {canCancelRequest && !['verified', 'cancelled'].includes(activeRequest.status) ? (
+                <div className="rounded-2xl border border-slate-200 p-4 space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Cancel request</p>
+                  <Field
+                    name="cancelReason"
+                    label="Reason"
+                    value={cancelReason}
+                    onChange={(event) => setCancelReason(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={!cancelReason.trim()}
+                    onClick={() => cancelRequest.mutate(activeRequest.id)}
+                    loading={cancelRequest.isPending}
+                  >
+                    Cancel with reason
+                  </Button>
+                </div>
+              ) : null}
 
               <div className="rounded-2xl border-2 border-dashed border-teal-200 bg-gradient-to-br from-teal-50/80 to-white p-5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-teal-900">

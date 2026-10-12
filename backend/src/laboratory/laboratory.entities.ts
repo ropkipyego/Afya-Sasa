@@ -145,6 +145,9 @@ export class LabSample extends SoftDeleteClinicalEntity {
 
   @Column({ type: 'varchar',  nullable: true })
   condition!: 'adequate' | 'haemolysed' | 'clotted' | 'insufficient' | 'contaminated' | null;
+
+  @Column({ type: 'text', name: 'rejection_reason', nullable: true })
+  rejectionReason!: string | null;
 }
 
 @Entity({ name: 'lab_results', schema: 'demo' })
@@ -169,7 +172,7 @@ export class LabResult extends SoftDeleteClinicalEntity {
   unit!: string | null;
 
   @Column({ type: 'varchar' })
-  flag!: 'normal' | 'low' | 'high' | 'critically_low' | 'critically_high';
+  flag!: 'normal' | 'low' | 'high' | 'critically_low' | 'critically_high' | 'unassessed';
 
   @Column({ type: 'varchar',  name: 'reference_range', nullable: true })
   referenceRange!: string | null;
@@ -191,6 +194,15 @@ export class LabResult extends SoftDeleteClinicalEntity {
 
   @Column({ name: 'reviewed_at', type: 'timestamptz', nullable: true })
   reviewedAt!: Date | null;
+
+  @Column({ type: 'text', name: 'result_comment', nullable: true })
+  resultComment!: string | null;
+
+  @Column({ type: 'uuid', name: 'supersedes_id', nullable: true })
+  supersedesId!: string | null;
+
+  @Column({ type: 'text', name: 'amendment_reason', nullable: true })
+  amendmentReason!: string | null;
 }
 
 @Entity({ name: 'lab_attachments', schema: 'demo' })

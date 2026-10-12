@@ -17,12 +17,16 @@ import { Referral } from '../referrals/referral.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import { DocumentsModule } from '../documents/documents.module';
 import { AdminModule } from '../core/admin/admin.module';
+import { UsersModule } from '../core/users/users.module';
+import { User } from '../core/core.entities';
+import { ReportDelivery } from '../core/mail/mail.entities';
 import { InternalNotification } from '../notifications/notification.entities';
 import { Charge } from '../payments/charge.entities';
 import { PaymentTransaction } from '../payments/payment.entities';
 import { MohAutoReportService } from './moh-auto-report.service';
 import { MohReportsService } from './moh-reports.service';
 import { ReportingController } from './reporting.controller';
+import { ReportDeliveryService } from './report-delivery.service';
 import { ReportingService } from './reporting.service';
 
 @Module({
@@ -48,11 +52,14 @@ import { ReportingService } from './reporting.service';
       InternalNotification,
       Charge,
       PaymentTransaction,
+      User,
+      ReportDelivery,
     ]),
     DocumentsModule,
     AdminModule,
+    UsersModule,
   ],
   controllers: [ReportingController],
-  providers: [ReportingService, MohReportsService, MohAutoReportService],
+  providers: [ReportingService, MohReportsService, MohAutoReportService, ReportDeliveryService],
 })
 export class ReportingModule {}

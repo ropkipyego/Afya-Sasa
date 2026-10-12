@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { Job } from 'bullmq';
 import { Repository } from 'typeorm';
 import { NotificationQueueEntry, SmsLog } from './notification.entities';
+import { MailService } from '../core/mail/mail.service';
 import { SMS_GATEWAY } from './sms.gateway';
 import type { SmsGateway } from './sms.gateway';
 
@@ -21,6 +22,7 @@ export class NotificationsProcessor extends WorkerHost {
     private readonly smsLogs: Repository<SmsLog>,
     @Inject(SMS_GATEWAY)
     private readonly smsGateway: SmsGateway,
+    private readonly mail: MailService,
   ) {
     super();
   }
@@ -34,11 +36,32 @@ export class NotificationsProcessor extends WorkerHost {
       return;
     }
 
+    if (entry.channel === 'email') {
+      const result = await this.mail.send({
+        to: entry.recipient,
+        purpose: 'system_alert',
+        subject: 'Jalaram Hospital notification',
+        text: entry.content,
+        html: `<p>${entry.content.replace(/</g, '&lt;')}</p>`,
+        idempotencyKey: `queue:${entry.id}`,
+      });
+      await this.entries.update(entry.id, {
+        attempts: result.attempts,
+        lastAttemptAt: new Date(),
+        sentAt: result.accepted ? new Date() : null,
+        error: result.accepted ? null : result.reason ?? result.status,
+      });
+      if (!result.accepted && result.status !== 'NOT_CONFIGURED') {
+        throw new Error(result.reason ?? 'Email delivery failed');
+      }
+      return;
+    }
+
     if (entry.channel !== 'sms') {
       await this.entries.update(entry.id, {
         attempts: entry.attempts + 1,
         lastAttemptAt: new Date(),
-        error: 'Only SMS delivery is implemented in Phase 1',
+        error: 'Unsupported notification channel',
       });
       return;
     }

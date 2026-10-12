@@ -16,6 +16,11 @@ import { PaymentTransaction } from '../payments/payment.entities';
 import { canViewDirectorFinance } from '../common/errors/director-access';
 import type { AuthenticatedUserContext } from '../common/request-context';
 import { compareAgainstBaseline } from './analytics-intelligence';
+import {
+  compareDelta as metricCompareDelta,
+  occupancyPercent,
+  sumCountSeries,
+} from './reporting-metrics';
 
 export interface ReportResult<T> {
   generatedAt: string;
@@ -372,8 +377,7 @@ export class ReportingService {
         surgeries: totalSurgeries,
         referrals: totalReferrals,
         avgDailyOpd: Math.round((totalOpd / periodDays) * 10) / 10,
-        bedOccupancyPercent:
-          totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : null,
+        bedOccupancyPercent: occupancyPercent(occupiedBeds, totalBeds),
         occupiedBeds,
         totalBeds,
         charges: includeFinance ? finance.charges : null,
@@ -646,14 +650,11 @@ export class ReportingService {
   }
 
   private sumSeries(series: Array<{ count: number }>) {
-    return series.reduce((sum, point) => sum + point.count, 0);
+    return sumCountSeries(series);
   }
 
   private compareDelta(current: number, previous: number) {
-    const delta = current - previous;
-    const percent =
-      previous > 0 ? Math.round(((current - previous) / previous) * 1000) / 10 : null;
-    return { current, previous, delta, percent };
+    return metricCompareDelta(current, previous);
   }
 
   private formatDay(value: string | Date) {

@@ -67,6 +67,15 @@ export class ExportsService {
     @InjectRepository(VitalSigns) private readonly vitals: Repository<VitalSigns>,
   ) {}
 
+  listAuthorized(permissions: string[]) {
+    return EXPORT_DATASETS.filter((dataset) =>
+      DATASET_PERMISSIONS[dataset].some((permission) => permissions.includes(permission)),
+    ).map((dataset) => ({
+      dataset,
+      permission: DATASET_PERMISSIONS[dataset][0],
+    }));
+  }
+
   assertDatasetAccess(dataset: string, permissions: string[]): asserts dataset is ExportDataset {
     if (!EXPORT_DATASETS.includes(dataset as ExportDataset)) {
       throw new NotFoundException('Unknown export dataset');

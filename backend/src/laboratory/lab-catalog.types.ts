@@ -2,7 +2,7 @@ export type ResultDataType = 'numeric' | 'boolean' | 'text' | 'select_options';
 
 export type ReferenceGender = 'M' | 'F' | 'ALL';
 
-export type ResultFlag = 'NORMAL' | 'LOW' | 'HIGH' | 'CRITICAL';
+export type ResultFlag = 'NORMAL' | 'LOW' | 'HIGH' | 'CRITICAL' | 'UNASSESSED';
 
 export type CalculatedFormula =
   | 'ag_ratio'
@@ -59,8 +59,8 @@ export type SeedSpecimenType = {
 };
 
 export type PatientDemographics = {
-  gender: 'M' | 'F';
-  ageDays: number;
+  gender: 'M' | 'F' | 'UNKNOWN';
+  ageDays: number | null;
 };
 
 export type ParameterResultInput = {

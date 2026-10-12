@@ -14,6 +14,7 @@ import { RadiologyCatalogPanel } from './panels/RadiologyCatalogPanel'
 import { TheatreCatalogPanel } from './panels/TheatreCatalogPanel'
 import { MaternityConfigPanel } from './panels/MaternityConfigPanel'
 import { NotificationsConfigPanel } from './panels/NotificationsConfigPanel'
+import { EmailConfigPanel } from './panels/EmailConfigPanel'
 import { ReportingCenterPanel } from './panels/ReportingCenterPanel'
 import { BrandingPanel } from './panels/BrandingPanel'
 import { SuperAdminPanel } from './panels/SuperAdminPanel'
@@ -51,6 +52,7 @@ export type ControlCenterSection =
   | 'printing'
   | 'branding'
   | 'notifications'
+  | 'email'
   | 'reporting'
   | 'audit'
   | 'security'
@@ -132,6 +134,7 @@ export function HospitalControlCenter() {
           {section === 'printing' && <PrintingQrPanel />}
           {section === 'branding' && <BrandingPanel />}
           {section === 'notifications' && <NotificationsConfigPanel />}
+          {section === 'email' && <EmailConfigPanel />}
           {section === 'reporting' && <ReportingCenterPanel />}
           {section === 'audit' && <AuditLogPanel />}
           {section === 'security' && <SecurityCompliancePanel />}

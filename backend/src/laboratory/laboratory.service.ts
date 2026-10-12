@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { formatHospitalNumber } from '../common/hospital-numbering';
 import { tenantChannel } from '../common/tenant-defaults';
@@ -12,11 +13,19 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { Encounter } from '../opd/opd.entities';
 import { Patient } from '../patients/patient.entities';
+import { AuditService } from '../core/audit/audit.service';
 import { OrderableLabTest, LabReferenceRange } from './lab-catalog.entities';
 import { LabCatalogService } from './lab-catalog.service';
+import { assertLabTransition, isTerminalStatus, LAB_AUDIT } from './lab-lifecycle';
+import { canAccessStructuredLabReport, canAmendLabResult, canCancelLabRequest } from './lab-access';
+import { buildStructuredLabReportHtml } from './lab-report.builder';
 import { AccommodationChargeService } from '../payments/accommodation-charge.service';
 import type { PatientDemographics, SeedReferenceRange } from './lab-catalog.types';
-import { resolveLegacyResultFlag } from './lab-result-engine';
+import {
+  mapPatientToRangeDemographics,
+  resolveLegacyResultFlag,
+  UNASSESSED_RANGE_LABEL,
+} from './lab-result-engine';
 import {
   LabAttachment,
   LabPanel,
@@ -27,6 +36,8 @@ import {
   LabTest,
 } from './laboratory.entities';
 import {
+  AmendLabResultDto,
+  CancelLabRequestDto,
   CollectSampleDto,
   CreateLabAttachmentDto,
   CreateLabPanelDto,
@@ -62,6 +73,9 @@ export class LaboratoryService {
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeService,
     private readonly operationalCharges: AccommodationChargeService,
+    private readonly audit: AuditService,
+    private readonly config: ConfigService,
+    @Optional() @Inject(DataSource) private readonly dataSource: DataSource,
   ) {}
 
   createPanel(dto: CreateLabPanelDto, request: RequestContext) {
@@ -386,6 +400,11 @@ export class LaboratoryService {
       relations: { patient: true },
     });
     if (!labRequest) throw new NotFoundException('Lab request not found');
+    try {
+      assertLabTransition(labRequest.status, 'sample_collected', 'collect');
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Invalid collection');
+    }
 
     const requestItems = await this.items.find({
       where: { request: { id } },
@@ -420,6 +439,7 @@ export class LaboratoryService {
     }
     await this.requests.update(id, { status: 'sample_collected' });
     await this.items.update({ request: { id } }, { status: 'sample_collected' });
+    await this.recordLabAudit(request, LAB_AUDIT.COLLECT, id, { sampleCount: samples.length });
     return {
       requestNo: labRequest.requestNo,
       patient: {
@@ -441,6 +461,9 @@ export class LaboratoryService {
       },
     });
     if (!labRequest) throw new NotFoundException('Lab request not found');
+    if (isTerminalStatus(labRequest.status)) {
+      throw new BadRequestException('Attachments cannot be added after verification or cancellation.');
+    }
     const attachment = await this.attachments.save(
       this.attachments.create({
         request: labRequest,
@@ -479,6 +502,9 @@ export class LaboratoryService {
       relations: { request: true },
     });
     if (!attachment) throw new NotFoundException('Lab attachment not found');
+    if (isTerminalStatus(attachment.request?.status)) {
+      throw new BadRequestException('Attachments cannot be removed after verification or cancellation.');
+    }
     await this.attachments.softRemove(attachment);
     return { id: attachmentId, requestId: attachment.request.id };
   }
@@ -516,7 +542,10 @@ export class LaboratoryService {
       if (scan.receivedAt) {
         throw new BadRequestException('This specimen has already been received');
       }
-      await this.receiveSample(scan.sampleId, { condition: 'adequate' }, request);
+      if (!dto.condition) {
+        throw new BadRequestException('Record the specimen condition before receiving. Adequate is not assumed.');
+      }
+      await this.receiveSample(scan.sampleId, { condition: dto.condition }, request);
       return this.findSampleByBarcode(dto.barcode);
     }
     if (dto.action === 'process' && scan.requestStatus === 'sample_collected') {
@@ -534,6 +563,7 @@ export class LaboratoryService {
       collectedAt: sample.collectedAt,
       receivedAt: sample.receivedAt,
       condition: sample.condition,
+      rejectionReason: sample.rejectionReason ?? null,
       requestId: sample.request?.id ?? null,
       requestNo: sample.request?.requestNo ?? null,
       requestStatus: sample.request?.status ?? null,
@@ -547,10 +577,36 @@ export class LaboratoryService {
   }
 
   async receiveSample(sampleId: string, dto: ReceiveSampleDto, request: RequestContext) {
+    const sample = await this.samples.findOne({
+      where: { id: sampleId },
+      relations: { request: true },
+    });
+    if (!sample) throw new NotFoundException('Specimen not found');
+    if (isTerminalStatus(sample.request?.status)) {
+      throw new BadRequestException('This request is no longer open for specimen receipt.');
+    }
+    const rejected = dto.condition !== 'adequate';
+    if (rejected && !dto.rejectionReason?.trim()) {
+      throw new BadRequestException('A rejection reason is required when the specimen is not adequate.');
+    }
     await this.samples.update(sampleId, {
       condition: dto.condition,
+      rejectionReason: rejected ? dto.rejectionReason?.trim() ?? null : null,
       receivedAt: new Date(),
       updatedBy: request.user?.sub ?? null,
+    });
+    if (!rejected && sample.request && sample.request.status === 'sample_collected') {
+      try {
+        assertLabTransition(sample.request.status, 'processing', 'receive');
+        await this.requests.update(sample.request.id, { status: 'processing' });
+      } catch (error) {
+        throw new BadRequestException(error instanceof Error ? error.message : 'Invalid receipt');
+      }
+    }
+    await this.recordLabAudit(request, rejected ? LAB_AUDIT.REJECT : LAB_AUDIT.RECEIVE, sample.request?.id ?? sampleId, {
+      sampleId,
+      condition: dto.condition,
+      rejectionReason: dto.rejectionReason ?? null,
     });
     return this.samples.findOneOrFail({ where: { id: sampleId } });
   }
@@ -565,16 +621,7 @@ export class LaboratoryService {
       },
     });
     if (!item) throw new NotFoundException('Lab request item not found');
-    if (item.request?.status === 'verified') {
-      throw new BadRequestException('This request is already verified. Finalized results cannot be changed.');
-    }
-    const verifiedExisting = await this.results.findOne({
-      where: { requestItem: { id: item.id } },
-      order: { createdAt: 'DESC' },
-    });
-    if (verifiedExisting?.verifiedAt) {
-      throw new BadRequestException('A verified result already exists for this test and cannot be changed.');
-    }
+    await this.assertItemAcceptsResultEntry(item);
 
     const sample = dto.sampleId ? await this.samples.findOne({ where: { id: dto.sampleId } }) : null;
     const parameter = dto.parameterId
@@ -582,7 +629,7 @@ export class LaboratoryService {
         item.orderableTest?.parameters?.find((entry) => entry.code === dto.parameterCode)
       : item.orderableTest?.parameters?.find((entry) => entry.code === dto.parameterCode);
 
-    let flag: LabResult['flag'] = 'normal';
+    let flag: LabResult['flag'] = 'unassessed';
     let referenceRange = item.test?.referenceRange ?? null;
     let unit = dto.unit ?? item.test?.unit ?? parameter?.unit ?? null;
     let isCritical = false;
@@ -617,28 +664,66 @@ export class LaboratoryService {
       }
       isCritical = flag === 'critically_low' || flag === 'critically_high';
     }
-    if (!referenceRange) {
-      referenceRange = 'Not established';
+    if (!referenceRange || flag === 'unassessed') {
+      referenceRange = referenceRange || UNASSESSED_RANGE_LABEL;
     }
 
-    const result = await this.results.save(
-      this.results.create({
-        requestItem: item,
-        sample,
-        parameter: parameter ?? null,
-        value: dto.value,
-        unit,
-        flag,
-        referenceRange,
-        isCritical,
-        verifiedBy: null,
-        verifiedAt: null,
-        reviewedBy: null,
-        reviewedAt: null,
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
+    const existingRows = await this.results.find({
+      where: { requestItem: { id: item.id } },
+      relations: { parameter: true },
+      order: { createdAt: 'DESC' },
+    });
+    const match = parameter
+      ? existingRows.find((row) => row.parameter?.id === parameter.id && !row.supersedesId)
+      : existingRows.find((row) => !row.parameter && !row.supersedesId);
+    if (match?.verifiedAt) {
+      throw new BadRequestException(
+        'A verified result already exists for this test and cannot be changed.',
+      );
+    }
+
+    let result: LabResult;
+    if (match) {
+      const written = await this.results
+        .createQueryBuilder()
+        .update(LabResult)
+        .set({
+          value: dto.value,
+          unit,
+          flag,
+          referenceRange,
+          isCritical,
+          updatedBy: request.user?.sub ?? null,
+        })
+        .where('id = :id', { id: match.id })
+        .andWhere('verified_at IS NULL')
+        .execute();
+      if (!written.affected) {
+        throw new BadRequestException(
+          'A verified result already exists for this test and cannot be changed.',
+        );
+      }
+      result = { ...match, value: dto.value, unit, flag, referenceRange, isCritical };
+    } else {
+      result = await this.results.save(
+        this.results.create({
+          requestItem: item,
+          sample,
+          parameter: parameter ?? null,
+          value: dto.value,
+          unit,
+          flag,
+          referenceRange,
+          isCritical,
+          verifiedBy: null,
+          verifiedAt: null,
+          reviewedBy: null,
+          reviewedAt: null,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+    }
     await this.items.update(item.id, { status: 'resulted' });
     await this.requests.update(item.request.id, { status: 'resulted' });
 
@@ -657,105 +742,161 @@ export class LaboratoryService {
         request: { patient: true },
       },
     });
-    if (!item?.orderableTest) {
+    const orderableTest = item?.orderableTest;
+    if (!orderableTest) {
       throw new BadRequestException('Structured panel entry requires a catalog orderable test.');
     }
     if (!dto.results.length) {
       throw new BadRequestException('Enter at least one parameter result.');
     }
+    await this.assertItemAcceptsResultEntry(item);
 
-    const patient = toPatientDemographics(item.request.patient);
-    const sample = dto.sampleId ? await this.samples.findOne({ where: { id: dto.sampleId } }) : null;
-    const evaluation = await this.catalogService.evaluateResults({
-      orderableTestCode: item.orderableTest.code,
-      patient,
-      results: dto.results.map((entry) => ({
-        parameterCode: entry.parameterCode,
-        value: parseResultValue(entry.value),
-      })),
-    });
+    return this.withRequestLock(item.request.id, async (em) => {
+      const resultsRepo = em?.getRepository(LabResult) ?? this.results;
+      const requestsRepo = em?.getRepository(LabRequest) ?? this.requests;
+      const itemsRepo = em?.getRepository(LabRequestItem) ?? this.items;
+      const latest = await requestsRepo.findOne({ where: { id: item.request.id } });
+      if (isTerminalStatus(latest?.status)) {
+        throw new BadRequestException(
+          'This request is already verified. Finalized results cannot be changed.',
+        );
+      }
 
-    const flaggedByCode = new Map(evaluation.flagged.map((entry) => [entry.parameterCode, entry]));
-    const parameterByCode = new Map((item.orderableTest.parameters ?? []).map((entry) => [entry.code, entry]));
-    const entriesToSave = new Map<string, string>();
-    for (const entry of dto.results) entriesToSave.set(entry.parameterCode, entry.value);
-    for (const derived of evaluation.derived) entriesToSave.set(derived.parameterCode, String(derived.value));
+      const patient = toPatientDemographics(item.request.patient);
+      const sample = dto.sampleId ? await this.samples.findOne({ where: { id: dto.sampleId } }) : null;
+      const evaluation = await this.catalogService.evaluateResults({
+        orderableTestCode: orderableTest.code,
+        patient,
+        results: dto.results.map((entry) => ({
+          parameterCode: entry.parameterCode,
+          value: parseResultValue(entry.value),
+        })),
+      });
 
-    const saved: LabResult[] = [];
-    let hasCritical = false;
+      const flaggedByCode = new Map(evaluation.flagged.map((entry) => [entry.parameterCode, entry]));
+      const parameterByCode = new Map((orderableTest.parameters ?? []).map((entry) => [entry.code, entry]));
+      const entriesToSave = new Map<string, string>();
+      for (const entry of dto.results) entriesToSave.set(entry.parameterCode, entry.value);
+      for (const derived of evaluation.derived) entriesToSave.set(derived.parameterCode, String(derived.value));
 
-    const existingResults = await this.results.find({
-      where: { requestItem: { id: item.id } },
-      relations: { parameter: true },
-    });
-    const existingByParameterId = new Map(
-      existingResults
-        .filter((row) => row.parameter?.id)
-        .map((row) => [row.parameter!.id, row]),
-    );
+      const saved: LabResult[] = [];
+      let hasCritical = false;
 
-    for (const [parameterCode, value] of entriesToSave) {
-      const parameter = parameterByCode.get(parameterCode);
-      if (!parameter) continue;
+      const existingResults = await resultsRepo.find({
+        where: { requestItem: { id: item.id } },
+        relations: { parameter: true },
+      });
+      const existingByParameterId = new Map<string, LabResult>();
+      for (const row of existingResults) {
+        if (!row.parameter?.id) continue;
+        const current = existingByParameterId.get(row.parameter.id);
+        if (!current) {
+          existingByParameterId.set(row.parameter.id, row);
+          continue;
+        }
+        if (row.supersedesId && !current.supersedesId) {
+          existingByParameterId.set(row.parameter.id, row);
+        }
+      }
 
-      const flagged = flaggedByCode.get(parameterCode);
-      const parsedValue = parseResultValue(value);
-      const flag = flagged
-        ? resolveLegacyResultFlag(
-            flagged.flag,
-            parsedValue,
-            (parameter.referenceRanges ?? []).map(mapReferenceRangeEntity),
-            patient,
-          )
-        : 'normal';
-      const isCritical = flag === 'critically_low' || flag === 'critically_high';
-      hasCritical = hasCritical || isCritical;
+      for (const [parameterCode, value] of entriesToSave) {
+        const parameter = parameterByCode.get(parameterCode);
+        if (!parameter) continue;
 
-      const existing = existingByParameterId.get(parameter.id);
-      if (existing) {
-        saved.push(
-          await this.results.save({
+        const flagged = flaggedByCode.get(parameterCode);
+        const parsedValue = parseResultValue(value);
+        const flag = flagged
+          ? resolveLegacyResultFlag(
+              flagged.flag,
+              parsedValue,
+              (parameter.referenceRanges ?? []).map(mapReferenceRangeEntity),
+              patient,
+            )
+          : 'unassessed';
+        const isCritical = flag === 'critically_low' || flag === 'critically_high';
+        hasCritical = hasCritical || isCritical;
+        const referenceRange =
+          flagged?.referenceRangeLabel ||
+          (flag === 'unassessed' ? UNASSESSED_RANGE_LABEL : null);
+
+        const existing = existingByParameterId.get(parameter.id);
+        if (existing) {
+          if (existing.verifiedAt) {
+            throw new BadRequestException(
+              'A verified result already exists for this test and cannot be changed.',
+            );
+          }
+          const written = await resultsRepo
+            .createQueryBuilder()
+            .update(LabResult)
+            .set({
+              value,
+              unit: parameter.unit,
+              flag,
+              referenceRange: referenceRange ?? existing.referenceRange,
+              isCritical,
+              updatedBy: request.user?.sub ?? null,
+            })
+            .where('id = :id', { id: existing.id })
+            .andWhere('verified_at IS NULL')
+            .execute();
+          if (!written.affected) {
+            throw new BadRequestException(
+              'A verified result already exists for this test and cannot be changed.',
+            );
+          }
+          saved.push({
             ...existing,
             value,
             unit: parameter.unit,
             flag,
-            referenceRange: flagged?.referenceRangeLabel ?? existing.referenceRange,
+            referenceRange: referenceRange ?? existing.referenceRange,
             isCritical,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        );
-      } else {
-        saved.push(
-          await this.results.save(
-            this.results.create({
-              requestItem: item,
-              sample,
-              parameter,
-              value,
-              unit: parameter.unit,
-              flag,
-              referenceRange: flagged?.referenceRangeLabel ?? null,
-              isCritical,
-              verifiedBy: null,
-              verifiedAt: null,
-              reviewedBy: null,
-              reviewedAt: null,
-              createdBy: request.user?.sub ?? null,
-              updatedBy: request.user?.sub ?? null,
-            }),
-          ),
-        );
+          });
+        } else {
+          try {
+            saved.push(
+              await resultsRepo.save(
+                resultsRepo.create({
+                  requestItem: item,
+                  sample,
+                  parameter,
+                  value,
+                  unit: parameter.unit,
+                  flag,
+                  referenceRange,
+                  isCritical,
+                  verifiedBy: null,
+                  verifiedAt: null,
+                  reviewedBy: null,
+                  reviewedAt: null,
+                  createdBy: request.user?.sub ?? null,
+                  updatedBy: request.user?.sub ?? null,
+                }),
+              ),
+            );
+          } catch (error) {
+            if (this.isUniqueViolation(error)) {
+              throw new BadRequestException('A result already exists for this parameter.');
+            }
+            throw error;
+          }
+        }
       }
-    }
 
-    await this.items.update(item.id, { status: 'resulted' });
-    await this.requests.update(item.request.id, { status: 'resulted' });
+      if (!saved.length) {
+        throw new BadRequestException('No matching catalog parameters were saved.');
+      }
 
-    if (hasCritical) {
-      await this.notifyCriticalResult(item, 'Panel results', null, request);
-    }
+      await itemsRepo.update(item.id, { status: 'resulted' });
+      await requestsRepo.update(item.request.id, { status: 'resulted' });
 
-    return { saved, derived: evaluation.derived, flagged: evaluation.flagged };
+      if (hasCritical) {
+        await this.notifyCriticalResult(item, 'Panel results', null, request);
+      }
+
+      return { saved, derived: evaluation.derived, flagged: evaluation.flagged };
+    });
   }
 
   private async notifyCriticalResult(
@@ -802,27 +943,92 @@ export class LaboratoryService {
       },
     });
     if (!labRequest) throw new NotFoundException('Lab request not found');
-    const items = await this.items.find({ where: { request: { id } } });
-    const results = await this.results.find({
-      where: items.map((item) => ({ requestItem: { id: item.id } })),
+    try {
+      assertLabTransition(labRequest.status, 'verified', 'verify');
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Invalid verification');
+    }
+    const items = await this.items.find({
+      where: { request: { id } },
+      relations: { orderableTest: { parameters: true } },
     });
-    const attachmentCount = await this.attachments.count({ where: { request: { id } } });
-    if (!results.length && !attachmentCount) {
+    const results = items.length
+      ? await this.results.find({
+          where: items.map((item) => ({ requestItem: { id: item.id } })),
+          relations: { parameter: true, requestItem: true },
+        })
+      : [];
+    const catalogItems = items.filter((item) => (item.orderableTest?.parameters ?? []).length);
+    if (catalogItems.length) {
+      for (const item of catalogItems) {
+        const required = (item.orderableTest?.parameters ?? []).filter(
+          (parameter) => parameter.active !== false && !parameter.calculatedFormula,
+        );
+        const byCode = new Set(
+          results
+            .filter((row) => row.requestItem?.id === item.id && !row.supersedesId)
+            .map((row) => row.parameter?.code)
+            .filter(Boolean),
+        );
+        const missing = required.filter((parameter) => !byCode.has(parameter.code));
+        if (missing.length) {
+          throw new BadRequestException(
+            `Structured results are required before verification. Missing: ${missing
+              .map((parameter) => parameter.code)
+              .join(', ')}. A PDF attachment is not a substitute.`,
+          );
+        }
+      }
+    } else if (!results.length) {
       throw new BadRequestException(
-        'Enter structured results or upload a PDF report before verification.',
+        'Enter structured results before verification. A PDF attachment is not a substitute for a result value.',
       );
     }
-    await Promise.all(
-      results.map((result) =>
-        this.results.update(result.id, {
+    const itemIds = items.map((item) => item.id);
+    if (!itemIds.length) {
+      throw new BadRequestException('This request has no tests to verify.');
+    }
+    await this.withRequestLock(id, async (em) => {
+      const resultsRepo = em?.getRepository(LabResult) ?? this.results;
+      const requestsRepo = em?.getRepository(LabRequest) ?? this.requests;
+      const itemsRepo = em?.getRepository(LabRequestItem) ?? this.items;
+      const latest = await requestsRepo.findOne({ where: { id } });
+      if (!latest || isTerminalStatus(latest.status)) {
+        throw new BadRequestException('This request is no longer open for verification.');
+      }
+      const verifiedAt = new Date();
+      const stamp = await resultsRepo
+        .createQueryBuilder()
+        .update(LabResult)
+        .set({
           verifiedBy: request.user?.sub ?? null,
-          verifiedAt: new Date(),
+          verifiedAt,
           updatedBy: request.user?.sub ?? null,
-        }),
-      ),
-    );
-    await this.items.update({ request: { id } }, { status: 'verified' });
-    await this.requests.update(id, { status: 'verified' });
+        })
+        .where('verified_at IS NULL')
+        .andWhere('request_item_id IN (:...ids)', { ids: itemIds })
+        .execute();
+      if (!stamp.affected && results.some((row) => !row.verifiedAt)) {
+        throw new BadRequestException('Verification did not update any draft results. Retry.');
+      }
+      if (!stamp.affected && !results.length) {
+        throw new BadRequestException(
+          'Enter structured results before verification. A PDF attachment is not a substitute for a result value.',
+        );
+      }
+      const requestStamp = await requestsRepo
+        .createQueryBuilder()
+        .update(LabRequest)
+        .set({ status: 'verified', updatedBy: request.user?.sub ?? null })
+        .where('id = :id', { id })
+        .andWhere('status IN (:...open)', { open: ['resulted', 'processing', 'sample_collected'] })
+        .execute();
+      if (!requestStamp.affected) {
+        throw new BadRequestException('This request is no longer open for verification.');
+      }
+      await itemsRepo.update({ request: { id } }, { status: 'verified' });
+    });
+    await this.recordLabAudit(request, LAB_AUDIT.VERIFY, id, { resultCount: results.length });
 
     const hasCritical = results.some((result) => result.isCritical);
     await this.notifications.notifyInvestigationStakeholders(
@@ -898,6 +1104,10 @@ export class LaboratoryService {
       reviewedBy: request.user?.sub ?? null,
       reviewedAt: new Date(),
       updatedBy: request.user?.sub ?? null,
+    });
+    await this.recordLabAudit(request, result.isCritical ? LAB_AUDIT.CRITICAL : LAB_AUDIT.REVIEW, id, {
+      reviewedAt: new Date().toISOString(),
+      isCritical: result.isCritical,
     });
 
     const encounter = result.requestItem?.request?.encounter;
@@ -1011,6 +1221,114 @@ export class LaboratoryService {
     return sum > 0 ? String(sum) : null;
   }
 
+  async cancelRequest(id: string, dto: CancelLabRequestDto, request: RequestContext) {
+    if (!canCancelLabRequest(request.user)) {
+      throw new ForbiddenException('Permission denied');
+    }
+    const labRequest = await this.requests.findOne({ where: { id } });
+    if (!labRequest) throw new NotFoundException('Lab request not found');
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('A cancellation reason is required.');
+    }
+    try {
+      assertLabTransition(labRequest.status, 'cancelled', 'cancel');
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Invalid cancellation');
+    }
+    await this.withRequestLock(id, async (em) => {
+      const requestsRepo = em?.getRepository(LabRequest) ?? this.requests;
+      const itemsRepo = em?.getRepository(LabRequestItem) ?? this.items;
+      const updated = await requestsRepo
+        .createQueryBuilder()
+        .update(LabRequest)
+        .set({
+          status: 'cancelled',
+          cancelledReason: dto.reason.trim(),
+          updatedBy: request.user?.sub ?? null,
+        })
+        .where('id = :id', { id })
+        .andWhere('status NOT IN (:...terminal)', { terminal: ['verified', 'cancelled'] })
+        .execute();
+      if (!updated.affected) {
+        throw new BadRequestException('This request cannot be cancelled.');
+      }
+      await itemsRepo.update({ request: { id } }, { status: 'cancelled' });
+    });
+    await this.recordLabAudit(request, LAB_AUDIT.CANCEL, id, { reason: dto.reason.trim() });
+    return this.detail(id);
+  }
+
+  async amendResult(id: string, dto: AmendLabResultDto, request: RequestContext) {
+    if (!canAmendLabResult(request.user)) {
+      throw new ForbiddenException('Permission denied');
+    }
+    if (!this.amendmentEnabled()) {
+      throw new ForbiddenException(
+        'Result amendment is disabled until Jalaram laboratory policy is approved (AFYASASA_LAB_AMENDMENT_ENABLED).',
+      );
+    }
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('An amendment reason is required.');
+    }
+    const original = await this.results.findOne({
+      where: { id },
+      relations: { requestItem: { request: true, orderableTest: { parameters: { referenceRanges: true } } }, parameter: true },
+    });
+    if (!original) throw new NotFoundException('Lab result not found');
+    if (!original.verifiedAt) {
+      throw new BadRequestException('Amend the draft result by re-entering it. Amendment is only for verified values.');
+    }
+    const duplicate = await this.results.findOne({ where: { supersedesId: original.id } });
+    if (duplicate) {
+      throw new BadRequestException('This result already has an amendment. Verify or discard that draft first.');
+    }
+    const saved = await this.results.save(
+      this.results.create({
+        requestItem: original.requestItem,
+        sample: original.sample,
+        parameter: original.parameter,
+        value: dto.value,
+        unit: dto.unit ?? original.unit,
+        flag: 'unassessed',
+        referenceRange: UNASSESSED_RANGE_LABEL,
+        isCritical: false,
+        resultComment: dto.comment ?? null,
+        supersedesId: original.id,
+        amendmentReason: dto.reason.trim(),
+        verifiedBy: null,
+        verifiedAt: null,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+    await this.requests.update(original.requestItem.request.id, {
+      status: 'resulted',
+      updatedBy: request.user?.sub ?? null,
+    });
+    await this.recordLabAudit(request, LAB_AUDIT.AMEND, original.id, {
+      amendmentId: saved.id,
+      reason: dto.reason.trim(),
+    });
+    return saved;
+  }
+
+  async renderReport(id: string, request: RequestContext) {
+    const detail = await this.detail(id);
+    if (!canAccessStructuredLabReport(request.user, detail)) {
+      throw new ForbiddenException(
+        'Structured laboratory reports are limited to the ordering clinician, verifying laboratory staff, or an administrator. Department-level report scope is not available.',
+      );
+    }
+    if (detail.status !== 'verified' && detail.status !== 'cancelled') {
+      throw new BadRequestException('Print the structured report after verification, or from a cancelled record with history.');
+    }
+    const html = buildStructuredLabReportHtml(detail, {
+      facilityName: this.config?.get?.('HOSPITAL_NAME') || 'Jalaram St. Christopher Hospital',
+    });
+    await this.recordLabAudit(request, LAB_AUDIT.REPORT, id, { status: detail.status });
+    return { requestNo: detail.requestNo, status: detail.status, html };
+  }
+
   private async generateRequestNo() {
     const total = await this.requests.count();
     return formatHospitalNumber('lab', total + 1);
@@ -1019,6 +1337,71 @@ export class LaboratoryService {
   private async generateBarcode() {
     const total = await this.samples.count();
     return formatHospitalNumber('smp', total + 1);
+  }
+
+  private async assertItemAcceptsResultEntry(item: LabRequestItem) {
+    if (isTerminalStatus(item.request?.status)) {
+      throw new BadRequestException(
+        'This request is already verified. Finalized results cannot be changed.',
+      );
+    }
+    const verifiedExisting = await this.results.findOne({
+      where: { requestItem: { id: item.id } },
+      order: { createdAt: 'DESC' },
+    });
+    if (verifiedExisting?.verifiedAt && !verifiedExisting.supersedesId) {
+      throw new BadRequestException(
+        'A verified result already exists for this test and cannot be changed.',
+      );
+    }
+  }
+
+  private amendmentEnabled() {
+    return this.config?.get?.('AFYASASA_LAB_AMENDMENT_ENABLED') === 'true';
+  }
+
+  private isUniqueViolation(error: unknown) {
+    const code =
+      error instanceof QueryFailedError
+        ? (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code
+        : undefined;
+    return code === '23505';
+  }
+
+  private async withRequestLock<T>(
+    requestId: string,
+    work: (em: EntityManager | null) => Promise<T>,
+  ): Promise<T> {
+    if (!this.dataSource?.transaction) return work(null);
+    return this.dataSource.transaction(async (em) => {
+      await em.query(
+        `SELECT id FROM demo.lab_requests WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [requestId],
+      );
+      return work(em);
+    });
+  }
+
+  private async recordLabAudit(
+    request: RequestContext,
+    action: string,
+    recordId: string | null,
+    afterJson: Record<string, unknown>,
+  ) {
+    if (!this.audit?.record) return;
+    await this.audit.record({
+      userId: request.user?.sub ?? null,
+      action,
+      recordType: 'laboratory',
+      recordId,
+      afterJson,
+      ip: request.ip ?? null,
+      userAgent: typeof request.headers?.['user-agent'] === 'string' ? request.headers['user-agent'] : null,
+      sessionId: request.user?.sid ?? null,
+      endpoint: request.originalUrl ?? '/laboratory',
+      httpCode: 200,
+      durationMs: 0,
+    });
   }
 }
 
@@ -1079,10 +1462,10 @@ function splitCsvLine(line: string): string[] {
 }
 
 function toPatientDemographics(patient: Patient): PatientDemographics {
-  const gender: 'M' | 'F' = patient.gender === 'male' ? 'M' : 'F';
-  const dob = new Date(patient.dateOfBirth);
-  const ageDays = Math.max(0, Math.floor((Date.now() - dob.getTime()) / 86400000));
-  return { gender, ageDays };
+  return mapPatientToRangeDemographics({
+    gender: patient.gender,
+    dateOfBirth: patient.dateOfBirth,
+  });
 }
 
 function parseResultValue(value: string): number | string | boolean {

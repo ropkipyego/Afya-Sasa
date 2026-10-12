@@ -384,11 +384,12 @@ export function ExecutiveAnalyticsDashboard() {
           description="Read-only hospital overview from live clinical and operational tables. Payments are not called revenue. QuickBooks remains the accounting system."
         />
         <p className="mt-2 text-xs text-slate-300">
-          Comparing {data?.range.from ?? from} → {data?.range.to ?? to}
+          Africa/Nairobi · Comparing {data?.range.from ?? from} → {data?.range.to ?? to}
           {data ? ` (${data.range.days} days)` : ''}
           {data?.comparisonRange
             ? ` · Prior: ${data.comparisonRange.from} → ${data.comparisonRange.to}`
             : ''}
+          {data?.generatedAt ? ` · Freshness ${new Date(data.generatedAt).toLocaleString()}` : ''}
         </p>
       </Card>
 

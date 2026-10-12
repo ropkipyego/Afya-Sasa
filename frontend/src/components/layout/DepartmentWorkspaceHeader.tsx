@@ -11,12 +11,17 @@ export function DepartmentWorkspaceHeader({
   actions?: ReactNode
 }) {
   const user = useAuthStore((state) => state.user)
-  const today = new Date().toLocaleDateString('en-KE', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
+  let today: string
+  try {
+    today = new Date().toLocaleDateString('en-KE', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+  } catch {
+    today = new Date().toISOString().slice(0, 10)
+  }
 
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">

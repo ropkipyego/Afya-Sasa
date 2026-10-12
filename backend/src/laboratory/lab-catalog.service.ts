@@ -24,6 +24,7 @@ import {
   calculateDerivedResults,
   flagResultsForPatient,
   mapFlagToLegacyResultFlag,
+  normalizeRangeDemographics,
 } from './lab-result-engine';
 
 export type EvaluateLabResultsDto = {
@@ -191,6 +192,7 @@ export class LabCatalogService {
       return { derived: [], flagged: [] };
     }
 
+    const patient = normalizeRangeDemographics(dto.patient);
     const formulas = (test.parameters ?? [])
       .filter((parameter) => parameter.calculatedFormula)
       .map((parameter) => ({
@@ -198,7 +200,7 @@ export class LabCatalogService {
         formula: parameter.calculatedFormula!,
       }));
 
-    const derived = calculateDerivedResults(dto.results, formulas, dto.patient);
+    const derived = calculateDerivedResults(dto.results, formulas, patient);
     const combinedResults = [...dto.results, ...derived.map((item) => ({
       parameterCode: item.parameterCode,
       value: item.value,
@@ -209,7 +211,7 @@ export class LabCatalogService {
       referenceRanges: (parameter.referenceRanges ?? []).map(mapEntityRange),
     }));
 
-    const flagged = flagResultsForPatient(combinedResults, catalog, dto.patient).map((result) => ({
+    const flagged = flagResultsForPatient(combinedResults, catalog, patient).map((result) => ({
       ...result,
       legacyFlag: mapFlagToLegacyResultFlag(result.flag),
     }));

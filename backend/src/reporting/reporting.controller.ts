@@ -17,6 +17,13 @@ import { TemplateRenderService } from '../documents/template-render.service';
 import { MohAutoReportService } from './moh-auto-report.service';
 import { MohReportsService } from './moh-reports.service';
 import { ReportingService } from './reporting.service';
+import { ReportDeliveryService } from './report-delivery.service';
+import { catalogueForPermissions } from './report-catalogue';
+import {
+  DeliverGovernmentNotificationDto,
+  DeliverInternalReportDto,
+  RedeemSharedReportDto,
+} from './report-delivery.dto';
 
 type PrintTemplateRecord = {
   name?: string
@@ -35,6 +42,7 @@ export class ReportingController {
     private readonly mohAuto: MohAutoReportService,
     private readonly adminService: AdminService,
     private readonly templateRender: TemplateRenderService,
+    private readonly reportDelivery: ReportDeliveryService,
   ) {}
 
   private periodFromQuery(year?: string, month?: string) {
@@ -82,6 +90,16 @@ export class ReportingController {
       `attachment; filename="${template.docxFilename ?? `${templateKey}-${report.period}.docx`}"`,
     );
     res.send(buffer);
+  }
+
+  @Get('catalogue')
+  @RequirePermissions('reports:read')
+  catalogue(@Req() request: RequestContext) {
+    return {
+      generatedAt: new Date().toISOString(),
+      timezone: 'Africa/Nairobi',
+      items: catalogueForPermissions(request.user?.permissions ?? []),
+    };
   }
 
   @Get('dashboard')
@@ -318,6 +336,30 @@ export class ReportingController {
   @RequirePermissions('reports:read')
   icuReport() {
     return this.reportingService.icuReport();
+  }
+
+  @Post('deliver')
+  @RequirePermissions('reports:read')
+  deliverInternal(@Body() dto: DeliverInternalReportDto, @Req() request: RequestContext) {
+    return this.reportDelivery.deliverInternal(dto, request.user!);
+  }
+
+  @Post('government-notify')
+  @RequirePermissions('reports:government_notify')
+  deliverGovernment(
+    @Body() dto: DeliverGovernmentNotificationDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.reportDelivery.deliverGovernmentNotification(dto, request.user!);
+  }
+
+  @Post('shared/redeem')
+  @RequirePermissions('reports:read')
+  redeemShared(
+    @Body() body: RedeemSharedReportDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.reportDelivery.openShared(body.token, request.user!);
   }
 
   @Post('templates/:key/render')
