@@ -6,7 +6,7 @@ Session-only status. Not a production-ready declaration.
 | --- | --- | --- | --- |
 | JWT tenant bind | tested (unit) | `tenant-bind.spec.ts` | Not multi-schema isolation. ORM still `schema:'demo'`. |
 | Export authorization | tested (unit) | `exports.service.spec.ts` | Keep departmental keys. |
-| M-Pesa STK contract + claim | tested (unit) | `mpesa-callback.contract.spec.ts`, `payments.mpesa-callback.spec.ts` | Daraja does not sign STK JSON. Optional `MPESA_CALLBACK_ALLOWED_IPS`. Unique index planned, not applied. No sandbox STK. |
+| M-Pesa STK contract + claim | tested (unit) | `mpesa-callback.contract.spec.ts`, `payments.mpesa-callback.spec.ts` | Daraja does not sign STK JSON. Production empty `MPESA_CALLBACK_ALLOWED_IPS` fail-closed. Amount/receipt required on success. Finalization stages use jsonb `metadata.mpesaFinalization` (no migration). Planned later: `finalization_status` column + unique QB `(entity_type, entity_id, action, payment_id)` and unique `external_reference`. No sandbox STK. |
 | QuickBooks Web Connector | tested (unit) | `quickbooks-webconnector.service.spec.ts` | No live posting. |
 | Charge uniqueness | implemented (migration exists) | `1770100000000` | Live apply-state unknown. Isolated PG not run (no localhost `LAB_TEST_DATABASE_URL`). |
 | Payment external_reference unique | awaiting approval | planned SQL | Duplicate audit required. |

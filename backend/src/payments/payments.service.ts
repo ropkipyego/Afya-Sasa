@@ -187,59 +187,8 @@ export class PaymentsService {
       relations: { labRequest: true, encounter: true, patient: true },
     });
     if (!txn) return { ok: false, reason: 'transaction_not_found' };
-    if (parsed.success && !amountsMatch(txn.amount, parsed.amount)) {
-      return { ok: false, reason: 'amount_mismatch' };
-    }
 
-    if (parsed.success) {
-      const claimed = await this.transactions
-        .createQueryBuilder()
-        .update()
-        .set({
-          status: 'completed',
-          rawCallback: parsed.raw as never,
-          amount: parsed.amount != null ? String(parsed.amount) : txn.amount,
-          metadata: {
-            ...(txn.metadata ?? {}),
-            checkoutRequestId: parsed.checkoutRequestId,
-            ...(parsed.mpesaReceiptNumber
-              ? { mpesaReceiptNumber: parsed.mpesaReceiptNumber }
-              : {}),
-          },
-        })
-        .where('id = :id AND status = :status', { id: txn.id, status: 'initiated' })
-        .execute();
-      if (!claimed.affected) {
-        return { ok: true, duplicate: true };
-      }
-      const chargeId =
-        txn.chargeId ??
-        (txn.metadata && typeof txn.metadata.chargeId === 'string' ? txn.metadata.chargeId : null);
-      if (chargeId && chargesEnabled() && txn.patient?.id) {
-        const paidAmount = parsed.amount ?? Number(txn.amount ?? 0);
-        if (Number.isFinite(paidAmount) && paidAmount > 0) {
-          const charge = await this.lockChargeForPayment(chargeId, txn.patient.id, paidAmount, false);
-          if (charge) await this.applyPaymentToCharge(charge, paidAmount, false);
-        }
-      }
-      await this.applyCompletedPayment({
-        serviceLine: txn.serviceLine ?? 'other',
-        labRequest: txn.labRequest,
-        encounterId: txn.encounter?.id ?? null,
-        method: 'mpesa',
-        payerScheme: null,
-        reference: parsed.mpesaReceiptNumber ?? undefined,
-        amount: parsed.amount ?? undefined,
-        updatedBy: null,
-      });
-      if (txn.serviceLine === 'laboratory' && txn.serviceEntityId) {
-        await this.enqueueQuickbooks('lab_request', txn.serviceEntityId, 'invoice_add', {
-          labRequestId: txn.serviceEntityId,
-          mpesaReceipt: parsed.mpesaReceiptNumber,
-          amount: parsed.amount,
-        });
-      }
-    } else {
+    if (!parsed.success) {
       const claimed = await this.transactions
         .createQueryBuilder()
         .update()
@@ -252,9 +201,139 @@ export class PaymentsService {
       if (txn.labRequest) {
         await this.labRequests.update(txn.labRequest.id, { paymentStatus: 'failed' });
       }
+      return { ok: true, duplicate: false };
     }
 
-    return { ok: true, duplicate: false };
+    if (!parsed.mpesaReceiptNumber) {
+      return { ok: false, reason: 'missing_receipt' };
+    }
+    if (!amountsMatch(txn.amount, parsed.amount)) {
+      return { ok: false, reason: 'amount_mismatch' };
+    }
+
+    const claimed = await this.transactions
+      .createQueryBuilder()
+      .update()
+      .set({
+        status: 'completed',
+        rawCallback: parsed.raw as never,
+        metadata: {
+          ...(txn.metadata ?? {}),
+          checkoutRequestId: parsed.checkoutRequestId,
+          mpesaReceiptNumber: parsed.mpesaReceiptNumber,
+        },
+      })
+      .where('id = :id AND status = :status', { id: txn.id, status: 'initiated' })
+      .execute();
+
+    let current = txn;
+    if (!claimed.affected) {
+      current =
+        (await this.transactions.findOne({
+          where: { id: txn.id },
+          relations: { labRequest: true, encounter: true, patient: true },
+        })) ?? txn;
+      if (current.status !== 'completed') {
+        return { ok: false, reason: 'transaction_not_open' };
+      }
+    }
+
+    await this.finalizeMpesaSuccess(current, parsed);
+    return { ok: true, duplicate: !claimed.affected };
+  }
+
+  /**
+   * Resume-safe STK success work after the initiated→completed claim.
+   * Stage flags live on existing jsonb `metadata.mpesaFinalization` — no migration.
+   * A dedicated finalization_status column plus a unique QB (entity_type, entity_id, action, payment_id)
+   * index would be cleaner; do not apply that schema in this change.
+   */
+  private async finalizeMpesaSuccess(
+    txn: PaymentTransaction,
+    parsed: {
+      mpesaReceiptNumber: string | null;
+      amount: number | null;
+      checkoutRequestId: string;
+    },
+  ) {
+    const paidAmount = Number(txn.amount);
+    if (await this.claimFinalizationStage(txn.id, 'charge')) {
+      try {
+        const chargeId =
+          txn.chargeId ??
+          (txn.metadata && typeof txn.metadata.chargeId === 'string' ? txn.metadata.chargeId : null);
+        if (chargeId && txn.patient?.id) {
+          if (Number.isFinite(paidAmount) && paidAmount > 0) {
+            const charge = await this.lockChargeForPayment(chargeId, txn.patient.id, paidAmount, false);
+            if (charge) await this.applyPaymentToCharge(charge, paidAmount, false);
+          }
+        }
+      } catch (error) {
+        await this.unclaimFinalizationStage(txn.id, 'charge');
+        throw error;
+      }
+    }
+
+    if (await this.claimFinalizationStage(txn.id, 'downstream')) {
+      try {
+        await this.applyCompletedPayment({
+          serviceLine: txn.serviceLine ?? 'other',
+          labRequest: txn.labRequest,
+          encounterId: txn.encounter?.id ?? null,
+          method: 'mpesa',
+          payerScheme: null,
+          reference: parsed.mpesaReceiptNumber ?? undefined,
+          amount: Number.isFinite(paidAmount) ? paidAmount : undefined,
+          updatedBy: null,
+        });
+      } catch (error) {
+        await this.unclaimFinalizationStage(txn.id, 'downstream');
+        throw error;
+      }
+    }
+
+    if (txn.serviceLine === 'laboratory' && txn.serviceEntityId) {
+      if (await this.claimFinalizationStage(txn.id, 'quickbooks')) {
+        try {
+          await this.enqueueQuickbooksOnce('lab_request', txn.serviceEntityId, 'invoice_add', {
+            labRequestId: txn.serviceEntityId,
+            paymentId: txn.id,
+            mpesaReceipt: parsed.mpesaReceiptNumber,
+            amount: paidAmount,
+            checkoutRequestId: parsed.checkoutRequestId,
+          });
+        } catch (error) {
+          await this.unclaimFinalizationStage(txn.id, 'quickbooks');
+          throw error;
+        }
+      }
+    }
+  }
+
+  private async claimFinalizationStage(transactionId: string, stage: 'charge' | 'downstream' | 'quickbooks') {
+    const result = await this.transactions
+      .createQueryBuilder()
+      .update()
+      .set({
+        metadata: () =>
+          `jsonb_set(COALESCE(metadata, '{}'::jsonb), '{mpesaFinalization,${stage}}', 'true'::jsonb, true)`,
+      })
+      .where('id = :id', { id: transactionId })
+      .andWhere(`COALESCE(metadata->'mpesaFinalization'->>'${stage}', 'false') <> 'true'`)
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
+  private async unclaimFinalizationStage(transactionId: string, stage: 'charge' | 'downstream' | 'quickbooks') {
+    await this.transactions
+      .createQueryBuilder()
+      .update()
+      .set({
+        metadata: () =>
+          `jsonb_set(COALESCE(metadata, '{}'::jsonb), '{mpesaFinalization,${stage}}', 'false'::jsonb, true)`,
+      })
+      .where('id = :id', { id: transactionId })
+      .execute();
   }
 
   listTransactions(limit = 50, patientId?: string) {
@@ -766,6 +845,29 @@ export class PaymentsService {
         'A matching payment was just recorded. Refresh the cashier desk instead of submitting again.',
       );
     }
+  }
+
+  private async enqueueQuickbooksOnce(
+    entityType: QuickbooksSyncQueueItem['entityType'],
+    entityId: string,
+    action: QuickbooksSyncQueueItem['action'],
+    payload: Record<string, unknown>,
+  ) {
+    const paymentId = typeof payload.paymentId === 'string' ? payload.paymentId : null;
+    const existing = await this.qbQueue.find({
+      where: { entityType, entityId, action },
+      take: 20,
+    });
+    if (
+      existing.some(
+        (row) =>
+          (paymentId && row.payload?.paymentId === paymentId) ||
+          (payload.checkoutRequestId && row.payload?.checkoutRequestId === payload.checkoutRequestId),
+      )
+    ) {
+      return existing[0];
+    }
+    return this.enqueueQuickbooks(entityType, entityId, action, payload);
   }
 
   private async enqueueQuickbooks(

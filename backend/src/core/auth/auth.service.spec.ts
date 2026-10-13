@@ -1,6 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
+import { defaultTenantCode } from '../../common/tenant-defaults';
 
 jest.mock('bcrypt', () => ({
   compare: jest.fn(),
@@ -53,6 +54,7 @@ function auth(overrides: Record<string, unknown> = {}) {
       bindSessionTenant: jest.fn(),
       getSessionTenant: jest.fn().mockResolvedValue('jalaram'),
       clearSessionTenant: jest.fn(),
+      isSessionInactive: jest.fn().mockResolvedValue(false),
     } as never,
     refreshTokens as never,
     users as never,
@@ -86,6 +88,8 @@ describe('AuthService password reset', () => {
       findByEmail: jest.fn().mockResolvedValue({ id: 'u1', email: 'nurse@jalaram.co.ke' }),
     } as never;
     await instance.requestPasswordReset('nurse@jalaram.co.ke');
+    const mail = (instance as unknown as { mailService: { sendPasswordReset: jest.Mock } }).mailService;
+    expect(mail.sendPasswordReset.mock.calls[0][0].tenantCode).toBe(defaultTenantCode());
     const saved = passwordResetTokens.create.mock.calls[0][0];
     expect(saved.tokenHash).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(saved)).not.toMatch(/resetToken/);
@@ -162,6 +166,59 @@ describe('AuthService password reset', () => {
     await expect(
       instance.resetPassword('good-token', 'WardDesk#2026', '1.1.1.1', 'WardDesk#2026'),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('AuthService refresh tenant binding', () => {
+  function refreshReady(instance: AuthService, users: { findOne: jest.Mock }, refreshTokens: { findOne: jest.Mock; save: jest.Mock }) {
+    refreshTokens.findOne.mockResolvedValue({
+      id: 's1',
+      userId: 'u1',
+      expiresAt: new Date(Date.now() + 60_000),
+      createdAt: new Date(),
+      device: 'web',
+      ip: '1.1.1.1',
+    });
+    users.findOne.mockResolvedValue({
+      id: 'u1',
+      email: 'nurse@jalaram.co.ke',
+      active: true,
+      employeeNo: 'E1',
+      firstName: 'N',
+      lastName: 'urse',
+      forcePasswordChange: false,
+    });
+    (instance as unknown as { jwtService: { signAsync: jest.Mock } }).jwtService = {
+      signAsync: jest.fn().mockResolvedValue('access'),
+    } as never;
+  }
+
+  it('rejects a Jalaram session used against a different tenant', async () => {
+    const { instance, users, refreshTokens } = auth();
+    refreshReady(instance, users as never, refreshTokens as never);
+    await expect(instance.refresh('raw-token', 'city-clinic')).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects a legacy session without stored tenant except at the default hospital', async () => {
+    const { instance, users, refreshTokens } = auth();
+    (instance as unknown as { tokenRevocation: { getSessionTenant: jest.Mock } }).tokenRevocation.getSessionTenant =
+      jest.fn().mockResolvedValue(null);
+    refreshReady(instance, users as never, refreshTokens as never);
+    await expect(instance.refresh('raw-token', 'city-clinic')).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(instance.refresh('raw-token', 'jalaram')).resolves.toEqual(
+      expect.objectContaining({ accessToken: 'access' }),
+    );
+  });
+
+  it('refreshes a normal Jalaram session', async () => {
+    const { instance, users, refreshTokens } = auth();
+    refreshReady(instance, users as never, refreshTokens as never);
+    await expect(instance.refresh('raw-token', 'jalaram')).resolves.toEqual(
+      expect.objectContaining({ tokenType: 'Bearer', accessToken: 'access' }),
+    );
+    const bind = (instance as unknown as { tokenRevocation: { bindSessionTenant: jest.Mock } }).tokenRevocation
+      .bindSessionTenant;
+    expect(bind).toHaveBeenCalledWith('s1', 'jalaram');
   });
 });
 

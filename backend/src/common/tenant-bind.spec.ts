@@ -30,6 +30,11 @@ describe('tenant bind', () => {
     ).not.toThrow();
   });
 
+  it('does not treat a blank token tenant as equivalent to a blank request tenant', () => {
+    expect(tenantsEquivalent(null, 'jalaram')).toBe(false);
+    expect(tenantsEquivalent('jalaram', undefined)).toBe(false);
+  });
+
   it('allows legacy tokens only against the default hospital', () => {
     expect(() =>
       assertAccessTenantMatches({ tokenTenantCode: undefined, requestTenantCode: 'jalaram' }),

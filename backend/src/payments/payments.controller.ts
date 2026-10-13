@@ -12,7 +12,11 @@ import {
 } from './payments.dto';
 import { AccommodationChargeService } from './accommodation-charge.service';
 import { BillingExceptionsService } from './billing-exceptions.service';
-import { callbackSourceAllowed, parseIpAllowlist } from './mpesa-callback.contract';
+import {
+  callbackPeerAddress,
+  callbackSourceAllowed,
+  parseIpAllowlist,
+} from './mpesa-callback.contract';
 import { PaymentsService } from './payments.service';
 import { QuickbooksWebConnectorService } from './quickbooks-webconnector.service';
 
@@ -37,7 +41,7 @@ export class PaymentsController {
   @Public()
   mpesaCallback(@Req() request: RequestContext, @Body() body: Record<string, unknown>) {
     const allowlist = parseIpAllowlist(process.env.MPESA_CALLBACK_ALLOWED_IPS);
-    const remote = request.ip ?? request.socket?.remoteAddress;
+    const remote = callbackPeerAddress(request);
     if (!callbackSourceAllowed(remote, allowlist)) {
       return { ok: false, reason: 'source_not_allowed' };
     }

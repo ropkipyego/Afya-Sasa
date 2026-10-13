@@ -191,6 +191,9 @@ export class AuthService {
     if (sessionTenant && !tenantsEquivalent(sessionTenant, requestTenant)) {
       throw new UnauthorizedException('Tenant context does not match this session');
     }
+    if (!sessionTenant && !tenantsEquivalent(requestTenant, defaultTenantCode())) {
+      throw new UnauthorizedException('Tenant context does not match this session');
+    }
 
     await this.refreshTokens.update({ id: token.id }, { revokedAt: new Date() });
     await this.tokenRevocation.clearSessionActivity(token.id);
@@ -259,7 +262,7 @@ export class AuthService {
     return { revoked: true };
   }
 
-  async requestPasswordReset(email: string, ip?: string, tenantCode = 'demo') {
+  async requestPasswordReset(email: string, ip?: string, tenantCode = defaultTenantCode()) {
     const normalized = email.trim().toLowerCase();
     const windowSeconds = Number(this.config.get('PASSWORD_RESET_RATE_WINDOW_SECONDS') ?? 900);
     const limit = Number(this.config.get('PASSWORD_RESET_RATE_LIMIT') ?? 5);
