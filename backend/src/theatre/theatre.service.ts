@@ -172,6 +172,47 @@ export class TheatreService {
     });
   }
 
+  async getBookingDetail(id: string) {
+    const booking = await this.bookings.findOne({
+      where: { id },
+      relations: { patient: true, theatre: true, procedure: true, admission: true, encounter: true },
+    });
+    if (!booking) throw new NotFoundException('Surgery booking not found');
+    const [notes, staff, complications] = await Promise.all([
+      this.notes.find({
+        where: { booking: { id } },
+        relations: { author: true },
+        order: { createdAt: 'ASC' },
+      }),
+      this.staff.find({
+        where: { booking: { id } },
+        relations: { user: true },
+        order: { assignedAt: 'ASC' },
+      }),
+      this.complications.find({
+        where: { booking: { id } },
+        order: { occurredAt: 'ASC' },
+      }),
+    ]);
+    return {
+      ...booking,
+      notes: notes.map((note) => ({
+        id: note.id,
+        type: note.type,
+        body: note.body,
+        createdAt: note.createdAt,
+        authorName: note.author ? `${note.author.firstName} ${note.author.lastName}` : null,
+      })),
+      staff: staff.map((row) => ({
+        id: row.id,
+        role: row.role,
+        assignedAt: row.assignedAt,
+        userName: row.user ? `${row.user.firstName} ${row.user.lastName}` : null,
+      })),
+      complications,
+    };
+  }
+
   async updateBookingStatus(
     id: string,
     dto: UpdateSurgeryBookingStatusDto,

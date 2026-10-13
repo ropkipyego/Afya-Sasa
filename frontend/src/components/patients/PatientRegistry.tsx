@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Search, Users } from 'lucide-react'
 import { Button, Card, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { readWorkspaceState, writeWorkspaceState } from '../../lib/workspace-state'
 import { calcAge } from '../../lib/patient-utils'
 
 type PatientRow = {
@@ -27,9 +28,14 @@ const AGE_BANDS: AgeBand[] = [
 ]
 
 export function PatientRegistry({ onOpenPatient }: { onOpenPatient?: (patientId: string) => void }) {
-  const [query, setQuery] = useState('')
-  const [ageBand, setAgeBand] = useState<AgeBand>(AGE_BANDS[0])
-  const [page, setPage] = useState(1)
+  const saved = readWorkspaceState<{ query: string; age: string; page: number }>('patient-registry', {
+    query: '',
+    age: 'All ages',
+    page: 1,
+  })
+  const [query, setQuery] = useState(saved.query)
+  const [ageBand, setAgeBand] = useState<AgeBand>(AGE_BANDS.find((band) => band.label === saved.age) ?? AGE_BANDS[0])
+  const [page, setPage] = useState(saved.page)
 
   const params = useMemo(() => {
     const search = new URLSearchParams()
@@ -40,6 +46,10 @@ export function PatientRegistry({ onOpenPatient }: { onOpenPatient?: (patientId:
     if (ageBand.max !== undefined) search.set('ageMax', String(ageBand.max))
     return search.toString()
   }, [page, query, ageBand])
+
+  useEffect(() => {
+    writeWorkspaceState('patient-registry', { query, age: ageBand.label, page })
+  }, [query, ageBand, page])
 
   const { data, isLoading } = useQuery({
     queryKey: ['patient-registry', params],

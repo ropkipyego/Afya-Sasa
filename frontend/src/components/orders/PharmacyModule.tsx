@@ -58,7 +58,7 @@ export function PharmacyModule({ initialTab = 'overview' }: { initialTab?: Pharm
 
   return (
     <div className="workspace-shell animate-fade-in space-y-5">
-      <DepartmentWorkspaceHeader department="Pharmacy" roleHint="Dispense from PHARMACY location only" />
+      <DepartmentWorkspaceHeader department="Pharmacy" roleHint="Dispense from PHARMACY location only" serviceLine="pharmacy" />
 
       {screen === 'overview' ? (
         <PharmacyDashboard

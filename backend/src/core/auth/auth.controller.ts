@@ -11,12 +11,14 @@ import {
   ForgotPasswordDto,
   LoginDto,
   LogoutDto,
+  MfaVerifyDto,
   RefreshDto,
   ResetPasswordDto,
 } from './auth.dto';
 import { Public } from './auth.decorators';
 import { clearRefreshCookie, readRefreshToken, setRefreshCookie } from './auth-cookies';
 import { sessionPolicy } from './session-policy';
+import { MfaService } from './mfa.service';
 
 @ApiTags('Auth')
 @UseGuards(ThrottlerGuard)
@@ -25,6 +27,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly tenancyService: TenancyService,
+    private readonly mfaService: MfaService,
   ) {}
 
   @Public()
@@ -58,7 +61,13 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @Get('mfa/status')
+  mfaStatus() {
+    return this.mfaService.status();
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 8, ttl: 60_000 } })
   @Post('login')
   async login(
     @Body() dto: LoginDto,
@@ -107,7 +116,12 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('reset-password')
   resetPassword(@Body() dto: ResetPasswordDto, @Req() request: RequestContext) {
-    return this.authService.resetPassword(dto.token, dto.newPassword, request.ip);
+    return this.authService.resetPassword(
+      dto.token,
+      dto.newPassword,
+      request.ip,
+      dto.confirmPassword,
+    );
   }
 
   @Public()
@@ -148,8 +162,34 @@ export class AuthController {
       'web',
       request.ip,
       request.tenant?.code,
+      dto.confirmPassword,
     );
     setRefreshCookie(response, result.refreshToken);
     return result;
+  }
+
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('mfa/challenge')
+  issueMfaChallenge(@Req() request: RequestContext) {
+    return this.mfaService.issueLoginChallenge({
+      userId: request.user?.sub ?? '',
+      email: request.user?.email ?? '',
+      ip: request.ip,
+      purpose: 'step_up',
+    });
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('mfa/verify')
+  async verifyMfa(@Body() dto: MfaVerifyDto, @Req() request: RequestContext) {
+    const result = await this.mfaService.verify({
+      challengeId: dto.challengeId,
+      code: dto.code,
+      userId: request.user?.sub,
+      ip: request.ip,
+    });
+    return { verified: true, purpose: result.purpose };
   }
 }

@@ -17,6 +17,8 @@ import {
   listOutstandingPharmacy,
   listPatientCharges,
   listPatientPayments,
+  patientStatement,
+  refundPayment,
   PAYMENT_SERVICE_LINES,
   type PaymentServiceLine,
   type PaymentTransactionRow,
@@ -46,6 +48,7 @@ export function PaymentDesk() {
   const [selectedChargeId, setSelectedChargeId] = useState('')
   const queryClient = useQueryClient()
   const canCloseCashier = useAuthStore((state) => (state.user?.permissions ?? []).includes('payments:manage'))
+  const canRefund = canCloseCashier
 
   const { data: stockItems = [] } = useQuery({
     queryKey: ['inventory-items', 'cashier'],
@@ -101,6 +104,13 @@ export function PaymentDesk() {
   const { data: outstandingPharmacy = [], refetch: refetchOutstanding } = useQuery({
     queryKey: ['pharmacy-outstanding', patient?.id],
     queryFn: () => listOutstandingPharmacy(patient!.id),
+    enabled: Boolean(patient?.id),
+    staleTime: 0,
+  })
+
+  const { data: statement } = useQuery({
+    queryKey: ['patient-statement', patient?.id],
+    queryFn: () => patientStatement(patient!.id),
     enabled: Boolean(patient?.id),
     staleTime: 0,
   })
@@ -247,7 +257,9 @@ export function PaymentDesk() {
                     </div>
                     <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
                       <p className="text-xs font-bold uppercase text-slate-500">Outstanding</p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums">{formatKes(chargeTotals.outstanding)}</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums">
+                        {formatKes(statement?.totals.outstanding ?? chargeTotals.outstanding)}
+                      </p>
                     </div>
                   </div>
                   <div className="overflow-x-auto rounded-2xl border border-slate-200">
@@ -686,8 +698,29 @@ export function PaymentDesk() {
                   </span>
                   <Button type="button" variant="secondary" className="px-3 py-2 text-xs" onClick={() => printReceipt(txn)}>
                     <Printer className="h-3.5 w-3.5" />
-                    Receipt
+                    Reprint
                   </Button>
+                  {canRefund && txn.status === 'completed' && txn.metadata?.kind !== 'refund' ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-3 py-2 text-xs"
+                      onClick={async () => {
+                        const reason = window.prompt('Refund reason (stored against the original payment)')
+                        if (!reason) return
+                        try {
+                          await refundPayment(txn.id, reason)
+                          notify('Refund recorded', 'Original payment was kept. Charge balance was restored.', 'success')
+                          await refetch()
+                          await refetchCharges()
+                        } catch (error) {
+                          notify('Refund failed', formatApiError(error as Error, 'Refund was not recorded.'), 'critical')
+                        }
+                      }}
+                    >
+                      Refund
+                    </Button>
+                  ) : null}
                 </div>
               </li>
             ))}

@@ -16,11 +16,21 @@ export const SCREEN_ALIASES: Record<string, string> = {
   Reception: 'Front Office',
   'OPD Reports': 'Reports',
   'Clinical Reports': 'Reports',
-  'Executive Analytics': 'Reports',
+  'Executive Analytics': 'Director Dashboard',
   'Operations Center': 'Reports',
+  Finance: 'Cashier / Billing',
+  Payments: 'Cashier / Billing',
+  'SHA Claims': 'Insurance & Claims',
   Notifications: 'Register Patient',
   Pharmacy: 'Pharmacy',
-  Payments: 'Finance',
+  'Queue Management': 'All Queues',
+  Outpatient: 'Doctor Queue',
+  Inpatient: 'Inpatient (IPD)',
+  Imaging: 'Radiology',
+  Specialty: 'Theatre',
+  Supply: 'Inventory & Store',
+  Administration: 'Hospital Control Center',
+  'Front Office': 'OPD Check-In',
 }
 
 export function resolveScreen(label: string): string {

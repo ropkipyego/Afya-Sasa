@@ -22,7 +22,9 @@ import { User } from '../core/core.entities';
 import { ReportDelivery } from '../core/mail/mail.entities';
 import { InternalNotification } from '../notifications/notification.entities';
 import { Charge } from '../payments/charge.entities';
-import { PaymentTransaction } from '../payments/payment.entities';
+import { PaymentTransaction, QuickbooksSyncQueueItem } from '../payments/payment.entities';
+import { ShaEligibilityCheck } from '../integration/sha/sha.entities';
+import { InventoryBatch } from '../inventory/inventory.entities';
 import { MohAutoReportService } from './moh-auto-report.service';
 import { MohReportsService } from './moh-reports.service';
 import { ReportingController } from './reporting.controller';
@@ -52,6 +54,9 @@ import { ReportingService } from './reporting.service';
       InternalNotification,
       Charge,
       PaymentTransaction,
+      QuickbooksSyncQueueItem,
+      ShaEligibilityCheck,
+      InventoryBatch,
       User,
       ReportDelivery,
     ]),

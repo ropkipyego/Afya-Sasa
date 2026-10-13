@@ -14,7 +14,7 @@ export function ImagingModule({ initialTab = 'worklist' }: { initialTab?: Imagin
 
   return (
     <div className="workspace-shell animate-fade-in space-y-5">
-      <DepartmentWorkspaceHeader department="Radiology" />
+      <DepartmentWorkspaceHeader department="Radiology" serviceLine="radiology" />
       <WorkspaceTabs
         active={tab}
         onChange={setTab}

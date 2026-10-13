@@ -79,6 +79,10 @@ export function PaymentCheckoutPanel({
         payerScheme: payerScheme || undefined,
         mpesaPhone: mpesaPhone || undefined,
         paymentReference: paymentReference || undefined,
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${patientId}:${chargeId ?? 'none'}:${parsedAmount}:${Date.now()}`,
       })
     },
     onSuccess: (response) => {

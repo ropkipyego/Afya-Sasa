@@ -12,8 +12,12 @@ import { RadiologyRequest } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
 import { Charge, chargesEnabled } from '../payments/charge.entities';
-import { PaymentTransaction } from '../payments/payment.entities';
+import { PaymentTransaction, QuickbooksSyncQueueItem } from '../payments/payment.entities';
+import { ShaEligibilityCheck } from '../integration/sha/sha.entities';
+import { InventoryBatch } from '../inventory/inventory.entities';
+import { payerMixFromMethods } from '../payments/payment-integrity';
 import { canViewDirectorFinance } from '../common/errors/director-access';
+import { pickServiceLineTotals, visibleServiceLines } from './department-revenue';
 import type { AuthenticatedUserContext } from '../common/request-context';
 import { compareAgainstBaseline } from './analytics-intelligence';
 import {
@@ -56,6 +60,12 @@ export class ReportingService {
     @InjectRepository(Charge) private readonly charges: Repository<Charge>,
     @InjectRepository(PaymentTransaction)
     private readonly paymentTransactions: Repository<PaymentTransaction>,
+    @InjectRepository(QuickbooksSyncQueueItem)
+    private readonly qbQueue: Repository<QuickbooksSyncQueueItem>,
+    @InjectRepository(ShaEligibilityCheck)
+    private readonly shaChecks: Repository<ShaEligibilityCheck>,
+    @InjectRepository(InventoryBatch)
+    private readonly inventoryBatches: Repository<InventoryBatch>,
   ) {}
 
   async dashboard() {
@@ -339,7 +349,7 @@ export class ReportingService {
     const totalSurgeries = this.sumSeries(surgerySeries);
     const totalReferrals = this.sumSeries(referralSeries);
 
-    const [totalBeds, occupiedBeds, currentInpatients, finance, priorFinance, attention] =
+    const [totalBeds, occupiedBeds, currentInpatients, finance, priorFinance, attention, ops] =
       await Promise.all([
         this.beds.count(),
         this.beds.count({ where: { status: 'occupied' } }),
@@ -351,6 +361,7 @@ export class ReportingService {
           ? this.financeAnalytics(priorStart, priorEnd)
           : Promise.resolve(emptyFinance(priorStart, priorEnd)),
         this.operationalAttention(),
+        this.directorOperations(start, end),
       ]);
 
     return {
@@ -382,8 +393,17 @@ export class ReportingService {
         totalBeds,
         charges: includeFinance ? finance.charges : null,
         collections: includeFinance ? finance.collections : null,
+        refunds: includeFinance ? finance.refunds : null,
         outstanding: includeFinance ? finance.outstanding : null,
         accommodationCharges: includeFinance ? finance.accommodationCharges : null,
+        unmatchedPayments: includeFinance ? finance.unmatchedPayments : null,
+        returningPatients: ops.returningPatients,
+        avgOpdWaitMinutes: ops.avgOpdWaitMinutes,
+        labTurnaroundHours: ops.labTurnaroundHours,
+        radiologyTurnaroundHours: ops.radiologyTurnaroundHours,
+        shaEligibility: ops.shaEligibility,
+        expiryRiskBatches: ops.expiryRiskBatches,
+        failedQuickbooks: ops.failedQuickbooks,
       },
       comparison: {
         opdVisits: this.compareDelta(totalOpd, priorOpd),
@@ -428,8 +448,17 @@ export class ReportingService {
         emergencyByTriage,
         emergencyByDisposition,
         chargesByServiceLine: includeFinance ? finance.chargesByServiceLine : {},
+        collectionsByServiceLine: includeFinance ? finance.collectionsByServiceLine : {},
         collectionsByMethod: includeFinance ? finance.collectionsByMethod : {},
         outstandingAgeing: includeFinance ? finance.outstandingAgeing : {},
+        payerMix: includeFinance ? finance.payerMix : {},
+      },
+      refresh: {
+        strategy: 'poll',
+        intervalSeconds: 20,
+        timezone: 'Africa/Nairobi',
+        generatedAt: new Date().toISOString(),
+        realtime: false,
       },
     };
   }
@@ -443,35 +472,73 @@ export class ReportingService {
       chargeSeriesRaw,
       collectionSeriesRaw,
       chargesByServiceLine,
+      collectionsByServiceLine,
       collectionsByMethod,
       ageingRaw,
+      refunds,
+      unmatchedPayments,
     ] = await Promise.all([
       this.sumNumericBetween(this.charges, 'amountOwed', start, end),
       this.sumNumericBetween(this.paymentTransactions, 'amount', start, end, {
         status: 'completed',
-      }),
+      }, true),
       this.sumOutstandingCharges(),
       this.sumAccommodationCharges(start, end),
       this.dailySumSeries(this.charges, 'amountOwed', start, end),
       this.dailySumSeries(this.paymentTransactions, 'amount', start, end, {
         status: 'completed',
-      }),
+      }, true),
       this.groupedSum(this.charges, 'serviceLine', 'amountOwed', start, end),
+      this.groupedSum(this.paymentTransactions, 'serviceLine', 'amount', start, end, {
+        status: 'completed',
+      }, true),
       this.groupedSum(this.paymentTransactions, 'method', 'amount', start, end, {
         status: 'completed',
-      }),
+      }, true),
       this.outstandingAgeing(),
+      this.sumNumericBetween(this.paymentTransactions, 'amount', start, end, {
+        status: 'completed',
+      }, 'refunds-only'),
+      this.countUnmatchedPayments(start, end),
     ]);
     return {
       charges,
       collections,
+      refunds,
+      unmatchedPayments,
       outstanding,
       accommodationCharges,
       chargeSeries: chargeSeriesRaw,
       collectionSeries: collectionSeriesRaw,
       chargesByServiceLine,
+      collectionsByServiceLine,
       collectionsByMethod,
       outstandingAgeing: ageingRaw,
+      payerMix: payerMixFromMethods(collectionsByMethod),
+    };
+  }
+
+  async departmentRevenue(from: string, to: string, actor?: AuthenticatedUserContext) {
+    const { start, end } = parseIsoDateRange(from, to);
+    const finance = await this.financeAnalytics(start, end);
+    const visible = visibleServiceLines(actor);
+    const chargesByServiceLine = pickServiceLineTotals(finance.chargesByServiceLine, visible);
+    const collectionsByServiceLine = pickServiceLineTotals(
+      finance.collectionsByServiceLine,
+      visible,
+    );
+    const sum = (rows: Record<string, number>) =>
+      Object.values(rows).reduce((total, value) => total + Number(value || 0), 0);
+    return {
+      generatedAt: new Date().toISOString(),
+      range: { from, to },
+      source:
+        'Operational charges and completed collections on the EMR cashier ledger. Refunds are excluded. This is not the QuickBooks general ledger.',
+      visibleLines: visible === 'all' ? 'all' : visible,
+      chargesByServiceLine,
+      collectionsByServiceLine,
+      charges: sum(chargesByServiceLine),
+      collections: sum(collectionsByServiceLine),
     };
   }
 
@@ -485,6 +552,7 @@ export class ReportingService {
       pendingRadiologyReports,
       pendingDischargeSummaries,
       bedConflicts,
+      failedQb,
     ] = await Promise.all([
       this.encounters
         .createQueryBuilder('encounter')
@@ -503,6 +571,7 @@ export class ReportingService {
       }),
       this.countPendingDischargeSummaries(),
       this.countConflictingBeds(),
+      this.qbQueue.count({ where: { status: 'failed' } }),
     ]);
 
     return {
@@ -512,7 +581,7 @@ export class ReportingService {
       pendingRadiologyReports,
       pendingDischarge: pendingDischargeSummaries,
       bedConflicts: bedConflicts,
-      failedIntegrations: null,
+      failedIntegrations: failedQb,
       biometricDeviceStatus: 'NOT_VERIFIED',
       notificationFailures: null,
       asOf: startOfDay.toISOString(),
@@ -993,6 +1062,19 @@ export class ReportingService {
     return Object.fromEntries(rows.map((row) => [row.key || 'unknown', Number(row.count)]));
   }
 
+  private applyRefundFilter(
+    qb: ReturnType<Repository<object>['createQueryBuilder']>,
+    alias: string,
+    mode?: boolean | 'refunds-only',
+  ) {
+    if (mode === true) {
+      qb.andWhere(`COALESCE(${alias}.metadata->>'kind', 'payment') <> 'refund'`);
+    }
+    if (mode === 'refunds-only') {
+      qb.andWhere(`${alias}.metadata->>'kind' = 'refund'`);
+    }
+  }
+
   private async groupedSum(
     repository: Repository<object>,
     column: string,
@@ -1000,6 +1082,7 @@ export class ReportingService {
     start: Date,
     end: Date,
     filters: Record<string, string> = {},
+    refundMode?: boolean | 'refunds-only',
   ) {
     const alias = 'row';
     const qb = repository
@@ -1010,6 +1093,7 @@ export class ReportingService {
     for (const [key, value] of Object.entries(filters)) {
       qb.andWhere(`${alias}.${key} = :${key}`, { [key]: value });
     }
+    this.applyRefundFilter(qb, alias, refundMode);
     qb.groupBy(`COALESCE(${alias}.${column}, 'unknown')`);
     const rows = await qb.getRawMany<{ key: string; total: string }>();
     return Object.fromEntries(rows.map((row) => [row.key || 'unknown', Number(row.total)]));
@@ -1021,6 +1105,7 @@ export class ReportingService {
     start: Date,
     end: Date,
     filters: Record<string, string> = {},
+    refundMode?: boolean | 'refunds-only',
   ) {
     const alias = 'row';
     const qb = repository
@@ -1030,6 +1115,7 @@ export class ReportingService {
     for (const [key, value] of Object.entries(filters)) {
       qb.andWhere(`${alias}.${key} = :${key}`, { [key]: value });
     }
+    this.applyRefundFilter(qb, alias, refundMode);
     const raw = await qb.getRawOne<{ total: string }>();
     return Number(raw?.total ?? 0);
   }
@@ -1040,6 +1126,7 @@ export class ReportingService {
     start: Date,
     end: Date,
     filters: Record<string, string> = {},
+    refundMode?: boolean | 'refunds-only',
   ) {
     const alias = 'row';
     const qb = repository
@@ -1050,6 +1137,7 @@ export class ReportingService {
     for (const [key, value] of Object.entries(filters)) {
       qb.andWhere(`${alias}.${key} = :${key}`, { [key]: value });
     }
+    this.applyRefundFilter(qb, alias, refundMode);
     qb.groupBy(`DATE(${alias}.createdAt)`).orderBy('day', 'ASC');
     const rows = await qb.getRawMany<{ day: string; count: string }>();
     return this.fillDailySeries(
@@ -1157,6 +1245,77 @@ export class ReportingService {
         .join('\n'),
     };
   }
+
+  private async countUnmatchedPayments(start: Date, end: Date) {
+    return this.paymentTransactions
+      .createQueryBuilder('row')
+      .where('row.createdAt BETWEEN :start AND :end', { start, end })
+      .andWhere("row.status = 'completed'")
+      .andWhere('row.chargeId IS NULL')
+      .andWhere(`COALESCE(row.metadata->>'kind', 'payment') <> 'refund'`)
+      .getCount();
+  }
+
+  private async directorOperations(start: Date, end: Date) {
+    const soon = new Date();
+    soon.setUTCDate(soon.getUTCDate() + 30);
+    const soonIso = soon.toISOString().slice(0, 10);
+    const [returning, wait, labTat, radTat, shaRows, expiry, failedQb] = await Promise.all([
+      this.encounters
+        .createQueryBuilder('encounter')
+        .select('COUNT(DISTINCT encounter.patient_id)', 'count')
+        .where("encounter.type = 'opd'")
+        .andWhere('encounter.startedAt BETWEEN :start AND :end', { start, end })
+        .andWhere(
+          `EXISTS (SELECT 1 FROM demo.encounters prior WHERE prior.patient_id = encounter.patient_id AND prior.started_at < :start AND prior.deleted_at IS NULL)`,
+          { start },
+        )
+        .getRawOne<{ count: string }>(),
+      this.encounters
+        .createQueryBuilder('encounter')
+        .select('AVG(EXTRACT(EPOCH FROM (NOW() - encounter.startedAt)) / 60.0)', 'avg')
+        .where("encounter.type = 'opd'")
+        .andWhere('encounter.status IN (:...statuses)', { statuses: ['registered', 'triaged'] })
+        .getRawOne<{ avg: string | null }>(),
+      this.labRequests
+        .createQueryBuilder('lab')
+        .select('AVG(EXTRACT(EPOCH FROM (lab.verifiedAt - lab.createdAt)) / 3600.0)', 'avg')
+        .where('lab.verifiedAt IS NOT NULL')
+        .andWhere('lab.createdAt BETWEEN :start AND :end', { start, end })
+        .getRawOne<{ avg: string | null }>(),
+      this.radiologyRequests
+        .createQueryBuilder('rad')
+        .select('AVG(EXTRACT(EPOCH FROM (rad.verifiedAt - rad.createdAt)) / 3600.0)', 'avg')
+        .where('rad.verifiedAt IS NOT NULL')
+        .andWhere('rad.createdAt BETWEEN :start AND :end', { start, end })
+        .getRawOne<{ avg: string | null }>(),
+      this.shaChecks
+        .createQueryBuilder('sha')
+        .select('sha.outcome', 'outcome')
+        .addSelect('COUNT(*)', 'count')
+        .where('sha.createdAt BETWEEN :start AND :end', { start, end })
+        .groupBy('sha.outcome')
+        .getRawMany<{ outcome: string; count: string }>(),
+      this.inventoryBatches
+        .createQueryBuilder('batch')
+        .where('batch.expiryDate IS NOT NULL')
+        .andWhere('batch.expiryDate <= :soon', { soon: soonIso })
+        .andWhere('batch.qtyOnHand > 0')
+        .getCount()
+        .catch(() => null),
+      this.qbQueue.count({ where: { status: 'failed' } }),
+    ]);
+    const shaEligibility = Object.fromEntries(shaRows.map((row) => [row.outcome, Number(row.count)]));
+    return {
+      returningPatients: Number(returning?.count ?? 0),
+      avgOpdWaitMinutes: wait?.avg == null ? null : Math.round(Number(wait.avg) * 10) / 10,
+      labTurnaroundHours: labTat?.avg == null ? null : Math.round(Number(labTat.avg) * 10) / 10,
+      radiologyTurnaroundHours: radTat?.avg == null ? null : Math.round(Number(radTat.avg) * 10) / 10,
+      shaEligibility,
+      expiryRiskBatches: expiry,
+      failedQuickbooks: failedQb,
+    };
+  }
 }
 
 export function parseIsoDateRange(from: string, to: string) {
@@ -1178,12 +1337,16 @@ function emptyFinance(start: Date, end: Date) {
   return {
     charges: 0,
     collections: 0,
+    refunds: 0,
+    unmatchedPayments: 0,
     outstanding: 0,
     accommodationCharges: 0,
     chargeSeries: emptySeries,
     collectionSeries: emptySeries,
     chargesByServiceLine: {} as Record<string, number>,
+    collectionsByServiceLine: {} as Record<string, number>,
     collectionsByMethod: {} as Record<string, number>,
     outstandingAgeing: { '0-30 days': 0, '31-60 days': 0, '61-90 days': 0, '90+ days': 0 },
+    payerMix: payerMixFromMethods({}),
   };
 }

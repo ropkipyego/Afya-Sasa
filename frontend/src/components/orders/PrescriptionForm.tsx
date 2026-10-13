@@ -46,6 +46,7 @@ export function PrescriptionForm({
 }) {
   const queryClient = useQueryClient()
   const [priority, setPriority] = useState('routine')
+  const [catalogQuery, setCatalogQuery] = useState('')
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()])
 
   const { data: items = [] } = useQuery({
@@ -125,23 +126,47 @@ export function PrescriptionForm({
               </Button>
             ) : null}
           </div>
-          <SelectField
-            name={`itemId-${index}`}
-            label="Stock item"
-            hint="Pick from pharmacy catalogue when the drug is stocked."
-            value={line.itemId}
-            onChange={(e) => {
-              const item = items.find((row) => row.id === e.target.value)
-              updateLine(index, { itemId: e.target.value, medication: item?.name ?? line.medication })
-            }}
-          >
-            <option value="">Free-text medication…</option>
-            {items.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} ({item.sku}) · {drugClassLabel(item.drugClass)}
-              </option>
-            ))}
-          </SelectField>
+          <div className="md:col-span-2">
+            <Field
+              name={`catalogSearch-${index}`}
+              label="Search approved catalogue"
+              placeholder="Type at least 2 letters…"
+              value={catalogQuery}
+              onChange={(e) => setCatalogQuery(e.target.value)}
+            />
+            <SelectField
+              name={`itemId-${index}`}
+              label="Stock item"
+              hint={
+                line.itemId
+                  ? 'Linked to pharmacy stock. Dispensing will use this product.'
+                  : 'Free-text is allowed but will not move stock until a catalogue item is linked.'
+              }
+              value={line.itemId}
+              onChange={(e) => {
+                const item = items.find((row) => row.id === e.target.value)
+                updateLine(index, { itemId: e.target.value, medication: item?.name ?? line.medication })
+              }}
+            >
+              <option value="">Free-text medication…</option>
+              {items
+                .filter((item) => {
+                  const q = catalogQuery.trim().toLowerCase()
+                  if (q.length < 2) return item.id === line.itemId
+                  return (
+                    item.name.toLowerCase().includes(q) ||
+                    item.sku.toLowerCase().includes(q) ||
+                    drugClassLabel(item.drugClass).toLowerCase().includes(q)
+                  )
+                })
+                .slice(0, 80)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} ({item.sku}) · {drugClassLabel(item.drugClass)} · {item.unit}
+                  </option>
+                ))}
+            </SelectField>
+          </div>
           <Field
             name={`medication-${index}`}
             label="Medication name"

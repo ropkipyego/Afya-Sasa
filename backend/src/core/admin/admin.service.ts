@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { In, IsNull, MoreThanOrEqual, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, In, IsNull, MoreThanOrEqual, QueryFailedError, Repository } from 'typeorm';
 import type { RequestContext } from '../../common/request-context';
 import { defaultTenantCode, tenantChannel } from '../../common/tenant-defaults';
 import {
@@ -41,6 +41,9 @@ import { TokenRevocationService } from '../auth/token-revocation.service';
 import { MailService } from '../mail/mail.service';
 import { SuperadminPolicyService } from '../rbac/superadmin-policy.service';
 import { ADMINISTRATOR_ROLE_NAME, SUPERADMIN_ROLE_NAME } from '../rbac/rbac.constants';
+import { BackupInventoryService } from './backup.service';
+import { probeHttp, probePostgres, probeRedis } from './health-probes';
+import { ROLE_TEMPLATES, filterTemplateKeys } from './role-templates';
 
 @Injectable()
 export class AdminService {
@@ -71,6 +74,8 @@ export class AdminService {
     private readonly tokenRevocation: TokenRevocationService,
     private readonly superadminPolicy: SuperadminPolicyService,
     private readonly mailService: MailService,
+    private readonly dataSource: DataSource,
+    private readonly backups: BackupInventoryService,
   ) {}
 
   async listUsers() {
@@ -250,6 +255,7 @@ export class AdminService {
       id,
       dto.permissionIds,
     );
+    await this.assertNoSelfEscalation(request, id, dto.permissionIds);
     await this.replaceRolePermissions(id, dto.permissionIds, request);
     const affected = await this.userRoles.find({
       where: { role: { id } },
@@ -484,56 +490,76 @@ export class AdminService {
     );
     const minioEndpoint = (process.env.MINIO_ENDPOINT ?? process.env.S3_ENDPOINT ?? '').trim();
     const redisHost = (process.env.REDIS_HOST ?? '').trim();
+    const fhirEnabled = process.env.DHA_FHIR_SANDBOX_ENABLED === 'true';
+    const mail = this.mailService.diagnostics();
+
+    const [database, redis, storage] = await Promise.all([
+      probePostgres(this.dataSource),
+      probeRedis(redisHost || undefined, Number(process.env.REDIS_PORT ?? 6379)),
+      probeHttp(minioEndpoint || undefined, 'MinIO/S3'),
+    ]);
 
     return {
-      database: { status: 'HEALTHY', detail: 'PostgreSQL query succeeded' },
-      redis: {
-        status: redisHost ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
-        detail: redisHost
-          ? 'Redis host is set. Connectivity is not probed on this endpoint.'
-          : 'REDIS_HOST is empty.',
-      },
-      storage: {
-        status: minioEndpoint ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
-        detail: minioEndpoint
-          ? 'Object storage endpoint is set. A live MinIO probe is not performed here.'
-          : 'MINIO_ENDPOINT is empty.',
-      },
+      database,
+      redis,
+      storage,
       queue: {
-        status: redisHost ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
-        detail: 'BullMQ is configured only when Redis is available.',
+        status: redis.status,
+        detail: redis.status === 'Healthy' ? 'BullMQ uses Redis. Oldest job age is not queried here.' : redis.detail,
+        checkedAt: redis.checkedAt,
       },
       email: {
-        status: smtpHost ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
-        detail: smtpHost
-          ? 'SMTP_HOST is set. Delivery has not been proven from this health check.'
-          : 'SMTP_HOST is empty. Password-reset email will not be sent.',
+        status: mail.deliveryEnabled && mail.smtpAccepted ? 'Healthy' : smtpHost ? 'Unknown' : 'Not Configured',
+        detail: mail.deliveryEnabled
+          ? `Last transport status ${mail.status}. A configured host is not proof of delivery.`
+          : 'EMAIL_DELIVERY_ENABLED is false.',
+        checkedAt: new Date().toISOString(),
       },
       sms: {
         status:
           !smsProvider || smsProvider === 'stub' || celcomLooksPlaceholder
-            ? 'NOT_CONFIGURED'
-            : 'NOT_VERIFIED',
+            ? 'Not Configured'
+            : 'Unknown',
         detail:
           !smsProvider || smsProvider === 'stub' || celcomLooksPlaceholder
             ? 'SMS credentials are missing or still placeholders.'
-            : 'SMS provider is configured. Production send has not been verified here.',
+            : 'SMS provider is configured. Last successful send is not proven by this check.',
+        checkedAt: new Date().toISOString(),
       },
       biometric: {
-        status: 'NOT_VERIFIED',
-        detail: 'DigitalPersona tables exist. The HID SDK/agent has not been proven on a workstation.',
+        status: 'Unknown',
+        detail: 'DigitalPersona tables exist. Workstation SDK has not been proven here.',
+        checkedAt: new Date().toISOString(),
       },
       sha: {
-        status: shaConfigured ? 'NOT_VERIFIED' : 'NOT_CONFIGURED',
+        status: shaConfigured ? 'Unknown' : 'Not Configured',
         detail: shaConfigured
-          ? 'SHA/DHA URL is present. Production eligibility is not claimed.'
+          ? 'SHA URL is present. Eligibility is not proof of claims submission.'
           : 'SHA/DHA is not connected.',
+        checkedAt: new Date().toISOString(),
+      },
+      fhir: {
+        status: fhirEnabled ? 'Unknown' : 'Not Configured',
+        detail: fhirEnabled
+          ? 'Sandbox flag is on. Mapping-only status is reported by /integrations/fhir/status.'
+          : 'DHA FHIR sandbox is not enabled. Local mapping is not a connection.',
+        checkedAt: new Date().toISOString(),
       },
       accounting: {
-        status: 'NOT_CONFIGURED',
-        detail: 'QuickBooks remains the GL. Mapping is pending. No second ledger exists.',
+        status: 'Not Configured',
+        detail: 'QuickBooks remains the GL. No second ledger exists.',
+        checkedAt: new Date().toISOString(),
       },
-      api: { status: 'HEALTHY', detail: 'Admin system-health endpoint responded' },
+      backup: {
+        status: this.backups.listArchives().items.length ? 'Unknown' : 'Not Configured',
+        detail: 'A listed SQL dump is not proof of restore. Full-system backup includes object storage.',
+        checkedAt: new Date().toISOString(),
+      },
+      api: {
+        status: 'Healthy',
+        detail: 'Admin system-health endpoint responded',
+        checkedAt: new Date().toISOString(),
+      },
       activeUsers,
       lockedUsers,
       auditEventsToday: auditToday,
@@ -1058,6 +1084,86 @@ export class AdminService {
       throw new NotFoundException('User not found');
     }
     return user;
+  }
+
+  async listRoleTemplates() {
+    const catalogue = await this.permissions.find();
+    const available = new Set(catalogue.map((row) => row.permissionKey));
+    return ROLE_TEMPLATES.map((template) => ({
+      ...template,
+      permissionKeys: filterTemplateKeys(available, template.permissionKeys),
+      missingKeys: template.permissionKeys.filter((key) => !available.has(key)),
+    }));
+  }
+
+  async duplicateRole(id: string, request: RequestContext) {
+    const source = await this.getRole(id);
+    this.superadminPolicy.assertCanCreateRole(request, `${source.name}_copy`);
+    const copy = await this.createRole(
+      {
+        name: `${source.name}_copy_${Date.now().toString(36)}`,
+        label: `${source.label} (copy)`,
+        description: source.description ?? undefined,
+      },
+      request,
+    );
+    const assignments = await this.rolePermissions.find({
+      where: { role: { id: source.id } },
+      relations: { permission: true },
+    });
+    await this.replaceRolePermissions(
+      copy.id,
+      assignments.map((row) => row.permission.id),
+      request,
+    );
+    return this.toRoleResponse(await this.getRole(copy.id));
+  }
+
+  async roleAssignees(id: string) {
+    await this.getRole(id);
+    const assigned = await this.userRoles.find({
+      where: { role: { id } },
+      relations: { user: true },
+    });
+    return {
+      count: assigned.length,
+      users: assigned.map((row) => ({
+        id: row.user.id,
+        email: row.user.email,
+        name: `${row.user.firstName} ${row.user.lastName}`.trim(),
+      })),
+    };
+  }
+
+  backupInventory() {
+    return {
+      ...this.backups.scope(),
+      archives: this.backups.listArchives(),
+    };
+  }
+
+  refuseRestore() {
+    this.backups.assertRestoreBlocked();
+  }
+
+  private async assertNoSelfEscalation(
+    request: RequestContext,
+    roleId: string,
+    permissionIds: string[],
+  ) {
+    if (this.superadminPolicy.isActorSuperadmin(request)) return;
+    const selfAssignment = await this.userRoles.findOne({
+      where: { user: { id: request.user?.sub ?? '' }, role: { id: roleId } },
+    });
+    if (!selfAssignment) return;
+    const held = new Set(request.user?.permissions ?? []);
+    const next = await this.permissions.find({ where: { id: In(permissionIds) } });
+    const extra = next.map((row) => row.permissionKey).filter((key) => !held.has(key));
+    if (extra.length) {
+      throw new ForbiddenException(
+        'You cannot grant your own role permissions you do not already hold',
+      );
+    }
   }
 
   private async getRole(id: string) {

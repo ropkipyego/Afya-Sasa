@@ -248,6 +248,15 @@ export const controlCenterCards: ControlCenterCard[] = [
     help: 'Reference for how each role should and should not use the system.',
   },
   {
+    id: 'integrations',
+    title: 'Integrations',
+    description: 'Honest status for SHA, FHIR, email, SMS, storage, and QuickBooks.',
+    category: 'Integrations',
+    icon: <Activity className="h-6 w-6" />,
+    keywords: ['sha', 'fhir', 'email', 'sms', 'minio', 'quickbooks'],
+    help: 'Configuration is not connectivity. Draft claims and local FHIR maps are not live exchanges.',
+  },
+  {
     id: 'backup',
     title: 'Backup & restore',
     description: 'Database backup commands and recovery procedures.',

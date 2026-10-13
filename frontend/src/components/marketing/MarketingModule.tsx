@@ -7,8 +7,9 @@ import { MarketingFollowUps } from './MarketingFollowUps'
 import { MarketingDailyReport } from './MarketingDailyReport'
 import { MarketingTeamReport } from './MarketingTeamReport'
 import { ServiceCatalogsHub } from '../catalog/ServiceCatalogsHub'
+import { MarketingSmsPanel } from './MarketingSmsPanel'
 
-type MarketingTab = 'overview' | 'daily' | 'team' | 'followups' | 'sources' | 'catalogs'
+type MarketingTab = 'overview' | 'daily' | 'team' | 'followups' | 'sources' | 'catalogs' | 'sms'
 
 export function MarketingModule({ initialTab = 'overview' }: { initialTab?: MarketingTab }) {
   const permissions = useAuthStore((state) => state.user?.permissions ?? [])
@@ -24,6 +25,7 @@ export function MarketingModule({ initialTab = 'overview' }: { initialTab?: Mark
     { id: 'followups', label: 'Clinic follow-ups', icon: <CalendarClock className="h-4 w-4" /> },
     { id: 'sources', label: 'Sources & services', icon: <MapPinned className="h-4 w-4" /> },
     { id: 'catalogs', label: 'Catalogs', icon: <Upload className="h-4 w-4" /> },
+    { id: 'sms', label: 'SMS preview', icon: <Users className="h-4 w-4" /> },
   ]
 
   return (
@@ -39,6 +41,7 @@ export function MarketingModule({ initialTab = 'overview' }: { initialTab?: Mark
       {tab === 'followups' ? <MarketingFollowUps /> : null}
       {tab === 'sources' ? <MarketingDashboard /> : null}
       {tab === 'catalogs' ? <ServiceCatalogsHub /> : null}
+      {tab === 'sms' ? <MarketingSmsPanel /> : null}
     </div>
   )
 }

@@ -3,7 +3,13 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { Public } from '../core/auth/auth.decorators';
 import { RequirePermissions } from '../core/auth/auth.decorators';
-import { CreateManualChargeDto, InitiateMpesaStkDto, RecordManualPaymentDto, SaveHospitalChargeCatalogueDto } from './payments.dto';
+import {
+  CreateManualChargeDto,
+  InitiateMpesaStkDto,
+  RecordManualPaymentDto,
+  RefundPaymentDto,
+  SaveHospitalChargeCatalogueDto,
+} from './payments.dto';
 import { AccommodationChargeService } from './accommodation-charge.service';
 import { BillingExceptionsService } from './billing-exceptions.service';
 import { callbackSourceAllowed, parseIpAllowlist } from './mpesa-callback.contract';
@@ -66,6 +72,32 @@ export class PaymentsController {
   listCharges(@Query('patientId') patientId?: string) {
     if (!patientId) return [];
     return this.payments.listCharges(patientId);
+  }
+
+  @Get('payments/patients/:patientId/statement')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:read', 'payments:initiate', 'patients:history')
+  patientStatement(@Param('patientId') patientId: string) {
+    return this.payments.patientStatement(patientId);
+  }
+
+  @Get('payments/cashier/summary')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:read', 'payments:initiate', 'reports:read')
+  cashierSummary(@Query('from') from?: string, @Query('to') to?: string) {
+    const today = new Date().toISOString().slice(0, 10);
+    return this.payments.cashierSummary(from ?? today, to ?? today);
+  }
+
+  @Post('payments/:id/refund')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:manage')
+  refundPayment(
+    @Param('id') id: string,
+    @Body() dto: RefundPaymentDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.payments.refundPayment(id, dto, request);
   }
 
   @Get('payments/charge-catalogue')

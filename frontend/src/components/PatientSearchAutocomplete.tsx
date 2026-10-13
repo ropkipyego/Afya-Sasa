@@ -37,18 +37,26 @@ export function PatientSearchAutocomplete({
   className?: string
 }) {
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputWrapRef = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedQuery(query.trim()), 300)
+    return () => window.clearTimeout(handle)
+  }, [query])
+
   const { data, isFetching } = useQuery({
-    queryKey: ['patient-autocomplete', query],
-    queryFn: () =>
+    queryKey: ['patient-autocomplete', debouncedQuery],
+    queryFn: ({ signal }) =>
       apiRequest<PatientSearchResponse>(
-        `/patients?q=${encodeURIComponent(query)}&pageSize=8`,
+        `/patients?q=${encodeURIComponent(debouncedQuery)}&pageSize=8`,
+        { signal },
       ),
-    enabled: query.trim().length >= 2,
+    enabled: debouncedQuery.length >= 2,
+    placeholderData: (previous) => previous,
   })
 
   const updateCoords = () => {

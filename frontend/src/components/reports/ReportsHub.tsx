@@ -6,9 +6,10 @@ import { ExecutiveAnalyticsDashboard } from './ExecutiveAnalyticsDashboard'
 import { OperationsCommandCenter } from '../operations/OperationsCommandCenter'
 import { OpdReportsPanel } from './OpdReportsPanel'
 import { ReportsCatalogue } from './ReportsCatalogue'
+import { MohMappingPanel } from './MohMappingPanel'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 
-type ReportsTab = 'centre' | 'opd' | 'clinical' | 'analytics' | 'operations' | 'exports'
+type ReportsTab = 'centre' | 'opd' | 'clinical' | 'analytics' | 'operations' | 'exports' | 'moh'
 
 export function ReportsHub({ initialTab = 'centre' }: { initialTab?: ReportsTab }) {
   const [tab, setTab] = useState<ReportsTab>(initialTab)
@@ -25,6 +26,7 @@ export function ReportsHub({ initialTab = 'centre' }: { initialTab?: ReportsTab 
           { id: 'analytics', label: 'Director', icon: <BarChart3 className="h-4 w-4" /> },
           { id: 'operations', label: 'Operations', icon: <LayoutDashboard className="h-4 w-4" /> },
           { id: 'exports', label: 'Exports', icon: <Download className="h-4 w-4" /> },
+          { id: 'moh', label: 'MOH mapping', icon: <ClipboardList className="h-4 w-4" /> },
         ]}
       />
       {tab === 'centre' ? (
@@ -38,6 +40,7 @@ export function ReportsHub({ initialTab = 'centre' }: { initialTab?: ReportsTab 
       {tab === 'analytics' ? <ExecutiveAnalyticsDashboard /> : null}
       {tab === 'operations' ? <OperationsCommandCenter /> : null}
       {tab === 'exports' ? <DepartmentExportsPanel /> : null}
+      {tab === 'moh' ? <MohMappingPanel /> : null}
     </div>
   )
 }

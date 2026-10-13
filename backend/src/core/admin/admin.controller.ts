@@ -141,6 +141,36 @@ export class AdminController {
     return this.adminService.listPermissions();
   }
 
+  @Get('role-templates')
+  @RequirePermissions('roles:manage')
+  listRoleTemplates() {
+    return this.adminService.listRoleTemplates();
+  }
+
+  @Get('roles/:id/assignees')
+  @RequirePermissions('roles:manage')
+  roleAssignees(@Param('id') id: string) {
+    return this.adminService.roleAssignees(id);
+  }
+
+  @Post('roles/:id/duplicate')
+  @RequirePermissions('roles:manage')
+  duplicateRole(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.adminService.duplicateRole(id, request);
+  }
+
+  @Get('backups')
+  @RequirePermissions('settings:manage')
+  listBackups() {
+    return this.adminService.backupInventory();
+  }
+
+  @Post('backups/restore')
+  @RequirePermissions('platform:superadmin')
+  restoreBackup() {
+    return this.adminService.refuseRestore();
+  }
+
   @Get('settings')
   @RequirePermissions('settings:manage')
   getSettings(@Req() request: RequestContext) {

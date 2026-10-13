@@ -36,7 +36,7 @@ export function LabModule({ initialTab = 'worklist' }: { initialTab?: LabTab }) 
 
   return (
     <div className="lab-workspace workspace-shell animate-fade-in">
-      <DepartmentWorkspaceHeader department="Laboratory" />
+      <DepartmentWorkspaceHeader department="Laboratory" serviceLine="laboratory" />
       <LabHero
         title="Laboratory"
         description="Order tests, track specimens through the bench, enter structured results with reference-range flagging, and release verified reports to clinicians."

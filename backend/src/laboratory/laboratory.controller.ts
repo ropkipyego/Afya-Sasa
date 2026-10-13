@@ -17,12 +17,22 @@ import {
   ScanLabSampleDto,
 } from './laboratory.dto';
 import { LaboratoryService } from './laboratory.service';
+import { LAB_REPORT_LAYOUTS } from './lab-report-layouts';
 
 @ApiBearerAuth()
 @ApiTags('Laboratory')
 @Controller('laboratory')
 export class LaboratoryController {
   constructor(private readonly laboratoryService: LaboratoryService) {}
+
+  @Get('report-layouts')
+  @RequirePermissions('lab_requests:read', 'lab_catalogue:read')
+  reportLayouts() {
+    return {
+      note: 'Structural groupings only. Units and reference intervals come from the laboratory catalogue. Missing catalogue values must be reviewed — they are not defaulted to normal.',
+      layouts: LAB_REPORT_LAYOUTS,
+    };
+  }
 
   @Get('panels')
   @RequirePermissions('lab_catalogue:read')

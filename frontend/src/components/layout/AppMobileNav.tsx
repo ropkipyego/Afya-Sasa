@@ -71,7 +71,10 @@ export function AppMobileNav({
           <nav className="flex-1 space-y-2 overflow-y-auto overscroll-contain p-4">
             {Object.entries(grouped).map(([group, groupItems]) => {
               const GroupIcon = groupIcons[group] ?? Hospital
-              const isOpen = !collapsedGroups[group]
+              const isOpen =
+                collapsedGroups[group] === false
+                  ? false
+                  : collapsedGroups[group] === true || groupItems.some((item) => item.label === activeScreen)
               return (
                 <div key={group}>
                   <button

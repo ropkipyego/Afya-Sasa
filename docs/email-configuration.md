@@ -45,4 +45,4 @@ Password-reset, password-changed, queued operational email, and authorised repor
 6. Enable `EMAIL_DELIVERY_ENABLED=true` on staging only, toggle operator delivery, send one allowlisted test.
 7. Treat SMTP acceptance as acceptance, not mailbox delivery.
 
-IMAP/CalDAV ports (993/2080) are for mail clients, not AfyaSasa.
+IMAP/CalDAV ports (993/2080) are for mail clients, not AfyaSasa. Confirmed mailbox: `noreply@jalaram.co.ke` / `mail.jalaram.co.ke` SMTP 465 SSL/TLS. Do not enable `EMAIL_DELIVERY_ENABLED` or store `SMTP_PASSWORD` in Git until ICT verifies staging.

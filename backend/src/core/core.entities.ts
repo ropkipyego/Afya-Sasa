@@ -305,7 +305,11 @@ export class LoginEvent {
     | 'inactivity_logout'
     | 'login_failed'
     | 'password_reset_requested'
-    | 'password_reset_completed';
+    | 'password_reset_completed'
+    | 'password_changed'
+    | 'mfa_challenge_issued'
+    | 'mfa_challenge_verified'
+    | 'mfa_challenge_failed';
 
   @Column({ type: 'boolean', default: false })
   success!: boolean;

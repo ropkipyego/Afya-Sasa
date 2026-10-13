@@ -46,6 +46,7 @@ type SavedLabResult = {
   flag: string
   referenceRange?: string | null
   isCritical?: boolean
+  resultComment?: string | null
   parameter?: { id: string; code: string; name: string } | null
 }
 
@@ -226,6 +227,7 @@ export function LabResultsEntry() {
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [activeItemId, setActiveItemId] = useState<string>('')
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({})
+  const [parameterComments, setParameterComments] = useState<Record<string, string>>({})
   const [queueSearch, setQueueSearch] = useState('')
 
   const { data: requests = [], isLoading } = useQuery({
@@ -301,10 +303,15 @@ export function LabResultsEntry() {
       return
     }
     const vals: Record<string, string> = {}
+    const comments: Record<string, string> = {}
     for (const result of activeItem.results ?? []) {
-      if (result.parameter?.code) vals[result.parameter.code] = result.value
+      if (result.parameter?.code) {
+        vals[result.parameter.code] = result.value
+        if (result.resultComment) comments[result.parameter.code] = result.resultComment
+      }
     }
     setParameterValues(vals)
+    setParameterComments(comments)
   }, [activeItem?.id])
 
   const previewInputs = useMemo(() => {
@@ -373,6 +380,7 @@ export function LabResultsEntry() {
           requestItemId: form.get('requestItemId'),
           value: form.get('value'),
           unit: form.get('unit') || undefined,
+          comment: form.get('comment') || undefined,
         }),
       })
     },
@@ -393,6 +401,7 @@ export function LabResultsEntry() {
         .map((parameter) => ({
           parameterCode: parameter.code,
           value: parameterValues[parameter.code] ?? '',
+          comment: parameterComments[parameter.code]?.trim() || undefined,
         }))
         .filter((entry) => entry.value.trim())
 
@@ -641,17 +650,31 @@ export function LabResultsEntry() {
                       ?.slice()
                       .sort((a, b) => a.orderIndex - b.orderIndex)
                       .map((parameter) => (
-                        <ParameterField
-                          key={parameter.id}
-                          parameter={parameter}
-                          value={parameterValues[parameter.code] ?? ''}
-                          refHint={formatRefHint(parameter.referenceRanges)}
-                          previewFlag={previewFlagByCode.get(parameter.code) ?? null}
-                          derivedPreview={derivedByCode.get(parameter.code) ?? null}
-                          onChange={(value) =>
-                            setParameterValues((current) => ({ ...current, [parameter.code]: value }))
-                          }
-                        />
+                        <div key={parameter.id} className="space-y-2">
+                          <ParameterField
+                            parameter={parameter}
+                            value={parameterValues[parameter.code] ?? ''}
+                            refHint={formatRefHint(parameter.referenceRanges)}
+                            previewFlag={previewFlagByCode.get(parameter.code) ?? null}
+                            derivedPreview={derivedByCode.get(parameter.code) ?? null}
+                            onChange={(value) =>
+                              setParameterValues((current) => ({ ...current, [parameter.code]: value }))
+                            }
+                          />
+                          {!parameter.calculatedFormula ? (
+                            <textarea
+                              className="input min-h-[64px] text-sm"
+                              placeholder={`Comment for ${parameter.name} (optional)`}
+                              value={parameterComments[parameter.code] ?? ''}
+                              onChange={(event) =>
+                                setParameterComments((current) => ({
+                                  ...current,
+                                  [parameter.code]: event.target.value,
+                                }))
+                              }
+                            />
+                          ) : null}
+                        </div>
                       ))}
                   </div>
 
@@ -678,6 +701,34 @@ export function LabResultsEntry() {
                       loading={verifyRequest.isPending}
                     >
                       Verify & release
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={async () => {
+                        try {
+                          const report = await apiRequest<{ html: string }>(
+                            `/laboratory/requests/${detail.id}/report`,
+                          )
+                          const frame = window.open('', '_blank', 'noopener,noreferrer')
+                          if (!frame) {
+                            notify('Print blocked', 'Allow pop-ups to print the laboratory report.', 'warning')
+                            return
+                          }
+                          frame.document.write(report.html)
+                          frame.document.close()
+                          frame.focus()
+                          frame.print()
+                        } catch (error) {
+                          notify(
+                            'Report unavailable',
+                            error instanceof Error ? error.message : 'Could not load report',
+                            'critical',
+                          )
+                        }
+                      }}
+                    >
+                      Official report
                     </Button>
                   </div>
                 </LabSection>
@@ -745,6 +796,7 @@ export function LabResultsEntry() {
                       <Field name="value" label="Value" required />
                       <Field name="unit" label="Unit" />
                     </div>
+                    <Field name="comment" label="Comment" />
                     <Button type="submit" loading={enterResult.isPending}>
                       Save result
                     </Button>

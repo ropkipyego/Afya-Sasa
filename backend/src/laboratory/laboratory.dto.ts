@@ -232,6 +232,11 @@ export class EnterLabResultDto {
   @IsOptional()
   @IsString()
   parameterCode?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  comment?: string;
 }
 
 export class EnterLabPanelResultValueDto {
@@ -242,6 +247,11 @@ export class EnterLabPanelResultValueDto {
   @ApiProperty()
   @IsString()
   value!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  comment?: string;
 }
 
 export class EnterLabPanelResultsDto {

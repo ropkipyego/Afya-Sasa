@@ -748,20 +748,21 @@ export function FileUploadZone({
 
 export function NavGroup({
   title,
-  defaultOpen = true,
+  open,
+  onToggle,
   children,
 }: {
   title: string
-  defaultOpen?: boolean
+  open: boolean
+  onToggle: () => void
   children: ReactNode
 }) {
-  const [open, setOpen] = useState(defaultOpen)
   return (
     <div>
       <button
         type="button"
-        className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-400 transition hover:text-slate-600"
-        onClick={() => setOpen((value) => !value)}
+        className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs font-bold uppercase tracking-wide text-slate-400 transition hover:bg-slate-50 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+        onClick={onToggle}
         aria-expanded={open}
       >
         {title}

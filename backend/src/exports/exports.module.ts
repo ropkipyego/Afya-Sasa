@@ -13,6 +13,7 @@ import { Charge } from '../payments/charge.entities';
 import { PaymentTransaction } from '../payments/payment.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
+import { Patient } from '../patients/patient.entities';
 import { ExportsController } from './exports.controller';
 import { ExportsService } from './exports.service';
 
@@ -32,6 +33,7 @@ import { ExportsService } from './exports.service';
       IcuAdmission,
       HduAdmission,
       VitalSigns,
+      Patient,
     ]),
   ],
   controllers: [ExportsController],

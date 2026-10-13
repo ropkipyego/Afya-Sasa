@@ -9,6 +9,8 @@ import { TenancyModule } from '../tenancy/tenancy.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LoginAuditService } from './login-audit.service';
+import { MfaService } from './mfa.service';
+import { accessTokenTtlSeconds } from './session-policy';
 import { TokenRevocationService } from './token-revocation.service';
 
 @Module({
@@ -23,12 +25,12 @@ import { TokenRevocationService } from './token-revocation.service';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-        signOptions: { expiresIn: '15m' },
+        signOptions: { expiresIn: accessTokenTtlSeconds() },
       }),
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LoginAuditService, TokenRevocationService],
-  exports: [AuthService, JwtModule, LoginAuditService, TokenRevocationService],
+  providers: [AuthService, LoginAuditService, TokenRevocationService, MfaService],
+  exports: [AuthService, JwtModule, LoginAuditService, TokenRevocationService, MfaService],
 })
 export class AuthModule {}

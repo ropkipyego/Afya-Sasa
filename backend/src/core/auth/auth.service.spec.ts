@@ -1,5 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
+
+jest.mock('bcrypt', () => ({
+  compare: jest.fn(),
+  hash: jest.fn(async () => 'hashed-password'),
+}));
 
 function auth(overrides: Record<string, unknown> = {}) {
   const passwordResetTokens = {
@@ -10,6 +16,7 @@ function auth(overrides: Record<string, unknown> = {}) {
   };
   const users = {
     findOne: jest.fn(),
+    findOneOrFail: jest.fn(),
     update: jest.fn(),
   };
   const refreshTokens = {
@@ -41,6 +48,7 @@ function auth(overrides: Record<string, unknown> = {}) {
     {
       consumeRateLimit: jest.fn().mockResolvedValue({ allowed: true, count: 1 }),
       invalidateUser: jest.fn(),
+      touchSessionActivity: jest.fn(),
       clearSessionActivity: jest.fn(),
       bindSessionTenant: jest.fn(),
       getSessionTenant: jest.fn().mockResolvedValue('jalaram'),
@@ -92,6 +100,20 @@ describe('AuthService password reset', () => {
     expect(result.message).toMatch(/If an account exists/);
   });
 
+  it('does not issue a reset token for inactive staff', async () => {
+    const { instance, passwordResetTokens } = auth();
+    (instance as unknown as { usersService: { findByEmail: jest.Mock } }).usersService = {
+      findByEmail: jest.fn().mockResolvedValue({
+        id: 'u1',
+        email: 'nurse@jalaram.co.ke',
+        active: false,
+      }),
+    } as never;
+    const result = await instance.requestPasswordReset('nurse@jalaram.co.ke', '1.1.1.1');
+    expect(result.message).toMatch(/If an account exists/);
+    expect(passwordResetTokens.save).not.toHaveBeenCalled();
+  });
+
   it('rejects expired and reused tokens', async () => {
     const { instance, passwordResetTokens } = auth();
     passwordResetTokens.findOne.mockResolvedValue(null);
@@ -124,4 +146,72 @@ describe('AuthService password reset', () => {
     expect(revocation.invalidateUser).toHaveBeenCalledWith('u1');
     expect(refreshTokens.update).toHaveBeenCalled();
   });
+
+  it('rejects reused tokens after a successful reset', async () => {
+    const { instance, passwordResetTokens, users } = auth();
+    passwordResetTokens.findOne
+      .mockResolvedValueOnce({
+        id: 't1',
+        userId: 'u1',
+        expiresAt: new Date(Date.now() + 60_000),
+        usedAt: null,
+      })
+      .mockResolvedValueOnce(null);
+    users.findOne.mockResolvedValue({ id: 'u1', email: 'nurse@jalaram.co.ke' });
+    await instance.resetPassword('good-token', 'WardDesk#2026', '1.1.1.1', 'WardDesk#2026');
+    await expect(
+      instance.resetPassword('good-token', 'WardDesk#2026', '1.1.1.1', 'WardDesk#2026'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
 });
+
+describe('AuthService change password', () => {
+  it('rejects mismatched confirmation and keeps the session token list untouched', async () => {
+    const { instance, users, refreshTokens } = auth();
+    users.findOne.mockResolvedValue({
+      id: 'u1',
+      email: 'nurse@jalaram.co.ke',
+      passwordHash: 'hash',
+    });
+    await expect(
+      instance.changePassword('u1', 'old-pass-word1', 'WardDesk#2026', 'web', '1.1.1.1', 'jalaram', 'other'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(refreshTokens.update).not.toHaveBeenCalled();
+  });
+
+  it('renews the session after a successful authenticated change', async () => {
+    const { instance, users, refreshTokens } = auth();
+    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+    users.findOne.mockResolvedValue({
+      id: 'u1',
+      email: 'nurse@jalaram.co.ke',
+      passwordHash: 'hash',
+      forcePasswordChange: true,
+    });
+    users.findOneOrFail.mockResolvedValue({
+      id: 'u1',
+      email: 'nurse@jalaram.co.ke',
+      forcePasswordChange: false,
+    });
+    (instance as unknown as { jwtService: { signAsync: jest.Mock } }).jwtService = {
+      signAsync: jest.fn().mockResolvedValue('new-access'),
+    } as never;
+    const result = await instance.changePassword(
+      'u1',
+      'old-pass-word1',
+      'WardDesk#2026',
+      'web',
+      '1.1.1.1',
+      'jalaram',
+      'WardDesk#2026',
+    );
+    expect(result.changed).toBe(true);
+    expect(result.accessToken).toBe('new-access');
+    expect(result.user?.forcePasswordChange).toBe(false);
+    expect(refreshTokens.save).toHaveBeenCalled();
+    const revocation = (instance as unknown as { tokenRevocation: { invalidateUser: jest.Mock } })
+      .tokenRevocation;
+    expect(revocation.invalidateUser).toHaveBeenCalledWith('u1');
+  });
+});
+

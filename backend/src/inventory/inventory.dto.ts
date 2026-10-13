@@ -212,6 +212,13 @@ export class ImportInventoryCsvDto {
   @IsOptional()
   @IsBoolean()
   previewOnly?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'When true, overwrite name/class/unit/price on matched products. Default leaves existing catalogue rows unchanged.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  updateExisting?: boolean;
 }
 
 export class UpdateItemPricingDto {

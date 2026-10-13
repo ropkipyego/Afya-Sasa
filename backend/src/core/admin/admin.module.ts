@@ -15,6 +15,7 @@ import {
 } from '../core.entities';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { BackupInventoryService } from './backup.service';
 import { AuthModule } from '../auth/auth.module';
 import { RbacModule } from '../rbac/rbac.module';
 
@@ -37,7 +38,7 @@ import { RbacModule } from '../rbac/rbac.module';
     ]),
   ],
   controllers: [AdminController],
-  providers: [AdminService],
+  providers: [AdminService, BackupInventoryService],
   exports: [AdminService],
 })
 export class AdminModule {}

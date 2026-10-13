@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import {
   AlertTriangle,
   Bell,
-  ClipboardList,
   KeyRound,
   LogOut,
   Menu,
@@ -28,6 +27,8 @@ import { HospitalBrandMark, HospitalFacilityBadge } from './components/branding/
 import { useClinicalCatalog } from './hooks/useClinicalCatalog'
 import { resolveHospitalBranding } from './lib/hospital-configuration'
 import { FinanceModule } from './components/payments/FinanceModule'
+import { InsuranceWorkspace } from './components/insurance/InsuranceWorkspace'
+import { InteropWorkspace } from './components/interop/InteropWorkspace'
 import { MarketingModule } from './components/marketing/MarketingModule'
 import { OpdCheckInWorkspace, type CheckInPatient } from './components/opd/OpdCheckInWorkspace'
 import { TriageWorkspace } from './components/opd/TriageWorkspace'
@@ -66,9 +67,15 @@ import { LoginScreen } from './components/auth/LoginScreen'
 import { SINGLE_TENANT_MODE } from './lib/tenant-config'
 
 import { filterNavigationByModules } from './lib/nav-module-filter'
-import { navigation, workflowDescriptions } from './lib/navigation'
+import { navigation, sortNavGroups, workflowDescriptions } from './lib/navigation'
+import {
+  confirmLeaveIfDirty,
+  readScrollPosition,
+  writeScrollPosition,
+} from './lib/workspace-state'
 import { AppMobileNav } from './components/layout/AppMobileNav'
 import { UserSettingsMenu } from './components/layout/UserSettingsMenu'
+import { HospitalStatusPage } from './components/layout/HospitalStatusPage'
 import { playNotificationSound } from './lib/notification-sound'
 
 const KNOWN_SCREENS = new Set(navigation.map((item) => item.label))
@@ -146,13 +153,28 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem('afyasasa.sidebarOpen') !== 'false',
   )
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('afyasasa.openNavGroups') ?? '{}') as Record<
+        string,
+        boolean
+      >
+    } catch {
+      return {}
+    }
+  })
   const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
 
   const goToScreen = (screen: string) => {
     const next = resolveScreen(screen?.trim())
     if (!next) return
+    if (next !== activeScreen && !confirmLeaveIfDirty()) return
+    writeScrollPosition(activeScreen, window.scrollY)
     setActiveScreen(next)
     setNotificationOpen(false)
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: readScrollPosition(next), behavior: 'auto' })
+    })
   }
 
   useEffect(() => {
@@ -173,6 +195,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem('afyasasa.sidebarOpen', String(sidebarOpen))
   }, [sidebarOpen])
+
+  useEffect(() => {
+    sessionStorage.setItem('afyasasa.openNavGroups', JSON.stringify(openGroups))
+  }, [openGroups])
 
   useEffect(() => {
     const onOpenFile = (event: Event) => {
@@ -214,6 +240,14 @@ function App() {
     return <SessionLoadingScreen />
   }
 
+  if (window.location.pathname === '/404') {
+    return (
+      <div className="min-h-screen bg-slate-50 px-4 py-10">
+        <HospitalStatusPage title="Page not found" />
+      </div>
+    )
+  }
+
   if (scanCode) {
     return <PatientQrLanding code={decodeURIComponent(scanCode)} />
   }
@@ -237,6 +271,7 @@ function App() {
     },
     {} as Record<string, typeof allowedNavigation>,
   )
+  const activeGroup = allowedNavigation.find((item) => item.label === activeScreen)?.group
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -263,38 +298,39 @@ function App() {
         </div>
 
         <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
-          {Object.entries(groupedNavigation).map(([group, items]) => (
-            <NavGroup
-              key={group}
-              title={group}
-              defaultOpen={
-                group === 'Front Office' ||
-                group === 'Queue Management' ||
-                group === 'Pharmacy' ||
-                group === 'Outpatient'
-              }
-            >
-              {items.map((item) => {
-                const Icon = item.icon
-                const active = activeScreen === item.label
-                return (
-                  <button
-                    key={item.label}
-                    type="button"
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition duration-150 ${
-                      active
-                        ? 'bg-teal-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                    onClick={() => goToScreen(item.label)}
-                  >
-                    <Icon size={17} />
-                    {item.label}
-                  </button>
-                )
-              })}
-            </NavGroup>
-          ))}
+          {sortNavGroups(Object.keys(groupedNavigation)).map((group) => {
+            const items = groupedNavigation[group] ?? []
+            const userOpen = openGroups[group]
+            const open = userOpen === true || (group === activeGroup && userOpen !== false)
+            return (
+              <NavGroup
+                key={group}
+                title={group}
+                open={open}
+                onToggle={() => setOpenGroups((current) => ({ ...current, [group]: !open }))}
+              >
+                {items.map((item) => {
+                  const Icon = item.icon
+                  const active = activeScreen === item.label
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition duration-150 ${
+                        active
+                          ? 'bg-teal-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                      onClick={() => goToScreen(item.label)}
+                    >
+                      <Icon size={17} />
+                      {item.label}
+                    </button>
+                  )
+                })}
+              </NavGroup>
+            )
+          })}
         </nav>
       </aside>
 
@@ -332,6 +368,9 @@ function App() {
               </p>
               <p className="mt-0.5 truncate text-sm text-slate-500 animate-fade-in">
                 {workflowDescriptions[activeScreen] ?? 'Clinical workflow'}
+              </p>
+              <p className="mt-1 truncate text-xs text-slate-400">
+                {activeGroup ? `${activeGroup} / ${activeScreen}` : activeScreen}
               </p>
               <h2 className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                 {activeScreen}
@@ -465,7 +504,11 @@ function App() {
               onOpenTriage={() => goToScreen('Triage Queue')}
             />
           ) : null}
-          {activeScreen === 'Finance' || activeScreen === 'Payments' ? <FinanceModule /> : null}
+          {activeScreen === 'Cashier / Billing' || activeScreen === 'Finance' || activeScreen === 'Payments' ? (
+            <FinanceModule />
+          ) : null}
+          {activeScreen === 'Insurance & Claims' ? <InsuranceWorkspace /> : null}
+          {activeScreen === 'Interoperability' ? <InteropWorkspace /> : null}
           {activeScreen === 'Marketing' ? <MarketingModule /> : null}
           {activeScreen === 'Triage Queue' ? <TriageWorkspace /> : null}
           {activeScreen === 'Patient Registry' ? (
@@ -495,6 +538,7 @@ function App() {
           {activeScreen === 'Hospital Library' ? <HospitalLibrary /> : null}
           {activeScreen === 'Sick Sheets' ? <SickSheetWorkspace /> : null}
           {activeScreen === 'Reports' ? <ReportsHub /> : null}
+          {activeScreen === 'Director Dashboard' ? <ReportsHub initialTab="analytics" /> : null}
           {activeScreen === 'Inpatient (IPD)' ? (
             <IpdModule
               initialAdmissionId={ipdFocusAdmissionId ?? undefined}
@@ -558,6 +602,12 @@ function ForcedPasswordChangeScreen() {
   const mutation = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
+      const currentPassword = String(form.get('currentPassword') ?? '')
+      const newPassword = String(form.get('newPassword') ?? '')
+      const confirmPassword = String(form.get('confirmPassword') ?? '')
+      if (newPassword !== confirmPassword) {
+        throw new Error('New password and confirmation do not match')
+      }
       return apiRequest<{
         changed: boolean
         accessToken: string
@@ -566,8 +616,9 @@ function ForcedPasswordChangeScreen() {
       }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({
-          currentPassword: form.get('currentPassword'),
-          newPassword: form.get('newPassword'),
+          currentPassword,
+          newPassword,
+          confirmPassword,
         }),
       })
     },
@@ -575,9 +626,9 @@ function ForcedPasswordChangeScreen() {
       setSession({
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
-        user: result.user,
+        user: { ...result.user, forcePasswordChange: false },
       })
-      setMessage('Password updated. Continuing to your workspace…')
+      setMessage('Password updated. You can continue working in AfyaSasa.')
     },
   })
 
@@ -608,7 +659,23 @@ function ForcedPasswordChangeScreen() {
           required
         />
         <div className="mt-4">
-          <Field name="newPassword" label="New password" type="password" required />
+          <Field
+            name="newPassword"
+            label="New password"
+            type="password"
+            required
+            hint="At least 10 characters, with a letter and a number"
+            autoComplete="new-password"
+          />
+        </div>
+        <div className="mt-4">
+          <Field
+            name="confirmPassword"
+            label="Confirm new password"
+            type="password"
+            required
+            autoComplete="new-password"
+          />
         </div>
         {mutation.error ? (
           <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
@@ -626,6 +693,13 @@ function ForcedPasswordChangeScreen() {
         >
           {mutation.isPending ? 'Changing...' : 'Change password'}
         </button>
+        <button
+          type="button"
+          className="mt-3 w-full text-sm font-medium text-slate-500 hover:text-slate-800"
+          onClick={() => void endSession('user')}
+        >
+          Sign out
+        </button>
       </form>
     </div>
   )
@@ -638,7 +712,8 @@ function NotificationCenter() {
   const { data: inboxSummary } = useQuery({
     queryKey: ['notification-summary'],
     queryFn: () => apiRequest<{ unread: number }>('/notifications/inbox/summary'),
-    refetchInterval: 15_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   })
 
   useEffect(() => {
@@ -939,15 +1014,7 @@ function DoctorQueue({
 
 
 function Placeholder({ screen }: { screen: string }) {
-  return (
-    <div className="rounded-3xl bg-white p-10 text-center shadow-sm">
-      <ClipboardList className="mx-auto mb-4 text-blue-600" size={40} />
-      <h3 className="text-xl font-bold">{screen}</h3>
-      <p className="mt-2 text-slate-500">
-        This area is reserved for the next blueprint phase.
-      </p>
-    </div>
-  )
+  return <HospitalStatusPage title="This workspace is not finished" screen={screen} />
 }
 
 export default App

@@ -30,6 +30,8 @@ export class HttpLoggingInterceptor implements NestInterceptor {
   private write(request: RequestContext, status: number, startedAt: number) {
     const path = (request.originalUrl ?? request.url ?? '').split('?')[0];
     if (path.includes('/health')) return;
+    const durationMs = Date.now() - startedAt;
+    const slowMs = Number(process.env.HTTP_SLOW_MS ?? 500);
     this.logger.log(
       JSON.stringify({
         operation: `${request.method} ${path}`,
@@ -38,7 +40,8 @@ export class HttpLoggingInterceptor implements NestInterceptor {
         endpoint: path,
         requestId: request.header('x-request-id') ?? null,
         status,
-        durationMs: Date.now() - startedAt,
+        durationMs,
+        slow: durationMs >= slowMs,
       }),
     );
   }

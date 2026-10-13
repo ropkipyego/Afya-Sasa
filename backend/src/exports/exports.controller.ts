@@ -31,6 +31,61 @@ export class ExportsController {
     return this.exports.listAuthorized(request.user?.permissions ?? []);
   }
 
+  @Get('patients/fields')
+  @RequirePermissions('patients:read', 'reports:read')
+  patientFields() {
+    return this.exports.patientFields();
+  }
+
+  @Get('patients/preview')
+  @RequirePermissions('patients:read', 'reports:read')
+  previewPatients(
+    @Req() request: RequestContext,
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('fields') fields?: string,
+  ) {
+    return this.exports.buildPatientExport({
+      format: 'csv',
+      fields: fields?.split(',') ?? [],
+      q,
+      from,
+      to,
+      preview: true,
+      request,
+    });
+  }
+
+  @Get('patients/download')
+  @RequirePermissions('patients:read', 'reports:read')
+  async downloadPatients(
+    @Req() request: RequestContext,
+    @Res({ passthrough: false }) response: Response,
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('fields') fields?: string,
+    @Query('format') format: 'csv' | 'xlsx' = 'csv',
+  ) {
+    const file = await this.exports.buildPatientExport({
+      format: format === 'xlsx' ? 'xlsx' : 'csv',
+      fields: fields?.split(',') ?? [],
+      q,
+      from,
+      to,
+      request,
+    });
+    if (!('buffer' in file) || !file.buffer) {
+      response.status(400).json(file);
+      return;
+    }
+    response.setHeader('Content-Type', file.mime);
+    response.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    response.setHeader('X-Export-Rows', String(file.rowCount));
+    response.send(file.buffer);
+  }
+
   @Get(':dataset')
   @RequirePermissions(
     'reports:read',

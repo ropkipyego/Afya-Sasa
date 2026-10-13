@@ -168,8 +168,12 @@ export async function apiRequest<T>(
   }
 
   if (response.status === 401 && allowRefresh && !path.includes('/auth/refresh')) {
+    const generation = useAuthStore.getState().authGeneration
     const refreshed = await refreshSession()
     if (refreshed) {
+      return apiRequest<T>(path, options, false)
+    }
+    if (useAuthStore.getState().authGeneration !== generation) {
       return apiRequest<T>(path, options, false)
     }
     clearSession()

@@ -63,6 +63,12 @@ export class TheatreController {
     return this.theatreService.listBookings(status);
   }
 
+  @Get('bookings/:id')
+  @RequirePermissions('surgery_bookings:read')
+  getBooking(@Param('id') id: string) {
+    return this.theatreService.getBookingDetail(id);
+  }
+
   @Post('bookings')
   @RequirePermissions('surgery_bookings:create')
   createBooking(@Body() dto: CreateSurgeryBookingDto, @Req() request: RequestContext) {

@@ -11,6 +11,7 @@ import { Patient } from '../patients/patient.entities';
 import { Encounter } from '../opd/opd.entities';
 import { Charge, chargeRemaining, chargesEnabled } from './charge.entities';
 import { PaymentTransaction, type PaymentServiceLine } from './payment.entities';
+import { cashierTotals } from './payment-integrity';
 import {
   accommodationChargeEntityId,
   chargeSourceLabel,
@@ -807,14 +808,16 @@ export class AccommodationChargeService {
       where: { createdAt: MoreThanOrEqual(today), status: 'completed' },
       take: 500,
     });
-    const totals = groupSum(txns, (row) => row.method, (row) => Number(row.amount ?? 0));
+    const integrity = cashierTotals(txns);
+    const totals = integrity.collectionsByMethod;
     const settings = await this.requireSettings(request);
     const catalog = { ...(settings.clinicalCatalog ?? {}) } as Record<string, unknown>;
     catalog.cashierClose = {
       lastClosedAt: new Date().toISOString(),
       closedBy: request.user?.sub ?? null,
       totals,
-      count: txns.length,
+      refunds: integrity.refunds,
+      count: txns.filter((row) => row.metadata?.kind !== 'refund').length,
     };
     await this.settings.update(settings.id, {
       clinicalCatalog: catalog as never,

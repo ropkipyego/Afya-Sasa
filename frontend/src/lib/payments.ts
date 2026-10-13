@@ -27,6 +27,7 @@ export type PaymentTransactionRow = {
   externalReference?: string | null
   createdAt: string
   patient?: { firstName: string; lastName: string; patientNo: string }
+  metadata?: { kind?: string; originalPaymentId?: string } | null
 }
 
 export type CollectPaymentInput = {
@@ -41,6 +42,7 @@ export type CollectPaymentInput = {
   mpesaPhone?: string
   paymentReference?: string
   chargeId?: string
+  idempotencyKey?: string
 }
 
 export async function collectPayment(input: CollectPaymentInput) {
@@ -77,6 +79,7 @@ export async function collectPayment(input: CollectPaymentInput) {
       payerScheme: input.payerScheme,
       reference: input.paymentReference,
       amount: input.amount,
+      idempotencyKey: input.idempotencyKey,
     }),
   })
 }
@@ -121,4 +124,23 @@ export type PatientChargeRow = {
 
 export function listPatientCharges(patientId: string) {
   return apiRequest<PatientChargeRow[]>(`/payments/charges?patientId=${patientId}`)
+}
+
+export function patientStatement(patientId: string) {
+  return apiRequest<{
+    totals: {
+      chargesRaised: number
+      paymentsReceived: number
+      refunds: number
+      waived: number
+      outstanding: number
+    }
+  }>(`/payments/patients/${patientId}/statement`)
+}
+
+export function refundPayment(id: string, reason: string) {
+  return apiRequest(`/payments/${id}/refund`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
 }

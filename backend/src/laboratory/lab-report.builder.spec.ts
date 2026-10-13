@@ -109,4 +109,35 @@ describe('structured laboratory report', () => {
     expect(html).toContain('Amendment pending verification');
     expect(html).not.toContain('>10<');
   });
+
+  it('prints the Jalaram official card chrome without copying another patient', () => {
+    const html = buildStructuredLabReportHtml({
+      requestNo: 'SYN-CRP',
+      status: 'verified',
+      patient: { firstName: 'Ada', lastName: 'One', patientNo: 'P-1' },
+      items: [
+        {
+          orderableTest: { name: 'CRP', code: 'CRP' },
+          results: [
+            {
+              id: 'c1',
+              value: '4.2',
+              unit: 'mg/L',
+              flag: 'normal',
+              referenceRange: '<10',
+              parameter: { code: 'CRP', name: 'CRP' },
+              verifiedAt: new Date(),
+            },
+          ],
+        },
+      ],
+    } as never);
+    expect(html).toContain('Caring Hearts Healing Hands');
+    expect(html).toContain('PATIENT NAME');
+    expect(html).toContain('REFERRING CLINICIAN');
+    expect(html).toContain('FLAG KEY');
+    expect(html).toContain('Cardiovascular relative-risk bands');
+    expect(html).not.toContain('PARMINDER');
+    expect(html).not.toContain('19.6');
+  });
 });

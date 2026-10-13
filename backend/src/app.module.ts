@@ -33,6 +33,8 @@ import { InventoryModule } from './inventory/inventory.module';
 import { MarketingModule } from './marketing/marketing.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ShaModule } from './integration/sha/sha.module';
+import { FhirModule } from './integration/fhir/fhir.module';
+import { InsuranceModule } from './integration/insurance/insurance.module';
 import { VisitQueueModule } from './queue/visit-queue.module';
 import { ExportsModule } from './exports/exports.module';
 import { BiometricModule } from './biometric/biometric.module';
@@ -61,6 +63,7 @@ import { ApiErrorFilter } from './common/errors/api-error.filter';
         database: config.get<string>('POSTGRES_DB', 'afyasasa'),
         autoLoadEntities: true,
         synchronize: false,
+        maxQueryExecutionTime: Number(config.get('DB_SLOW_QUERY_MS') ?? 500),
         migrationsRun: config.get<string>('TYPEORM_MIGRATIONS_RUN', 'false') === 'true',
         migrations: [`${__dirname}/database/migrations/*{.ts,.js}`],
       }),
@@ -108,6 +111,8 @@ import { ApiErrorFilter } from './common/errors/api-error.filter';
     HealthModule,
     PaymentsModule,
     ShaModule,
+    FhirModule,
+    InsuranceModule,
     VisitQueueModule,
     ExportsModule,
     BiometricModule,

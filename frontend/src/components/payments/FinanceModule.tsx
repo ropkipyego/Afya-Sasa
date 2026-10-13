@@ -13,7 +13,7 @@ export function FinanceModule({ initialTab = 'cashier' }: { initialTab?: Finance
 
   return (
     <div className="workspace-shell animate-fade-in space-y-6">
-      <DepartmentWorkspaceHeader department="Finance / cashier" roleHint="Same payment ledger — no second bill" />
+      <DepartmentWorkspaceHeader department="Cashier / billing" roleHint="Same payment ledger — no second bill" serviceLine="all" />
       <WorkspaceTabs
         active={tab}
         onChange={setTab}

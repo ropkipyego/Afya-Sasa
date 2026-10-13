@@ -19,6 +19,7 @@ import { MohReportsService } from './moh-reports.service';
 import { ReportingService } from './reporting.service';
 import { ReportDeliveryService } from './report-delivery.service';
 import { catalogueForPermissions } from './report-catalogue';
+import { mohMappingReport } from './moh-mapping';
 import {
   DeliverGovernmentNotificationDto,
   DeliverInternalReportDto,
@@ -129,6 +130,35 @@ export class ReportingController {
     return this.reportingService.intelligence(from ?? defaultFrom, to ?? defaultTo, request.user);
   }
 
+  @Get('department-revenue')
+  @RequirePermissions(
+    'reports:read',
+    'payments:read',
+    'payments:initiate',
+    'lab_requests:read',
+    'pharmacy:read',
+    'radiology_requests:read',
+    'admissions:read',
+    'consultations:read',
+    'surgery_bookings:read',
+  )
+  departmentRevenue(
+    @Req() request: RequestContext,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const today = new Date();
+    const defaultTo = today.toISOString().slice(0, 10);
+    const defaultFrom = new Date(today.getTime() - 29 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    return this.reportingService.departmentRevenue(
+      from ?? defaultFrom,
+      to ?? defaultTo,
+      request.user,
+    );
+  }
+
   @Get('executive-analytics')
   @RequirePermissions('reports:read')
   executiveAnalytics(
@@ -182,6 +212,12 @@ export class ReportingController {
   @RequirePermissions('reports:read')
   diseaseRegister() {
     return this.reportingService.diseaseRegister();
+  }
+
+  @Get('moh/mapping')
+  @RequirePermissions('reports:read')
+  mohMapping() {
+    return mohMappingReport();
   }
 
   @Get('moh/auto-run')

@@ -693,6 +693,7 @@ export class LaboratoryService {
           flag,
           referenceRange,
           isCritical,
+          resultComment: dto.comment?.trim() || null,
           updatedBy: request.user?.sub ?? null,
         })
         .where('id = :id', { id: match.id })
@@ -715,6 +716,7 @@ export class LaboratoryService {
           flag,
           referenceRange,
           isCritical,
+          resultComment: dto.comment?.trim() || null,
           verifiedBy: null,
           verifiedAt: null,
           reviewedBy: null,
@@ -776,7 +778,11 @@ export class LaboratoryService {
       const flaggedByCode = new Map(evaluation.flagged.map((entry) => [entry.parameterCode, entry]));
       const parameterByCode = new Map((orderableTest.parameters ?? []).map((entry) => [entry.code, entry]));
       const entriesToSave = new Map<string, string>();
-      for (const entry of dto.results) entriesToSave.set(entry.parameterCode, entry.value);
+      const commentsByCode = new Map<string, string>();
+      for (const entry of dto.results) {
+        entriesToSave.set(entry.parameterCode, entry.value);
+        if (entry.comment?.trim()) commentsByCode.set(entry.parameterCode, entry.comment.trim());
+      }
       for (const derived of evaluation.derived) entriesToSave.set(derived.parameterCode, String(derived.value));
 
       const saved: LabResult[] = [];
@@ -835,6 +841,7 @@ export class LaboratoryService {
               flag,
               referenceRange: referenceRange ?? existing.referenceRange,
               isCritical,
+              resultComment: commentsByCode.get(parameterCode) ?? existing.resultComment,
               updatedBy: request.user?.sub ?? null,
             })
             .where('id = :id', { id: existing.id })
@@ -866,6 +873,7 @@ export class LaboratoryService {
                   flag,
                   referenceRange,
                   isCritical,
+                  resultComment: commentsByCode.get(parameterCode) ?? null,
                   verifiedBy: null,
                   verifiedAt: null,
                   reviewedBy: null,
@@ -1324,6 +1332,8 @@ export class LaboratoryService {
     }
     const html = buildStructuredLabReportHtml(detail, {
       facilityName: this.config?.get?.('HOSPITAL_NAME') || 'Jalaram St. Christopher Hospital',
+      clinicianName: (detail as { encounter?: { departmentName?: string | null } }).encounter
+        ?.departmentName,
     });
     await this.recordLabAudit(request, LAB_AUDIT.REPORT, id, { status: detail.status });
     return { requestNo: detail.requestNo, status: detail.status, html };

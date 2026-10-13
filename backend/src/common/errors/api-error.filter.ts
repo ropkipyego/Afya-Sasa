@@ -9,6 +9,7 @@ import {
 import type { Response } from 'express';
 import type { RequestContext } from '../request-context';
 import { ERROR_CODES, inferErrorCode, safePublicMessage } from './error-codes';
+import { buildHospitalStatusHtml } from './hospital-status-page';
 
 type ErrorBody = {
   success: false;
@@ -95,6 +96,13 @@ export class ApiErrorFilter implements ExceptionFilter {
         technicalError: exception instanceof Error ? exception.name : 'unknown',
       }),
     );
+
+    const accept = String(request.headers?.accept ?? request.header?.('accept') ?? '');
+    const wantsHtml = accept.includes('text/html');
+    if (wantsHtml && (status === HttpStatus.NOT_FOUND || status >= 500)) {
+      response.status(status).type('html').send(buildHospitalStatusHtml(status));
+      return;
+    }
 
     const body: ErrorBody = {
       success: false,

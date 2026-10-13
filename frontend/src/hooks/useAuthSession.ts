@@ -11,6 +11,7 @@ import { useAuthStore } from '../lib/auth-store'
 export function useAuthSession() {
   const hydrated = useAuthStore((state) => state.hydrated)
   const accessToken = useAuthStore((state) => state.accessToken)
+  const forcePasswordChange = useAuthStore((state) => state.user?.forcePasswordChange)
   const setInactivityWarning = useAuthStore((state) => state.setInactivityWarning)
 
   useEffect(() => {
@@ -19,7 +20,7 @@ export function useAuthSession() {
   }, [])
 
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && !forcePasswordChange) {
       startSessionRefreshLoop()
       startInactivityWatch((state) => {
         if (!state.warning) {
@@ -40,7 +41,7 @@ export function useAuthSession() {
     stopInactivityWatch()
     setInactivityWarning(null)
     return undefined
-  }, [accessToken, setInactivityWarning])
+  }, [accessToken, forcePasswordChange, setInactivityWarning])
 
   return { hydrated, isAuthenticated: Boolean(accessToken) }
 }

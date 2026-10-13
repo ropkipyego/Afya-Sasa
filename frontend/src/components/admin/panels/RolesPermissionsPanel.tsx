@@ -41,8 +41,23 @@ export function RolesPermissionsPanel() {
     queryKey: ['admin-permissions'],
     queryFn: () => apiRequest<PermissionItem[]>('/admin/permissions'),
   })
+  const { data: templates = [] } = useQuery({
+    queryKey: ['admin-role-templates'],
+    queryFn: () =>
+      apiRequest<Array<{ name: string; label: string; description: string; permissionKeys: string[]; missingKeys: string[] }>>(
+        '/admin/role-templates',
+      ),
+  })
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? roles[0]
+  const { data: assignees } = useQuery({
+    queryKey: ['admin-role-assignees', selectedRole?.id],
+    queryFn: () =>
+      apiRequest<{ count: number; users: Array<{ email: string }> }>(
+        `/admin/roles/${selectedRole!.id}/assignees`,
+      ),
+    enabled: Boolean(selectedRole?.id),
+  })
   const selectedRoleLocked =
     Boolean(selectedRole) && PROTECTED_SYSTEM_ROLES.has(selectedRole!.name) && !isSuperadmin
 
@@ -235,6 +250,16 @@ export function RolesPermissionsPanel() {
               </select>
             </div>
 
+            {templates.length ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Starting templates (editable): {templates.map((row) => row.label).join(', ')}
+              </p>
+            ) : null}
+            {assignees?.count ? (
+              <Alert tone="warning" className="mt-3">
+                Saving this role will refresh sessions for {assignees.count} assigned staff.
+              </Alert>
+            ) : null}
             <p className="mt-3 text-xs text-slate-500">
               {activePermissionIds.length} of {permissions.length} rights granted
               {permissionSearch ? ` · showing ${filteredPermissions.length} matches` : ''}

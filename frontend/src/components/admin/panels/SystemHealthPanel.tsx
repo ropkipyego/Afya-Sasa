@@ -35,8 +35,17 @@ function statusDetail(value?: HealthStatus) {
 }
 
 function toneFor(status: string): 'ok' | 'warn' | undefined {
-  if (status === 'HEALTHY' || status === 'connected' || status === 'available') return 'ok'
-  if (status === 'NOT_CONFIGURED' || status === 'NOT_VERIFIED' || status === 'UNAVAILABLE' || status === 'BLOCKED') {
+  if (status === 'HEALTHY' || status === 'Healthy' || status === 'connected' || status === 'available') return 'ok'
+  if (
+    status === 'NOT_CONFIGURED' ||
+    status === 'Not Configured' ||
+    status === 'NOT_VERIFIED' ||
+    status === 'Unknown' ||
+    status === 'Degraded' ||
+    status === 'Unavailable' ||
+    status === 'UNAVAILABLE' ||
+    status === 'BLOCKED'
+  ) {
     return 'warn'
   }
   return undefined

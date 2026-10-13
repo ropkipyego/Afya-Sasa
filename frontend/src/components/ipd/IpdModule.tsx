@@ -8,6 +8,7 @@ import { IpdAdminSetup } from './IpdAdminSetup'
 import { IpdAdmitPanel } from './IpdAdmitPanel'
 import { ConsultantRoundDashboard } from './ConsultantRoundDashboard'
 import { apiRequest } from '../../lib/api'
+import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
 
 type IpdView =
   | { screen: 'dashboard' }
@@ -126,6 +127,9 @@ export function IpdModule({
 
   return (
     <div className="-mx-3 min-h-[calc(100dvh-6.5rem)] sm:-mx-4 md:-mx-6">
+    <div className="px-3 pt-3 sm:px-4 md:px-6">
+      <DepartmentWorkspaceHeader department="Inpatient" serviceLine="inpatient" />
+    </div>
     <IpdDashboard
       wardTypeFilter={initialWardType}
       onSelectWard={(wardId) => setView({ screen: 'ward', wardId })}

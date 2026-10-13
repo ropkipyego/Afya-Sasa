@@ -72,6 +72,28 @@ describe('error envelope', () => {
     } as never);
     expect(json.mock.calls[0][0].error.code).toBe(ERROR_CODES.ENCOUNTER_NOT_FOUND);
   });
+
+  it('returns the hospital HTML status page for browser 404s', () => {
+    const filter = new ApiErrorFilter();
+    const send = jest.fn();
+    const type = jest.fn().mockReturnValue({ send });
+    const response = { status: jest.fn().mockReturnValue({ json: jest.fn(), type }) };
+    filter.catch(new NotFoundException('not here'), {
+      switchToHttp: () => ({
+        getResponse: () => response,
+        getRequest: () => ({
+          header: () => 'req-html',
+          headers: { accept: 'text/html' },
+          originalUrl: '/missing',
+          method: 'GET',
+          user: undefined,
+        }),
+      }),
+    } as never);
+    expect(type).toHaveBeenCalledWith('html');
+    expect(send.mock.calls[0][0]).toContain('Page not found');
+    expect(send.mock.calls[0][0]).toContain('Still pending');
+  });
 });
 
 describe('director finance access', () => {

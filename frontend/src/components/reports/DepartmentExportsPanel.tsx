@@ -5,6 +5,7 @@ import { DEPARTMENT_EXPORTS, downloadDepartmentExport } from '../../lib/exports'
 import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { formatApiError } from '../../lib/api'
+import { PatientFieldExport } from '../patients/PatientFieldExport'
 
 export function DepartmentExportsPanel({ initialDataset }: { initialDataset?: string } = {}) {
   const permissions = useAuthStore((state) => state.user?.permissions ?? [])
@@ -78,6 +79,7 @@ export function DepartmentExportsPanel({ initialDataset }: { initialDataset?: st
       ) : (
         <p className="mt-4 text-sm text-slate-600">No department export is available for this account.</p>
       )}
+      <PatientFieldExport />
     </Card>
   )
 }

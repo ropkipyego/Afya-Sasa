@@ -41,13 +41,23 @@ type AnalyticsData = {
     currentInpatients?: number
     charges?: number | null
     collections?: number | null
+    refunds?: number | null
     outstanding?: number | null
+    unmatchedPayments?: number | null
+    returningPatients?: number | null
+    avgOpdWaitMinutes?: number | null
+    labTurnaroundHours?: number | null
+    radiologyTurnaroundHours?: number | null
+    expiryRiskBatches?: number | null
+    shaEligibility?: Record<string, number>
+    failedQuickbooks?: number | null
     accommodationCharges?: number | null
     bedOccupancyPercent: number | null
   }
   comparison: Record<string, Comparison>
   trends: Record<string, DailyPoint[]>
   breakdowns: Record<string, Record<string, number>>
+  refresh?: { strategy: string; intervalSeconds: number; realtime: boolean; generatedAt: string }
   financeVisible?: boolean
   chargesEnabled?: boolean
   accountingIntegration?: 'pending' | string
@@ -310,6 +320,7 @@ export function ExecutiveAnalyticsDashboard() {
     queryFn: () =>
       apiRequest<AnalyticsData>(`/reports/executive-analytics?from=${from}&to=${to}`),
     staleTime: 20_000,
+    refetchInterval: 20_000,
   })
   const { data: intelligence } = useQuery({
     queryKey: ['executive-intelligence', from, to],
@@ -390,6 +401,9 @@ export function ExecutiveAnalyticsDashboard() {
             ? ` · Prior: ${data.comparisonRange.from} → ${data.comparisonRange.to}`
             : ''}
           {data?.generatedAt ? ` · Freshness ${new Date(data.generatedAt).toLocaleString()}` : ''}
+          {data?.refresh?.realtime === false
+            ? ` · ${data.refresh.strategy} every ${data.refresh.intervalSeconds}s (not real-time)`
+            : ''}
         </p>
       </Card>
 
@@ -503,12 +517,25 @@ export function ExecutiveAnalyticsDashboard() {
               />
             ) : null}
             {config.showPatients ? (
-              <KpiCard
-                label="New patients"
-                value={data.summary.newPatients}
-                icon={Users}
-                comparison={data.comparison.newPatients}
-              />
+              <>
+                <KpiCard
+                  label="New patients"
+                  value={data.summary.newPatients}
+                  icon={Users}
+                  comparison={data.comparison.newPatients}
+                />
+                <KpiCard
+                  label="Returning OPD patients"
+                  value={data.summary.returningPatients ?? 0}
+                  icon={Users}
+                />
+                <KpiCard
+                  label="Avg OPD wait (min)"
+                  value={data.summary.avgOpdWaitMinutes ?? '—'}
+                  icon={Activity}
+                  unavailable={data.summary.avgOpdWaitMinutes == null}
+                />
+              </>
             ) : null}
             {config.showInpatient ? (
               <>
@@ -541,12 +568,20 @@ export function ExecutiveAnalyticsDashboard() {
               </>
             ) : null}
             {config.showLabs ? (
-              <KpiCard
-                label="Lab requests"
-                value={data.summary.labRequests}
-                icon={FlaskConical}
-                comparison={data.comparison.labRequests}
-              />
+              <>
+                <KpiCard
+                  label="Lab requests"
+                  value={data.summary.labRequests}
+                  icon={FlaskConical}
+                  comparison={data.comparison.labRequests}
+                />
+                <KpiCard
+                  label="Lab TAT (hours)"
+                  value={data.summary.labTurnaroundHours ?? '—'}
+                  icon={FlaskConical}
+                  unavailable={data.summary.labTurnaroundHours == null}
+                />
+              </>
             ) : null}
             {config.showRadiology ? (
               <KpiCard
@@ -590,6 +625,16 @@ export function ExecutiveAnalyticsDashboard() {
                   value={formatKes(data.summary.collections ?? 0)}
                   icon={Activity}
                   comparison={data.comparison.collections}
+                />
+                <KpiCard
+                  label="Refunds"
+                  value={formatKes(data.summary.refunds ?? 0)}
+                  icon={Activity}
+                />
+                <KpiCard
+                  label="Unmatched payments"
+                  value={data.summary.unmatchedPayments ?? 0}
+                  icon={Activity}
                 />
                 <KpiCard
                   label="Outstanding balances"
@@ -655,12 +700,22 @@ export function ExecutiveAnalyticsDashboard() {
                 </div>
                 <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Failed integrations
+                    Failed QuickBooks queue
                   </p>
                   <p className="mt-1 text-sm font-semibold text-slate-800">
                     {data.attention.failedIntegrations == null
                       ? 'Data unavailable'
                       : data.attention.failedIntegrations}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Expiry-risk batches (30d)
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                    {data.summary.expiryRiskBatches == null
+                      ? 'Data unavailable'
+                      : data.summary.expiryRiskBatches}
                   </p>
                 </div>
               </div>
@@ -759,6 +814,9 @@ export function ExecutiveAnalyticsDashboard() {
               <BreakdownTable title="ED by triage" rows={data.breakdowns.emergencyByTriage} />
               {data.breakdowns.chargesByServiceLine ? (
                 <BreakdownTable title="Charges by department" rows={data.breakdowns.chargesByServiceLine} />
+              ) : null}
+              {data.breakdowns.collectionsByServiceLine ? (
+                <BreakdownTable title="Collections by department" rows={data.breakdowns.collectionsByServiceLine} />
               ) : null}
               {data.breakdowns.collectionsByMethod ? (
                 <BreakdownTable title="Collections by method" rows={data.breakdowns.collectionsByMethod} />

@@ -19,6 +19,7 @@ import {
   ScanFace,
   ScanLine,
   Settings,
+  Shield,
   Stethoscope,
   UserPlus,
   Users,
@@ -33,86 +34,92 @@ export type NavItem = {
 }
 
 export const navigation: NavItem[] = [
-  // Front Office
+  { group: 'Dashboard', label: 'All Queues', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Today' },
+
   { group: 'Front Office', label: 'Register Patient', icon: UserPlus, permission: 'patients:create', shortLabel: 'Register' },
   { group: 'Front Office', label: 'Patient Registry', icon: Users, permission: 'patients:read', shortLabel: 'Registry' },
   { group: 'Front Office', label: 'Identify Patient', icon: ScanFace, permission: 'patients:search', shortLabel: 'Identify' },
   { group: 'Front Office', label: 'OPD Check-In', icon: Hospital, permission: 'encounters:create', shortLabel: 'Check-in' },
   { group: 'Front Office', label: 'Appointments', icon: CalendarDays, permission: 'appointments:read' },
 
-  // Queue management — one place for waiting work
-  { group: 'Queue Management', label: 'Triage Queue', icon: HeartPulse, permission: 'triage:read', shortLabel: 'Triage' },
-  { group: 'Queue Management', label: 'Doctor Queue', icon: Stethoscope, permission: 'consultations:read', shortLabel: 'Doctor' },
-  { group: 'Queue Management', label: 'Lab Queue', icon: FlaskConical, permission: 'lab_requests:read', shortLabel: 'Lab queue' },
-  { group: 'Queue Management', label: 'Pharmacy Queue', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Rx queue' },
-  { group: 'Queue Management', label: 'Imaging Queue', icon: ScanLine, permission: 'radiology_requests:read', shortLabel: 'Imaging queue' },
-  { group: 'Queue Management', label: 'All Queues', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'All queues' },
+  { group: 'Clinical Services', label: 'Triage Queue', icon: HeartPulse, permission: 'triage:read', shortLabel: 'Triage' },
+  { group: 'Clinical Services', label: 'Doctor Queue', icon: Stethoscope, permission: 'consultations:read', shortLabel: 'Doctor' },
+  { group: 'Clinical Services', label: 'Inpatient (IPD)', icon: BedDouble, permission: 'admissions:read', shortLabel: 'IPD' },
+  { group: 'Clinical Services', label: 'ICU', icon: Activity, permission: 'icu_admissions:read' },
+  { group: 'Clinical Services', label: 'HDU', icon: HeartPulse, permission: 'hdu_admissions:read' },
+  { group: 'Clinical Services', label: 'Nursing', icon: HeartPulse, permission: 'admissions:read', shortLabel: 'Nursing' },
+  { group: 'Clinical Services', label: 'Referrals', icon: FileText, permission: 'referrals:read' },
+  { group: 'Clinical Services', label: 'Sick Sheets', icon: Printer, permission: 'sick_sheets:read', shortLabel: 'Sick sheet' },
+  { group: 'Clinical Services', label: 'Orders', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Orders' },
 
-  // Outpatient
-  { group: 'Outpatient', label: 'Referrals', icon: FileText, permission: 'referrals:read' },
-  { group: 'Outpatient', label: 'Sick Sheets', icon: Printer, permission: 'sick_sheets:read', shortLabel: 'Sick sheet' },
+  { group: 'Diagnostics', label: 'Laboratory', icon: FlaskConical, permission: 'lab_requests:read', shortLabel: 'Lab' },
+  { group: 'Diagnostics', label: 'Lab Queue', icon: FlaskConical, permission: 'lab_requests:read', shortLabel: 'Lab queue' },
+  { group: 'Diagnostics', label: 'Radiology', icon: ScanLine, permission: 'radiology_requests:read', shortLabel: 'Imaging' },
+  { group: 'Diagnostics', label: 'Imaging Queue', icon: ScanLine, permission: 'radiology_requests:read', shortLabel: 'Imaging queue' },
 
-  // Documents
-  { group: 'Documents', label: 'Medical Documents', icon: FileText, permission: 'patients:history', shortLabel: 'Med docs' },
-  { group: 'Documents', label: 'Hospital Library', icon: FileText, permission: 'hospital_documents:read', shortLabel: 'Library' },
+  { group: 'Specialty & Procedures', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read', shortLabel: 'ED' },
+  { group: 'Specialty & Procedures', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
+  { group: 'Specialty & Procedures', label: 'Maternity', icon: Baby, permission: 'pregnancies:read' },
 
-  // Laboratory
-  { group: 'Laboratory', label: 'Laboratory', icon: FlaskConical, permission: 'lab_requests:read', shortLabel: 'Lab' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Pharmacy' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy Queue', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Rx queue' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy Dispensing', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Dispense' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy Sales', icon: Landmark, permission: 'pharmacy:read', shortLabel: 'Sales' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy Stock', icon: Package, permission: 'pharmacy:read', shortLabel: 'Stock' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy Stock Take', icon: ClipboardList, permission: 'pharmacy:read', shortLabel: 'Stock take' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy Products', icon: Package, permission: 'pharmacy:read', shortLabel: 'Products' },
+  { group: 'Pharmacy & Supply', label: 'Pharmacy Reports', icon: LayoutDashboard, permission: 'pharmacy:read', shortLabel: 'Rx reports' },
+  { group: 'Pharmacy & Supply', label: 'Inventory & Store', icon: Package, permission: 'inventory:read', shortLabel: 'Store' },
 
-  // Imaging
-  { group: 'Imaging', label: 'Radiology', icon: ScanLine, permission: 'radiology_requests:read', shortLabel: 'Imaging' },
+  { group: 'Finance', label: 'Cashier / Billing', icon: Landmark, permission: 'payments:initiate', shortLabel: 'Cashier' },
+  { group: 'Finance', label: 'Insurance & Claims', icon: Shield, permission: 'patients:read', shortLabel: 'Insurance' },
 
-  // Inpatient
-  { group: 'Inpatient', label: 'Inpatient (IPD)', icon: BedDouble, permission: 'admissions:read', shortLabel: 'IPD' },
-  { group: 'Inpatient', label: 'ICU', icon: Activity, permission: 'icu_admissions:read' },
-  { group: 'Inpatient', label: 'HDU', icon: HeartPulse, permission: 'hdu_admissions:read' },
-  { group: 'Inpatient', label: 'Nursing', icon: HeartPulse, permission: 'admissions:read', shortLabel: 'Nursing' },
+  { group: 'Documents & Reports', label: 'Medical Documents', icon: FileText, permission: 'patients:history', shortLabel: 'Med docs' },
+  { group: 'Documents & Reports', label: 'Hospital Library', icon: FileText, permission: 'hospital_documents:read', shortLabel: 'Library' },
+  { group: 'Documents & Reports', label: 'Reports', icon: LayoutDashboard, permission: 'reports:read' },
 
-  // Emergency
-  { group: 'Emergency', label: 'Emergency', icon: AlertTriangle, permission: 'emergency:read', shortLabel: 'ED' },
+  { group: 'Marketing & Outreach', label: 'Marketing', icon: Megaphone, permission: 'marketing:read', shortLabel: 'Outreach' },
 
-  // Pharmacy — main-sidebar dropdowns, not an inner operations pane
-  { group: 'Pharmacy', label: 'Pharmacy', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Pharmacy' },
-  { group: 'Pharmacy', label: 'Pharmacy Dispensing', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Dispense' },
-  { group: 'Pharmacy', label: 'Pharmacy Sales', icon: Landmark, permission: 'pharmacy:read', shortLabel: 'Sales' },
-  { group: 'Pharmacy', label: 'Pharmacy Stock', icon: Package, permission: 'pharmacy:read', shortLabel: 'Stock' },
-  { group: 'Pharmacy', label: 'Pharmacy Stock Take', icon: ClipboardList, permission: 'pharmacy:read', shortLabel: 'Stock take' },
-  { group: 'Pharmacy', label: 'Pharmacy Products', icon: Package, permission: 'pharmacy:read', shortLabel: 'Products' },
-  { group: 'Pharmacy', label: 'Pharmacy Reports', icon: LayoutDashboard, permission: 'pharmacy:read', shortLabel: 'Rx reports' },
+  { group: 'Management & Intelligence', label: 'Director Dashboard', icon: LayoutDashboard, permission: 'reports:read', shortLabel: 'Director' },
 
-  { group: 'Finance', label: 'Finance', icon: Landmark, permission: 'payments:initiate', shortLabel: 'Finance' },
-
-  { group: 'Specialty', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
-  { group: 'Specialty', label: 'Maternity', icon: Baby, permission: 'pregnancies:read' },
-  { group: 'Specialty', label: 'Orders', icon: ClipboardList, permission: 'worklists:read', shortLabel: 'Orders' },
-
-  { group: 'Supply', label: 'Inventory & Store', icon: Package, permission: 'inventory:read', shortLabel: 'Store' },
-
-  { group: 'Marketing', label: 'Marketing', icon: Megaphone, permission: 'marketing:read', shortLabel: 'Outreach' },
-
-  // Reports
-  { group: 'Reports', label: 'Reports', icon: LayoutDashboard, permission: 'reports:read' },
-
-  // Administration
-  { group: 'Administration', label: 'Hospital Control Center', icon: Settings, permission: 'settings:manage', shortLabel: 'Admin' },
+  { group: 'Hospital Control Center', label: 'Hospital Control Center', icon: Settings, permission: 'settings:manage', shortLabel: 'Admin' },
+  { group: 'Hospital Control Center', label: 'Interoperability', icon: Activity, permission: 'settings:manage', shortLabel: 'FHIR' },
 ]
 
+export const NAV_GROUP_ORDER = [
+  'Dashboard',
+  'Front Office',
+  'Clinical Services',
+  'Diagnostics',
+  'Specialty & Procedures',
+  'Pharmacy & Supply',
+  'Finance',
+  'Documents & Reports',
+  'Marketing & Outreach',
+  'Management & Intelligence',
+  'Hospital Control Center',
+] as const
+
 export const groupIcons: Record<string, LucideIcon> = {
+  Dashboard: LayoutDashboard,
   'Front Office': UserPlus,
-  'Queue Management': ClipboardList,
-  Outpatient: Stethoscope,
-  Documents: FileText,
-  Laboratory: FlaskConical,
-  Imaging: ScanLine,
-  Inpatient: BedDouble,
-  Emergency: AlertTriangle,
-  Pharmacy: Pill,
+  'Clinical Services': Stethoscope,
+  Diagnostics: FlaskConical,
+  'Specialty & Procedures': Baby,
+  'Pharmacy & Supply': Pill,
   Finance: Landmark,
-  Specialty: Baby,
-  Supply: Package,
-  Marketing: Megaphone,
-  Reports: LayoutDashboard,
-  Administration: Settings,
+  'Documents & Reports': FileText,
+  'Marketing & Outreach': Megaphone,
+  'Management & Intelligence': LayoutDashboard,
+  'Hospital Control Center': Settings,
+}
+
+export function sortNavGroups(groups: string[]) {
+  return [...groups].sort((a, b) => {
+    const ai = NAV_GROUP_ORDER.indexOf(a as (typeof NAV_GROUP_ORDER)[number])
+    const bi = NAV_GROUP_ORDER.indexOf(b as (typeof NAV_GROUP_ORDER)[number])
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+  })
 }
 
 export const workflowDescriptions: Record<string, string> = {
@@ -132,7 +139,9 @@ export const workflowDescriptions: Record<string, string> = {
   Worklists: 'Hospital-wide queue board.',
   'Care Queues': 'Hospital-wide queue board.',
   'Patient Registry': 'Browse all registered patients with age-band filters and basic demographics.',
-  Finance: 'Finance desk — cashier, revenue, and SHA. Not Front Office. Same payment engine, not a new billing system.',
+  Finance: 'Cashier desk — same payment ledger. Not a second billing system.',
+  'Cashier / Billing': 'Search a patient, settle existing charges, reprint receipts, and reconcile the cash point.',
+  'Insurance & Claims': 'Payers, SHA eligibility, and operational claim drafts. Portal claims stay on portal.sha.go.ke.',
   Payments: 'Hospital-wide cashier — M-Pesa STK, cash, card, insurance, and QuickBooks for any service.',
   Marketing: 'Record daily outreach activities, track follow-ups, and review team performance.',
   Laboratory: 'Lab overview, sample worklist, and clinician results inbox.',
@@ -150,9 +159,11 @@ export const workflowDescriptions: Record<string, string> = {
   'Inventory & Store': 'Supply overview, requisitions, buying list, transfers, and goods receipt. Not the pharmacy queue.',
   Nursing: 'Nursing command — vitals, MAR, observations, and shift notes.',
   Reports: 'OPD, clinical, analytics, and operations reporting.',
+  'Director Dashboard': 'Hospital-wide operational intelligence from persisted tables. Not a general ledger.',
+  Interoperability: 'Kenya Core FHIR mapping and validation. Sandbox stays disconnected until official credentials exist.',
   'Inpatient (IPD)': 'Visual ward board → patient workspace.',
   ICU: 'Intensive care — monitoring, ventilator, and consultant rounds.',
   HDU: 'High dependency unit — enhanced monitoring and step-down care.',
-  'Hospital Control Center': 'Configure hospital, users, SMS, documents, and security.',
+  'Hospital Control Center': 'Configure hospital, users, SMS, documents, security, health, and backup.',
   'Hospital Library': 'Hospital-wide policies, protocols, and forms.',
 }

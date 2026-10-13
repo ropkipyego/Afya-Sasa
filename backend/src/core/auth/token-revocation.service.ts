@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { isIssuedBeforeInvalidation } from './access-token-revocation';
 import { inactivityTimeoutSeconds } from './session-policy';
 
 @Injectable()
@@ -22,7 +23,7 @@ export class TokenRevocationService implements OnModuleDestroy {
 
   async invalidateUser(userId: string): Promise<void> {
     const key = this.userKey(userId);
-    await this.redis.set(key, String(Date.now()), 'EX', 8 * 24 * 60 * 60);
+    await this.redis.set(key, String(Math.floor(Date.now() / 1000)), 'EX', 8 * 24 * 60 * 60);
   }
 
   async invalidateUsers(userIds: string[]): Promise<void> {
@@ -31,8 +32,27 @@ export class TokenRevocationService implements OnModuleDestroy {
 
   async isAccessTokenRevoked(userId: string, issuedAtSeconds: number): Promise<boolean> {
     const invalidatedAt = await this.redis.get(this.userKey(userId));
-    if (!invalidatedAt) return false;
-    return issuedAtSeconds * 1000 < Number(invalidatedAt);
+    return isIssuedBeforeInvalidation(issuedAtSeconds, invalidatedAt);
+  }
+
+  async putEphemeral(key: string, value: string, ttlSeconds: number): Promise<void> {
+    await this.redis.set(key, value, 'EX', Math.max(1, ttlSeconds));
+  }
+
+  async getEphemeral(key: string): Promise<string | null> {
+    try {
+      return await this.redis.get(key);
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteEphemeral(key: string): Promise<void> {
+    try {
+      await this.redis.del(key);
+    } catch {
+      /* ignore */
+    }
   }
 
   async touchSessionActivity(sessionId: string): Promise<void> {

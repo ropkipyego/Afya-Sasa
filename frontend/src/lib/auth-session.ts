@@ -4,6 +4,7 @@ import { getCachedSessionPolicy } from './session-policy'
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let backgroundRevalidatePromise: Promise<void> | null = null
+let refreshInFlight: Promise<boolean> | null = null
 let ending = false
 
 export async function fetchCurrentUser(): Promise<UserProfile> {
@@ -11,32 +12,48 @@ export async function fetchCurrentUser(): Promise<UserProfile> {
 }
 
 export async function refreshSession(): Promise<boolean> {
-  const { refreshToken, setSession, clearSession } = useAuthStore.getState()
+  if (refreshInFlight) return refreshInFlight
 
-  try {
-    const result = await apiRequest<{
-      accessToken: string
-      refreshToken?: string
-      user?: UserProfile
-    }>(
-      '/auth/refresh',
-      {
-        method: 'POST',
-        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
-      },
-      false,
-    )
+  const generation = useAuthStore.getState().authGeneration
+  refreshInFlight = (async () => {
+    const { refreshToken, setSession, clearSession } = useAuthStore.getState()
 
-    setSession({
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
-    })
-    return true
-  } catch {
-    clearSession()
-    return false
-  }
+    try {
+      const result = await apiRequest<{
+        accessToken: string
+        refreshToken?: string
+        user?: UserProfile
+      }>(
+        '/auth/refresh',
+        {
+          method: 'POST',
+          body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+        },
+        false,
+      )
+
+      if (useAuthStore.getState().authGeneration !== generation) {
+        return true
+      }
+
+      setSession({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+      })
+      return true
+    } catch {
+      if (useAuthStore.getState().authGeneration !== generation) {
+        return true
+      }
+      clearSession()
+      return false
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+
+  return refreshInFlight
 }
 
 export async function endSession(reason: 'user' | 'inactivity' = 'user'): Promise<void> {

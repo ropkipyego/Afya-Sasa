@@ -63,6 +63,7 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
     window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
   }, [initialResetToken])
   const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [info, setInfo] = useState<string | null>(null)
@@ -121,14 +122,25 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
 
   const resetMutation = useMutation({
     mutationFn: async () => {
+      if (newPassword !== confirmPassword) {
+        throw new Error('New password and confirmation do not match')
+      }
       await apiRequest('/auth/reset-password', {
         method: 'POST',
-        body: JSON.stringify({ token: resetToken, newPassword }),
+        body: JSON.stringify({
+          token: resetToken,
+          newPassword,
+          confirmPassword,
+        }),
       })
       setInfo('Password updated. Sign in with your new password.')
       setMode('login')
       setPassword('')
       setNewPassword('')
+      setConfirmPassword('')
+      const url = new URL(window.location.href)
+      url.searchParams.delete('resetToken')
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
     },
   })
 
@@ -192,6 +204,21 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
                       placeholder="Enter new password"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    At least 10 characters, with a letter and a number.
+                  </p>
+                </label>
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-700">Confirm new password</span>
+                  <div className="mt-1.5">
+                    <PasswordInput
+                      className="rounded-xl border-slate-300 px-4 py-3"
+                      placeholder="Re-enter new password"
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
                       autoComplete="new-password"
                     />
                   </div>
@@ -304,8 +331,15 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
           </div>
         </div>
 
+        {mode === 'forgot' ? (
+          <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
+            Reset links are emailed only to approved, active staff on the hospital allowlist. Delivery
+            stays off until ICT enables SMTP. The same generic message is always shown.
+          </p>
+        ) : null}
         <p className="mt-6 text-center text-xs text-slate-400">
-          Authorised staff only
+          Authorised staff only. A single sign-in code is prepared for a later rollout and is not
+          required today.
         </p>
       </div>
     </div>

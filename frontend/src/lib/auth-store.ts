@@ -17,6 +17,7 @@ interface AuthState {
   refreshToken: string | null
   user: UserProfile | null
   hydrated: boolean
+  authGeneration: number
   inactivityWarning: string | null
   setTenant: (tenant: string) => void
   setHydrated: (hydrated: boolean) => void
@@ -48,6 +49,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     ? (JSON.parse(readStorage('afyasasa.user') as string) as UserProfile)
     : null,
   hydrated: false,
+  authGeneration: 0,
   inactivityWarning: null,
   setTenant: (tenant) => {
     localStorage.setItem('afyasasa.tenant', tenant)
@@ -65,6 +67,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       refreshToken: refreshToken ?? state.refreshToken,
       user: user ?? state.user,
       hydrated: true,
+      authGeneration: state.authGeneration + 1,
       inactivityWarning: null,
     }))
   },
@@ -84,12 +87,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     purgeLegacyTokens()
     localStorage.removeItem('afyasasa.user')
     sessionStorage.removeItem('afyasasa.activeScreen')
-    set({
+    set((state) => ({
       accessToken: null,
       refreshToken: null,
       user: null,
       hydrated: true,
+      authGeneration: state.authGeneration + 1,
       inactivityWarning: null,
-    })
+    }))
   },
 }))

@@ -11,6 +11,7 @@ import {
   remainingQuantity,
 } from '../clinical-order/pharmacy-prescription';
 import { classifyDrug } from './drug-class';
+import { classifyInventoryMatch, likelyNameMatch, normalizeProductName } from './inventory-import-match';
 import { TenantSettings } from '../core/core.entities';
 import { PaymentsService } from '../payments/payments.service';
 import { lookupCatalogueTariff, readHospitalChargeCatalogue } from '../payments/hospital-charges';
@@ -1260,17 +1261,29 @@ export class InventoryService {
     }
     const previewOnly = Boolean(dto.previewOnly);
     const receiveOpening = Boolean(dto.confirmStockTake) && !previewOnly;
+    const updateExisting = Boolean(dto.updateExisting);
     const summary = {
       preview: previewOnly,
       stockTakeApplied: receiveOpening,
+      updateExisting,
       created: 0,
       updated: 0,
+      skippedExisting: 0,
       received: 0,
       priced: 0,
       heldOpeningQty: 0,
       rejectedExpiredQty: 0,
       duplicates: [] as string[],
       errors: [] as string[],
+      unresolved: [] as string[],
+      rows: [] as Array<{
+        line: number;
+        sku: string;
+        name: string;
+        match: string;
+        existingSku?: string;
+        existingName?: string;
+      }>,
     };
     const defaultLocation = dto.locationId
       ? await this.locations.findOne({ where: { id: dto.locationId, active: true } })
@@ -1281,6 +1294,10 @@ export class InventoryService {
 
     const seenSku = new Set<string>();
     const seenIdentity = new Set<string>();
+    const catalogue = await this.items.find({ select: { id: true, sku: true, name: true } });
+    const refs = catalogue.map((item) => ({ id: item.id, sku: item.sku, name: item.name }));
+    const bySku = new Map(refs.map((item) => [item.sku.toUpperCase(), item]));
+    const byName = new Map(refs.map((item) => [normalizeProductName(item.name), item]));
 
     for (const [index, row] of rows.entries()) {
       const line = index + 2;
@@ -1316,21 +1333,51 @@ export class InventoryService {
         }
       }
 
+      const existingBySku = bySku.get(sku) ?? null;
+      const existingByName = byName.get(normalizeProductName(name)) ?? null;
+      const likely =
+        existingBySku || existingByName
+          ? null
+          : refs.find((item) => likelyNameMatch(item.name, name)) ?? null;
+      const classified = classifyInventoryMatch({
+        sku,
+        name,
+        existingBySku,
+        existingByName: existingByName ?? likely,
+      });
+      if (classified.match === 'likely_name') {
+        summary.unresolved.push(
+          `Line ${line}: ${name} likely matches ${classified.existingSku} (${classified.existingName}). Not applied.`,
+        );
+      }
+      summary.rows.push({
+        line,
+        sku,
+        name,
+        match: classified.match,
+        existingSku: classified.existingSku,
+        existingName: classified.existingName,
+      });
+
       if (previewOnly) {
-        const existing =
-          (await this.items.findOne({ where: { sku } })) ??
-          (await this.items.findOne({ where: { name } }));
-        if (existing) summary.updated += 1;
-        else summary.created += 1;
+        if (classified.match === 'new') summary.created += 1;
+        else if (classified.match === 'likely_name') summary.skippedExisting += 1;
+        else summary.updated += 1;
         continue;
       }
 
       try {
-        let item = await this.items.findOne({ where: { sku } });
-        if (!item) {
-          item = await this.items.findOne({ where: { name } });
+        let item = existingBySku ? await this.items.findOne({ where: { id: existingBySku.id } }) : null;
+        if (!item && existingByName && classified.match === 'exact_name') {
+          item = await this.items.findOne({ where: { id: existingByName.id } });
         }
+        let allowCatalogueWrite = false;
         if (!item) {
+          if (classified.match === 'likely_name') {
+            summary.skippedExisting += 1;
+            continue;
+          }
+          allowCatalogueWrite = true;
           item = await this.items.save(
             this.items.create({
               sku,
@@ -1345,7 +1392,10 @@ export class InventoryService {
             }),
           );
           summary.created += 1;
-        } else {
+          bySku.set(sku, { id: item.id, sku: item.sku, name: item.name });
+          byName.set(normalizeProductName(item.name), { id: item.id, sku: item.sku, name: item.name });
+        } else if (updateExisting) {
+          allowCatalogueWrite = true;
           item.name = name;
           item.category = category;
           item.drugClass = drugClass;
@@ -1356,12 +1406,17 @@ export class InventoryService {
           item.updatedBy = request.user?.sub ?? null;
           item = await this.items.save(item);
           summary.updated += 1;
+        } else {
+          summary.skippedExisting += 1;
         }
 
         const cost = Number(row.cost ?? row.cost_price ?? '');
         const sell = Number(row.sell ?? row.selling_price ?? row.rate ?? '');
         const markup = Number(row.markup ?? row.markup_percent ?? '');
-        if ([cost, sell, markup].some((value) => Number.isFinite(value) && value !== 0) || row.sell === '0') {
+        if (
+          allowCatalogueWrite &&
+          ([cost, sell, markup].some((value) => Number.isFinite(value) && value !== 0) || row.sell === '0')
+        ) {
           if ([cost, sell, markup].some((value) => Number.isFinite(value) && value < 0)) {
             summary.errors.push(`Line ${line}: prices cannot be negative.`);
             continue;

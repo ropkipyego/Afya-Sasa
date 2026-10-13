@@ -1,0 +1,23 @@
+-- PLANNED / NOT APPLIED.
+-- Insurance claim drafts currently persist in public.settings.clinical_catalog.insuranceWorkspace
+-- so this programme does not require a live migration.
+-- Apply only after explicit operational approval. Do not run against production from this file.
+
+-- CREATE TABLE IF NOT EXISTS demo.insurance_claim_drafts (
+--   id uuid PRIMARY KEY,
+--   patient_id uuid NOT NULL,
+--   payer_id varchar NOT NULL,
+--   status varchar NOT NULL,
+--   charge_ids uuid[] NOT NULL,
+--   total_charge numeric NOT NULL,
+--   approved_amount numeric,
+--   patient_share numeric,
+--   amount_received numeric NOT NULL DEFAULT 0,
+--   external_reference varchar,
+--   history jsonb NOT NULL DEFAULT '[]',
+--   created_at timestamptz NOT NULL DEFAULT now(),
+--   updated_at timestamptz NOT NULL DEFAULT now(),
+--   created_by uuid,
+--   updated_by uuid,
+--   deleted_at timestamptz
+-- );

@@ -1,14 +1,18 @@
 import type { ReactNode } from 'react'
 import { useAuthStore } from '../../lib/auth-store'
+import type { PaymentServiceLine } from '../../lib/payments'
+import { DepartmentRevenueStrip } from './DepartmentRevenueStrip'
 
 export function DepartmentWorkspaceHeader({
   department,
   roleHint,
   actions,
+  serviceLine,
 }: {
   department: string
   roleHint?: string
   actions?: ReactNode
+  serviceLine?: PaymentServiceLine | 'all'
 }) {
   const user = useAuthStore((state) => state.user)
   let today: string
@@ -34,7 +38,10 @@ export function DepartmentWorkspaceHeader({
           {roleHint ? ` · ${roleHint}` : ''}
         </p>
       </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      <div className="flex flex-wrap items-end gap-3">
+        {serviceLine ? <DepartmentRevenueStrip serviceLine={serviceLine} /> : null}
+        {actions}
+      </div>
     </div>
   )
 }

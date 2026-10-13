@@ -131,6 +131,26 @@ export class RecordManualPaymentDto {
   @IsNumber()
   @Min(0, { message: 'Amount cannot be negative' })
   amount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
+}
+
+export class RefundPaymentDto {
+  @ApiProperty()
+  @Transform(trimString)
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  amount?: number;
 }
 
 export class SaveHospitalChargeCatalogueDto {

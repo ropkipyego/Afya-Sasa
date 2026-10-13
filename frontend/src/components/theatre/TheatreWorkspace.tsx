@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { Alert, Button, Card, Field, PageHeader, SelectField, TextareaField } from '../ui'
+import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { formDataFromElement } from '../../lib/form-utils'
 import { apiRequest } from '../../lib/api'
@@ -19,6 +20,23 @@ type BookingRow = {
   procedure?: { name: string }
   theatre?: { name: string } | null
 }
+
+type BookingDetail = BookingRow & {
+  notes?: Array<{ id: string; type: string; body: string; createdAt: string; authorName?: string | null }>
+  staff?: Array<{ id: string; role: string; assignedAt: string; userName?: string | null }>
+  complications?: Array<{ id: string; severity: string; description: string; actionTaken: string }>
+}
+
+const NOTE_TYPES = [
+  { id: 'pre_op_assessment', label: 'Pre-operative assessment' },
+  { id: 'consent', label: 'Consent' },
+  { id: 'checklist', label: 'Counts / checklist' },
+  { id: 'intraoperative', label: 'Anaesthesia / intra-op' },
+  { id: 'operation', label: 'Operative note' },
+  { id: 'findings', label: 'Findings / specimens' },
+  { id: 'post_op', label: 'Postoperative plan' },
+  { id: 'recovery', label: 'Recovery / handover' },
+] as const
 
 const stages = [
   { id: 'requested', label: 'Requested' },
@@ -48,6 +66,11 @@ export function TheatreWorkspace() {
     queryKey: ['surgery-bookings'],
     queryFn: () => apiRequest<BookingRow[]>('/theatre/bookings'),
     refetchInterval: 30_000,
+  })
+  const { data: detail } = useQuery({
+    queryKey: ['surgery-booking', activeId],
+    queryFn: () => apiRequest<BookingDetail>(`/theatre/bookings/${activeId}`),
+    enabled: Boolean(activeId),
   })
 
   const active = bookings.find((b) => b.id === activeId) ?? null
@@ -101,7 +124,10 @@ export function TheatreWorkspace() {
         body: JSON.stringify({ userId: form.get('userId'), role: form.get('role') }),
       })
     },
-    onSuccess: () => notify('Staff assigned', 'Surgical team updated.', 'success'),
+    onSuccess: async () => {
+      notify('Staff assigned', 'Surgical team updated.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['surgery-booking', activeId] })
+    },
   })
 
   const addNote = useMutation({
@@ -112,11 +138,33 @@ export function TheatreWorkspace() {
         body: JSON.stringify({ type: form.get('type'), body: form.get('body') }),
       })
     },
-    onSuccess: () => notify('Note saved', 'Surgery note recorded.', 'success'),
+    onSuccess: async () => {
+      notify('Note saved', 'Surgery note recorded.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['surgery-booking', activeId] })
+    },
+  })
+
+  const addComplication = useMutation({
+    mutationFn: (formElement: HTMLFormElement) => {
+      const form = formDataFromElement(formElement)
+      return apiRequest(`/theatre/bookings/${form.get('bookingId')}/complications`, {
+        method: 'POST',
+        body: JSON.stringify({
+          severity: form.get('severity'),
+          description: form.get('description'),
+          actionTaken: form.get('actionTaken'),
+        }),
+      })
+    },
+    onSuccess: async () => {
+      notify('Complication recorded', 'Kept on the case record.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['surgery-booking', activeId] })
+    },
   })
 
   return (
     <div className="workspace-shell animate-fade-in">
+      <DepartmentWorkspaceHeader department="Theatre" serviceLine="other" />
       <PageHeader title="Theatre operations" description="Schedule surgeries, assign staff, and track case progress." />
 
       <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
@@ -165,7 +213,7 @@ export function TheatreWorkspace() {
             <div className="mt-6 h-48 animate-skeleton rounded-xl" />
           ) : (
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {bookings.slice(0, 8).map((booking) => (
+              {bookings.map((booking) => (
                 <button
                   key={booking.id}
                   type="button"
@@ -247,14 +295,61 @@ export function TheatreWorkspace() {
             >
               <p className="text-sm font-semibold">Surgery note</p>
               <input type="hidden" name="bookingId" value={active.id} />
-              <SelectField name="type" label="Note type" defaultValue="intra_op">
-                <option value="pre_op">Pre-op</option>
-                <option value="intra_op">Intra-op</option>
-                <option value="post_op">Post-op</option>
+              <SelectField name="type" label="Note type" defaultValue="operation">
+                {NOTE_TYPES.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.label}
+                  </option>
+                ))}
               </SelectField>
               <TextareaField name="body" label="Note" required />
+              {addNote.isError ? <Alert tone="error">{addNote.error.message}</Alert> : null}
               <Button type="submit" loading={addNote.isPending}>
                 Save note
+              </Button>
+            </form>
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <p className="text-sm font-semibold">Recorded notes</p>
+              <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto text-sm">
+                {(detail?.notes ?? []).map((note) => (
+                  <li key={note.id} className="rounded-xl bg-slate-50 px-3 py-2">
+                    <p className="text-xs font-bold uppercase text-slate-500">
+                      {NOTE_TYPES.find((type) => type.id === note.type)?.label ?? note.type}
+                    </p>
+                    <p className="whitespace-pre-wrap text-slate-800">{note.body}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {note.authorName ?? 'Staff'} · {new Date(note.createdAt).toLocaleString()}
+                    </p>
+                  </li>
+                ))}
+                {!detail?.notes?.length ? (
+                  <li className="text-sm text-slate-500">No notes yet. Saved notes remain after reload.</li>
+                ) : null}
+              </ul>
+            </div>
+            <form
+              className="space-y-3 rounded-2xl border border-slate-200 p-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const form = e.currentTarget
+                addComplication.mutate(form, { onSuccess: () => form.reset() })
+              }}
+            >
+              <p className="text-sm font-semibold">Complication</p>
+              <input type="hidden" name="bookingId" value={active.id} />
+              <SelectField name="severity" label="Severity" defaultValue="minor">
+                <option value="minor">Minor</option>
+                <option value="moderate">Moderate</option>
+                <option value="severe">Severe</option>
+                <option value="sentinel">Sentinel</option>
+              </SelectField>
+              <TextareaField name="description" label="Description" required />
+              <TextareaField name="actionTaken" label="Action taken" required />
+              <Button type="submit" loading={addComplication.isPending}>
+                Record complication
               </Button>
             </form>
           </div>

@@ -55,3 +55,34 @@ export async function downloadDepartmentExport(params: {
   link.click()
   URL.revokeObjectURL(url)
 }
+
+export async function downloadPatientFieldExport(params: {
+  fields: string[]
+  format: 'csv' | 'xlsx'
+  q?: string
+}) {
+  const { tenant, accessToken } = useAuthStore.getState()
+  const query = new URLSearchParams({ format: params.format, fields: params.fields.join(',') })
+  if (params.q) query.set('q', params.q)
+  const response = await fetch(`${API_BASE}/exports/patients/download?${query.toString()}`, {
+    credentials: 'include',
+    headers: {
+      'X-Tenant': tenant,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: response.statusText }))
+    throw new ApiRequestError(
+      typeof error.message === 'string' ? error.message : 'Export failed',
+      response.status,
+    )
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `patients-export.${params.format}`
+  link.click()
+  URL.revokeObjectURL(url)
+}

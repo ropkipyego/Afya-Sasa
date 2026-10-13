@@ -660,6 +660,30 @@ export class MarketingService {
     }
     return settings;
   }
+
+  async previewSmsAudience(message: string | undefined, request: RequestContext) {
+    await this.assertFoundation();
+    if (!this.canSeeTeam(request) && !request.user?.permissions?.includes('marketing:create')) {
+      throw new ForbiddenException('You cannot preview outreach audiences');
+    }
+    const clinical = /(diagnos|hiv|cancer|result|lab\b|creatinine|haemoglobin)/i.test(message ?? '');
+    const visits = await this.activities.find({ take: 500, order: { createdAt: 'DESC' } });
+    const withPhone = visits.filter((row) => Boolean(row.contactPhone?.replace(/\D/g, '').length));
+    const uniquePhones = new Set(withPhone.map((row) => row.contactPhone!.replace(/\D/g, '').slice(-9)));
+    const segments = Math.max(1, Math.ceil((message ?? '').length / 160));
+    return {
+      eligibleRecipients: uniquePhones.size,
+      sampleCount: Math.min(uniquePhones.size, 20),
+      consentStored: false,
+      consentRequired: true,
+      clinicalContentBlocked: clinical,
+      characterCount: (message ?? '').length,
+      estimatedSegments: segments,
+      delivery: 'unknown until the SMS provider reports a delivery receipt',
+      sendRequires: 'marketing:manage plus explicit opt-in confirmation',
+      note: 'Audience is outreach contacts from marketing visits. Diagnoses and laboratory results are not included.',
+    };
+  }
 }
 
 function ownerName(owner?: User | null) {

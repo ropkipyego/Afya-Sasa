@@ -86,6 +86,12 @@ export class MarketingController {
     return this.marketing.getTeamSummary(query, request);
   }
 
+  @Get('sms/preview')
+  @RequirePermissions('marketing:read', 'marketing:create')
+  previewSms(@Query('message') message: string | undefined, @Req() request: RequestContext) {
+    return this.marketing.previewSmsAudience(message, request);
+  }
+
   @Get('visits')
   @RequirePermissions('marketing:read')
   listVisits(@Req() request: RequestContext) {

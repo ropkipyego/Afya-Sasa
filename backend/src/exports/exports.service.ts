@@ -15,7 +15,9 @@ import { PaymentTransaction } from '../payments/payment.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
+import { Patient } from '../patients/patient.entities';
 import { type ExportColumn, toCsv, toXlsx } from './export-workbook';
+import { PATIENT_EXPORT_FIELDS, sanitizePatientExportFields } from './patient-export';
 
 export const EXPORT_DATASETS = [
   'opd',
@@ -65,7 +67,75 @@ export class ExportsService {
     @InjectRepository(IcuAdmission) private readonly icuAdmissions: Repository<IcuAdmission>,
     @InjectRepository(HduAdmission) private readonly hduAdmissions: Repository<HduAdmission>,
     @InjectRepository(VitalSigns) private readonly vitals: Repository<VitalSigns>,
+    @InjectRepository(Patient) private readonly patients: Repository<Patient>,
   ) {}
+
+  patientFields() {
+    return PATIENT_EXPORT_FIELDS;
+  }
+
+  async buildPatientExport(params: {
+    format: 'csv' | 'xlsx'
+    fields?: string[]
+    q?: string
+    from?: string
+    to?: string
+    limit?: number
+    preview?: boolean
+    request: RequestContext
+  }) {
+    const permissions = params.request.user?.permissions ?? []
+    if (!permissions.includes('patients:read') || !permissions.includes('reports:read')) {
+      throw new ForbiddenException('Patient field export requires patients:read and reports:read')
+    }
+    const fields = sanitizePatientExportFields(params.fields)
+    const take = Math.min(Math.max(params.limit ?? (params.preview ? 20 : 5000), 1), params.preview ? 25 : 5000)
+    const qb = this.patients
+      .createQueryBuilder('patient')
+      .where('patient.deleted_at IS NULL')
+      .orderBy('patient.created_at', 'DESC')
+      .take(take)
+    if (params.q?.trim()) {
+      qb.andWhere(
+        '(patient.patient_no ILIKE :q OR patient.first_name ILIKE :q OR patient.last_name ILIKE :q)',
+        { q: `%${params.q.trim()}%` },
+      )
+    }
+    if (params.from) qb.andWhere('patient.created_at >= :from', { from: new Date(`${params.from}T00:00:00+03:00`) })
+    if (params.to) qb.andWhere('patient.created_at <= :to', { to: new Date(`${params.to}T23:59:59.999+03:00`) })
+    const [rows, total] = await qb.getManyAndCount()
+    const columns: ExportColumn[] = PATIENT_EXPORT_FIELDS.filter((field) => fields.includes(field.key)).map(
+      (field) => ({ key: field.key, header: field.label }),
+    )
+    const mapped = rows.map((row) => {
+      const record: Record<string, unknown> = {}
+      for (const field of fields) {
+        record[field] = (row as unknown as Record<string, unknown>)[field] ?? null
+      }
+      return record
+    })
+    if (params.preview) {
+      return {
+        preview: true,
+        total,
+        rowCount: mapped.length,
+        fields,
+        rows: mapped,
+      }
+    }
+    const buffer = params.format === 'xlsx' ? toXlsx(columns, mapped, 'patients') : toCsv(columns, mapped)
+    return {
+      buffer,
+      mime:
+        params.format === 'xlsx'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv; charset=utf-8',
+      filename: `patients-export.${params.format === 'xlsx' ? 'xlsx' : 'csv'}`,
+      rowCount: mapped.length,
+      total,
+      fields,
+    }
+  }
 
   listAuthorized(permissions: string[]) {
     return EXPORT_DATASETS.filter((dataset) =>

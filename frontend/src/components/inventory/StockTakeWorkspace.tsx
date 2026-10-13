@@ -10,10 +10,12 @@ type Location = { id: string; name: string; code: string }
 type Preview = {
   created: number
   updated: number
+  skippedExisting?: number
   heldOpeningQty: number
   rejectedExpiredQty: number
   duplicates: string[]
   errors: string[]
+  unresolved?: string[]
 }
 
 const EXPECTED_COLUMNS = [
@@ -60,17 +62,31 @@ export function StockTakeWorkspace() {
   })
 
   const importCsv = useMutation({
-    mutationFn: ({ csv, confirmStockTake }: { csv: string; confirmStockTake: boolean }) =>
+    mutationFn: ({
+      csv,
+      confirmStockTake,
+      updateExisting,
+    }: {
+      csv: string
+      confirmStockTake: boolean
+      updateExisting?: boolean
+    }) =>
       apiRequest<{
         created: number
         updated: number
         received: number
         priced: number
         heldOpeningQty: number
+        skippedExisting?: number
         errors: string[]
       }>('/inventory/items/import', {
         method: 'POST',
-        body: JSON.stringify({ csv, locationId: locationId || undefined, confirmStockTake }),
+        body: JSON.stringify({
+          csv,
+          locationId: locationId || undefined,
+          confirmStockTake,
+          updateExisting,
+        }),
       }),
     onSuccess: async (summary) => {
       notify(
@@ -189,9 +205,10 @@ export function StockTakeWorkspace() {
             <p className="mt-3 text-xs text-slate-500">Detected headers: {detectedHeaders.join(' · ')}</p>
           ) : null}
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Stat label="Matched products" value={preview.updated} />
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <Stat label="Exact matches" value={preview.updated} />
             <Stat label="New products" value={preview.created} />
+            <Stat label="Existing left unchanged" value={preview.skippedExisting ?? 0} />
             <Stat label="Counts held" value={preview.heldOpeningQty} />
             <Stat label="Expired lots rejected" value={preview.rejectedExpiredQty} tone="rose" />
           </div>
@@ -206,6 +223,12 @@ export function StockTakeWorkspace() {
             <Alert tone="warning" className="mt-4">
               <span className="font-semibold">Warnings. </span>
               {preview.errors.slice(0, 8).join(' · ')}
+            </Alert>
+          ) : null}
+          {preview.unresolved?.length ? (
+            <Alert tone="warning" className="mt-4">
+              <span className="font-semibold">Likely matches not applied. </span>
+              {preview.unresolved.slice(0, 8).join(' · ')}
             </Alert>
           ) : null}
           {preview.rejectedExpiredQty ? (
@@ -223,14 +246,14 @@ export function StockTakeWorkspace() {
               onClick={() => {
                 if (
                   window.confirm(
-                    `Update ${preview.created + preview.updated} catalogue rows and prices only? Counted quantities will stay held.`,
+                    `Create ${preview.created} new catalogue rows only? Existing products, prices, and batches will not be overwritten. Counted quantities stay held.`,
                   )
                 ) {
                   importCsv.mutate({ csv: pendingCsv, confirmStockTake: false })
                 }
               }}
             >
-              Update products & prices only
+              Create new products only
             </Button>
             <Button
               type="button"

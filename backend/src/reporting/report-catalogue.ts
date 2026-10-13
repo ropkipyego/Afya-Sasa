@@ -19,7 +19,7 @@ export const REPORT_CATALOGUE: ReportCatalogueEntry[] = [
     description: 'Period volumes, occupancy, and previous-period comparison from source tables.',
     permission: 'reports:read',
     path: '/reports/executive-analytics',
-    screen: 'Reports',
+    screen: 'Director Dashboard',
     implemented: true,
     source: 'patients, encounters, admissions, beds, lab_requests, radiology_requests, charges, payment_transactions',
   },

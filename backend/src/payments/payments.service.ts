@@ -8,10 +8,16 @@ import { Patient } from '../patients/patient.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { prescriptionGroupId } from '../clinical-order/pharmacy-prescription';
 import { Charge, chargeRemaining, chargesEnabled } from './charge.entities';
-import { InitiateMpesaStkDto, RecordManualPaymentDto } from './payments.dto';
+import { InitiateMpesaStkDto, RecordManualPaymentDto, RefundPaymentDto } from './payments.dto';
 import { PaymentTransaction, QuickbooksSyncQueueItem, type PaymentServiceLine } from './payment.entities';
 import { amountsMatch } from './mpesa-callback.contract';
 import { MpesaService } from './mpesa.service';
+import {
+  cashierTotals,
+  isRefundMetadata,
+  payerMixFromMethods,
+  remainingBalance,
+} from './payment-integrity';
 
 @Injectable()
 export class PaymentsService {
@@ -99,6 +105,10 @@ export class PaymentsService {
     this.assertAmount(amount, dto.method === 'waived');
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
+    if (dto.idempotencyKey?.trim()) {
+      const existing = await this.findByIdempotencyKey(dto.idempotencyKey.trim());
+      if (existing) return existing;
+    }
     if (amount != null) {
       await this.assertNoRecentDuplicate({
         patientId: patient.id,
@@ -130,7 +140,11 @@ export class PaymentsService {
         externalReference: receiptNo,
         mpesaPhone: null,
         chargeId: charge?.id ?? null,
-        metadata: charge ? { chargeId: charge.id } : null,
+        metadata: {
+          ...(charge ? { chargeId: charge.id } : {}),
+          ...(dto.idempotencyKey?.trim() ? { idempotencyKey: dto.idempotencyKey.trim() } : {}),
+          kind: 'payment',
+        },
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
       }),
@@ -259,6 +273,167 @@ export class PaymentsService {
       order: { createdAt: 'DESC' },
       take: 80,
     });
+  }
+
+  async patientStatement(patientId: string) {
+    const patient = await this.patients.findOne({ where: { id: patientId } });
+    if (!patient) throw new NotFoundException('Patient not found');
+    const [charges, payments] = await Promise.all([
+      this.charges.find({
+        where: { patient: { id: patientId } },
+        relations: { encounter: true },
+        order: { createdAt: 'ASC' },
+        take: 200,
+      }),
+      this.transactions.find({
+        where: { patient: { id: patientId } },
+        order: { createdAt: 'ASC' },
+        take: 200,
+      }),
+    ]);
+    const owed = charges.reduce((sum, row) => sum + Number(row.amountOwed), 0);
+    const paid = charges.reduce((sum, row) => sum + Number(row.amountPaid), 0);
+    const waived = charges.reduce((sum, row) => sum + Number(row.amountWaived), 0);
+    const collections = payments.filter(
+      (row) => row.status === 'completed' && !isRefundMetadata(row.metadata),
+    );
+    const refunds = payments.filter(
+      (row) => row.status === 'completed' && isRefundMetadata(row.metadata),
+    );
+    return {
+      patient: { id: patient.id, patientNo: patient.patientNo, name: `${patient.firstName} ${patient.lastName}` },
+      charges: charges.map((row) => ({
+        id: row.id,
+        encounterId: row.encounter?.id ?? null,
+        serviceLine: row.serviceLine,
+        serviceDescription: row.serviceDescription,
+        amountOwed: Number(row.amountOwed),
+        amountPaid: Number(row.amountPaid),
+        amountWaived: Number(row.amountWaived),
+        remaining: remainingBalance(Number(row.amountOwed), Number(row.amountPaid), Number(row.amountWaived)),
+        status: row.status,
+        createdAt: row.createdAt,
+      })),
+      payments: payments.map((row) => ({
+        id: row.id,
+        kind: isRefundMetadata(row.metadata) ? 'refund' : 'payment',
+        method: row.method,
+        status: row.status,
+        amount: Number(row.amount ?? 0),
+        receipt: row.externalReference,
+        chargeId: row.chargeId,
+        createdAt: row.createdAt,
+        originalPaymentId: row.metadata?.originalPaymentId ?? null,
+      })),
+      totals: {
+        chargesRaised: owed,
+        paymentsReceived: collections.reduce((sum, row) => sum + Number(row.amount ?? 0), 0),
+        refunds: refunds.reduce((sum, row) => sum + Number(row.amount ?? 0), 0),
+        waived,
+        outstanding: remainingBalance(owed, paid, waived),
+      },
+    };
+  }
+
+  async cashierSummary(from: string, to: string) {
+    const start = new Date(`${from}T00:00:00.000Z`);
+    const end = new Date(`${to}T23:59:59.999Z`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      throw new BadRequestException('Invalid date range');
+    }
+    const rows = await this.transactions
+      .createQueryBuilder('txn')
+      .where('txn.createdAt BETWEEN :start AND :end', { start, end })
+      .orderBy('txn.createdAt', 'ASC')
+      .take(2000)
+      .getMany();
+    const totals = cashierTotals(rows);
+    const unmatched = rows.filter(
+      (row) => row.status === 'completed' && !row.chargeId && !isRefundMetadata(row.metadata),
+    );
+    return {
+      from,
+      to,
+      generatedAt: new Date().toISOString(),
+      collections: totals.collections,
+      refunds: totals.refunds,
+      unmatchedCount: unmatched.length,
+      unmatchedAmount: unmatched.reduce((sum, row) => sum + Number(row.amount ?? 0), 0),
+      collectionsByMethod: totals.collectionsByMethod,
+      payerMix: payerMixFromMethods(totals.collectionsByMethod),
+      note: 'Collections exclude refunds. Insurance method is not remittance received.',
+    };
+  }
+
+  async refundPayment(id: string, dto: RefundPaymentDto, request: RequestContext) {
+    const original = await this.transactions.findOne({
+      where: { id },
+      relations: { patient: true, encounter: true, labRequest: true },
+    });
+    if (!original) throw new NotFoundException('Payment not found');
+    if (original.status !== 'completed') {
+      throw new BadRequestException('Only completed payments can be refunded');
+    }
+    if (isRefundMetadata(original.metadata)) {
+      throw new BadRequestException('This row is already a refund');
+    }
+    if (original.metadata?.refundedBy) {
+      throw new BadRequestException('This payment already has a refund');
+    }
+    const max = Number(original.amount ?? 0);
+    const amount = dto.amount ?? max;
+    if (!Number.isFinite(amount) || amount <= 0 || amount > max) {
+      throw new BadRequestException('Refund amount must be within the original payment');
+    }
+    const reason = dto.reason.trim();
+    if (reason.length < 3) throw new BadRequestException('A refund reason is required');
+
+    const refund = await this.transactions.save(
+      this.transactions.create({
+        patient: original.patient,
+        encounter: original.encounter,
+        labRequest: original.labRequest,
+        serviceLine: original.serviceLine,
+        serviceEntityId: original.serviceEntityId,
+        serviceDescription: original.serviceDescription,
+        method: original.method,
+        payerScheme: original.payerScheme,
+        amount: String(amount),
+        currency: original.currency,
+        status: 'completed',
+        externalReference: `RF-${original.externalReference ?? original.id.slice(0, 8)}`,
+        chargeId: original.chargeId,
+        metadata: {
+          kind: 'refund',
+          originalPaymentId: original.id,
+          reason,
+        },
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+
+    original.metadata = {
+      ...(original.metadata ?? {}),
+      refundedBy: refund.id,
+      refundedAt: new Date().toISOString(),
+    };
+    await this.transactions.save(original);
+
+    if (original.chargeId && chargesEnabled()) {
+      const charge = await this.charges.findOne({ where: { id: original.chargeId } });
+      if (charge) {
+        charge.amountPaid = String(Math.max(0, Number(charge.amountPaid) - amount));
+        const remaining = remainingBalance(
+          Number(charge.amountOwed),
+          Number(charge.amountPaid),
+          Number(charge.amountWaived),
+        );
+        charge.status = remaining <= 0 ? 'paid' : Number(charge.amountPaid) > 0 ? 'partially_paid' : 'owed';
+        await this.charges.save(charge);
+      }
+    }
+    return refund;
   }
 
   async upsertPharmacyCharge(params: {
@@ -561,6 +736,14 @@ export class PaymentsService {
     const remaining = chargeRemaining(charge);
     charge.status = remaining <= 0 ? (waived && Number(charge.amountPaid) <= 0 ? 'waived' : 'paid') : 'partially_paid';
     await this.charges.save(charge);
+  }
+
+  private async findByIdempotencyKey(key: string) {
+    return this.transactions
+      .createQueryBuilder('txn')
+      .leftJoinAndSelect('txn.patient', 'patient')
+      .where("txn.metadata->>'idempotencyKey' = :key", { key })
+      .getOne();
   }
 
   private async assertNoRecentDuplicate(params: {

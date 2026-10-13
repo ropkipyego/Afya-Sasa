@@ -24,7 +24,10 @@ QuickBooks remains the accounting/GL system. Payments are never labelled revenue
 | Pending discharge summaries | `demo.discharge_summaries` + `demo.admissions` | query time | admission `active`, summary `draft` | `COUNT(*)` | There is no `pending_discharge` admission status. |
 | Bed conflicts | `demo.admissions` | query time | `status=active`, same `bed_id`, count > 1 | `COUNT(distinct bed_id)` | Silent double-occupancy. |
 | Charges generated | `demo.charges` | `created_at` | range | `SUM(amount_owed)` | Hidden unless director/admin/superadmin or `payments:read`/`settings:manage`. Genuine 0 when table is empty. |
-| Payments received | `demo.payment_transactions` | `created_at` | `status = completed` | `SUM(amount)` | Not called revenue. |
+| Payments received | `demo.payment_transactions` | `created_at` | `status = completed` and `metadata.kind <> refund` | `SUM(amount)` | Not called revenue. Refunds are a separate metric. |
+| Refunds | `demo.payment_transactions` | `created_at` | `metadata.kind = refund` | `SUM(amount)` | New reversing row; original payment is kept. |
+| Returning OPD patients | `demo.encounters` | `started_at` | OPD in range with an earlier encounter | `COUNT(DISTINCT patient_id)` | Not new registrations. |
+| Lab TAT (hours) | `demo.lab_requests` | `verified_at - created_at` | `verified_at` present | `AVG` hours | Null when no verified results in range. |
 | Outstanding balances | `demo.charges` | query time | `status IN (owed, partially_paid)` | `SUM(owed - paid - waived)` | Point-in-time, not range-sliced. |
 | Accommodation charges | `demo.charges` | `created_at` | inpatient line or metadata.source=ACCOMMODATION | `SUM(amount_owed)` | Requires priced catalogue + charges enabled. |
 | Accounting / QuickBooks balance | — | — | — | Data unavailable | Display: Accounting integration pending. |

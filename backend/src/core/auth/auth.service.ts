@@ -4,6 +4,8 @@ import {
   BadRequestException,
   NotFoundException,
   Logger,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -19,6 +21,8 @@ import { TokenRevocationService } from './token-revocation.service';
 import { accessTokenTtlSeconds, refreshTokenTtlMs, sessionPolicy } from './session-policy';
 import { defaultTenantCode } from '../../common/tenant-defaults';
 import { tenantsEquivalent } from '../../common/tenant-bind';
+import { assertPasswordsMatch, validateNewPassword } from './password-policy';
+import { parseMailConfig, recipientAllowed } from '../mail/mail.config';
 
 const GENERIC_RESET_MESSAGE =
   'If an account exists for this email, password reset instructions have been sent.';
@@ -51,6 +55,32 @@ export class AuthService {
     incomingRefreshToken?: string,
     tenantCode?: string,
   ) {
+    const loginIpLimit = await this.tokenRevocation.consumeRateLimit(
+      `login:ip:${ip ?? 'unknown'}`,
+      10,
+      60,
+    );
+    const loginEmailLimit = await this.tokenRevocation.consumeRateLimit(
+      `login:email:${this.hashToken(email.trim().toLowerCase())}`,
+      8,
+      60,
+    );
+    if (!loginIpLimit.allowed || !loginEmailLimit.allowed) {
+      await this.loginAudit.record({
+        email,
+        eventType: 'login_failed',
+        success: false,
+        failureReason: 'rate_limited',
+        ip,
+        userAgent,
+        device,
+      });
+      throw new HttpException(
+        'Too many sign-in attempts. Please wait and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const user = await this.usersService.findByEmail(email);
 
     if (!user || !user.active) {
@@ -77,7 +107,7 @@ export class AuthService {
         userAgent,
         device,
       });
-      throw new UnauthorizedException('Account is temporarily locked');
+      throw new UnauthorizedException('Too many failed attempts. Try again later.');
     }
 
     const passwordMatches = await bcrypt.compare(password, user.passwordHash);
@@ -255,7 +285,24 @@ export class AuthService {
     }
 
     const user = await this.usersService.findByEmail(normalized);
-    if (user) {
+    const mail = parseMailConfig();
+    const approvedStaff =
+      Boolean(user) &&
+      user!.active !== false &&
+      !(user!.lockedUntil && user!.lockedUntil.getTime() > Date.now()) &&
+      (mail.recipientAllowlist.length === 0 || recipientAllowed(mail, user!.email));
+    if (user && !approvedStaff) {
+      await this.loginAudit.record({
+        email: normalized,
+        userId: user.id,
+        eventType: 'password_reset_requested',
+        success: false,
+        failureReason: 'not_approved',
+        ip,
+      });
+      return { message: GENERIC_RESET_MESSAGE };
+    }
+    if (user && approvedStaff) {
       await this.passwordResetTokens.update(
         { userId: user.id, usedAt: IsNull() },
         { usedAt: new Date() },
@@ -301,7 +348,15 @@ export class AuthService {
     return { message: GENERIC_RESET_MESSAGE };
   }
 
-  async resetPassword(token: string, newPassword: string, ip?: string) {
+  async resetPassword(
+    token: string,
+    newPassword: string,
+    ip?: string,
+    confirmPassword?: string,
+  ) {
+    const mismatch = assertPasswordsMatch(newPassword, confirmPassword);
+    if (mismatch) throw new BadRequestException(mismatch);
+
     const tokenHash = this.hashToken(token);
     const reset = await this.passwordResetTokens.findOne({
       where: { tokenHash, usedAt: IsNull() },
@@ -312,6 +367,9 @@ export class AuthService {
 
     const user = await this.users.findOne({ where: { id: reset.userId } });
     if (!user) throw new NotFoundException('User not found');
+
+    const policyError = validateNewPassword(newPassword, { email: user.email });
+    if (policyError) throw new BadRequestException(policyError);
 
     await this.users.update(user.id, {
       passwordHash: await bcrypt.hash(newPassword, 12),
@@ -345,11 +403,20 @@ export class AuthService {
     device?: string,
     ip?: string,
     tenantCode?: string,
+    confirmPassword?: string,
   ) {
     const user = await this.users.findOne({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
+
+    const mismatch = assertPasswordsMatch(newPassword, confirmPassword);
+    if (mismatch) throw new BadRequestException(mismatch);
+    const policyError = validateNewPassword(newPassword, {
+      email: user.email,
+      currentPassword,
+    });
+    if (policyError) throw new BadRequestException(policyError);
 
     const passwordMatches = await bcrypt.compare(
       currentPassword,
@@ -362,9 +429,19 @@ export class AuthService {
     await this.users.update(userId, {
       passwordHash: await bcrypt.hash(newPassword, 12),
       forcePasswordChange: false,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
     });
     await this.tokenRevocation.invalidateUser(userId);
     await this.logoutAll(userId);
+    await this.loginAudit.record({
+      email: user.email,
+      userId,
+      eventType: 'password_changed',
+      success: true,
+      ip,
+      device,
+    });
     await this.mailService.sendPasswordChanged(user.email, userId);
 
     const updated = await this.users.findOneOrFail({ where: { id: userId } });

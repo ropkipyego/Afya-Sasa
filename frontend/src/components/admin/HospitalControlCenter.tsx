@@ -33,6 +33,7 @@ import { ShaIntegrationPanel } from './panels/ShaIntegrationPanel'
 import { AuditLogPanel } from './panels/AuditLogPanel'
 import { ServiceCatalogsHub } from '../catalog/ServiceCatalogsHub'
 import { BiometricDevicesPanel } from './panels/BiometricDevicesPanel'
+import { IntegrationsStatusPanel } from './panels/IntegrationsStatusPanel'
 
 export type ControlCenterSection =
   | 'home'
@@ -64,6 +65,7 @@ export type ControlCenterSection =
   | 'sha'
   | 'catalogs'
   | 'biometrics'
+  | 'integrations'
 
 export function HospitalControlCenter() {
   const [section, setSection] = useState<ControlCenterSection>('home')
@@ -146,6 +148,7 @@ export function HospitalControlCenter() {
           {section === 'sha' && <ShaIntegrationPanel />}
           {section === 'catalogs' && <ServiceCatalogsHub />}
           {section === 'biometrics' && <BiometricDevicesPanel />}
+          {section === 'integrations' && <IntegrationsStatusPanel />}
         </div>
       )}
     </div>
