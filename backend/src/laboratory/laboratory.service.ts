@@ -673,9 +673,20 @@ export class LaboratoryService {
       relations: { parameter: true },
       order: { createdAt: 'DESC' },
     });
-    const match = parameter
-      ? existingRows.find((row) => row.parameter?.id === parameter.id && !row.supersedesId)
-      : existingRows.find((row) => !row.parameter && !row.supersedesId);
+    const superseded = new Set(
+      existingRows.map((row) => row.supersedesId).filter((id): id is string => Boolean(id)),
+    );
+    const activeForParameter = existingRows.filter((row) => {
+      if (superseded.has(row.id)) return false;
+      if (parameter) return row.parameter?.id === parameter.id;
+      return !row.parameter;
+    });
+    if (activeForParameter.length > 1) {
+      throw new BadRequestException(
+        'This test already has more than one active result. A duplicate audit is required before another value can be entered.',
+      );
+    }
+    const match = activeForParameter[0];
     if (match?.verifiedAt) {
       throw new BadRequestException(
         'A verified result already exists for this test and cannot be changed.',

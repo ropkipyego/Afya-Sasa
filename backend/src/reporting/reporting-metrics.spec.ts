@@ -1,4 +1,4 @@
-import { compareDelta, occupancyPercent, sumCountSeries } from './reporting-metrics';
+import { compareDelta, occupancyPercent, sumCountSeries, swallowQueryFailure } from './reporting-metrics';
 
 describe('director metric helpers', () => {
   it('sums daily series without inventing missing days', () => {
@@ -9,6 +9,15 @@ describe('director metric helpers', () => {
   it('returns occupancy only when a bed inventory exists', () => {
     expect(occupancyPercent(7, 10)).toBe(70);
     expect(occupancyPercent(0, 0)).toBeNull();
+  });
+
+  it('returns a fallback when an optional director query is missing a column', async () => {
+    await expect(
+      swallowQueryFailure(async () => {
+        throw new Error('column lab.verified_at does not exist');
+      }, null),
+    ).resolves.toBeNull();
+    await expect(swallowQueryFailure(async () => 12, 0)).resolves.toBe(12);
   });
 
   it('does not invent a percentage when the previous period is zero', () => {

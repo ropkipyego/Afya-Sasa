@@ -23,6 +23,7 @@ import { compareAgainstBaseline } from './analytics-intelligence';
 import {
   compareDelta as metricCompareDelta,
   occupancyPercent,
+  swallowQueryFailure,
   sumCountSeries,
 } from './reporting-metrics';
 
@@ -355,13 +356,44 @@ export class ReportingService {
         this.beds.count({ where: { status: 'occupied' } }),
         this.admissions.count({ where: { status: 'active' } }),
         includeFinance
-          ? this.financeAnalytics(start, end)
+          ? swallowQueryFailure(
+              () => this.financeAnalytics(start, end),
+              emptyFinance(start, end),
+            )
           : Promise.resolve(emptyFinance(start, end)),
         includeFinance
-          ? this.financeAnalytics(priorStart, priorEnd)
+          ? swallowQueryFailure(
+              () => this.financeAnalytics(priorStart, priorEnd),
+              emptyFinance(priorStart, priorEnd),
+            )
           : Promise.resolve(emptyFinance(priorStart, priorEnd)),
-        this.operationalAttention(),
-        this.directorOperations(start, end),
+        swallowQueryFailure(
+          () => this.operationalAttention(),
+          {
+            unassignedOpd: 0,
+            waitingForDoctor: 0,
+            pendingLabVerification: 0,
+            pendingRadiologyReports: 0,
+            pendingDischarge: 0,
+            bedConflicts: 0,
+            failedIntegrations: 0,
+            biometricDeviceStatus: 'NOT_VERIFIED' as const,
+            notificationFailures: null,
+            asOf: start.toISOString(),
+          },
+        ),
+        swallowQueryFailure(
+          () => this.directorOperations(start, end),
+          {
+            returningPatients: 0,
+            avgOpdWaitMinutes: null,
+            labTurnaroundHours: null,
+            radiologyTurnaroundHours: null,
+            shaEligibility: {},
+            expiryRiskBatches: null,
+            failedQuickbooks: 0,
+          },
+        ),
       ]);
 
     return {
@@ -1277,25 +1309,37 @@ export class ReportingService {
         .where("encounter.type = 'opd'")
         .andWhere('encounter.status IN (:...statuses)', { statuses: ['registered', 'triaged'] })
         .getRawOne<{ avg: string | null }>(),
-      this.labRequests
-        .createQueryBuilder('lab')
-        .select('AVG(EXTRACT(EPOCH FROM (lab.verifiedAt - lab.createdAt)) / 3600.0)', 'avg')
-        .where('lab.verifiedAt IS NOT NULL')
-        .andWhere('lab.createdAt BETWEEN :start AND :end', { start, end })
-        .getRawOne<{ avg: string | null }>(),
-      this.radiologyRequests
-        .createQueryBuilder('rad')
-        .select('AVG(EXTRACT(EPOCH FROM (rad.verifiedAt - rad.createdAt)) / 3600.0)', 'avg')
-        .where('rad.verifiedAt IS NOT NULL')
-        .andWhere('rad.createdAt BETWEEN :start AND :end', { start, end })
-        .getRawOne<{ avg: string | null }>(),
-      this.shaChecks
-        .createQueryBuilder('sha')
-        .select('sha.outcome', 'outcome')
-        .addSelect('COUNT(*)', 'count')
-        .where('sha.createdAt BETWEEN :start AND :end', { start, end })
-        .groupBy('sha.outcome')
-        .getRawMany<{ outcome: string; count: string }>(),
+      swallowQueryFailure(
+        () =>
+          this.labRequests
+            .createQueryBuilder('lab')
+            .select('AVG(EXTRACT(EPOCH FROM (lab.verifiedAt - lab.createdAt)) / 3600.0)', 'avg')
+            .where('lab.verifiedAt IS NOT NULL')
+            .andWhere('lab.createdAt BETWEEN :start AND :end', { start, end })
+            .getRawOne<{ avg: string | null }>(),
+        null,
+      ),
+      swallowQueryFailure(
+        () =>
+          this.radiologyRequests
+            .createQueryBuilder('rad')
+            .select('AVG(EXTRACT(EPOCH FROM (rad.verifiedAt - rad.createdAt)) / 3600.0)', 'avg')
+            .where('rad.verifiedAt IS NOT NULL')
+            .andWhere('rad.createdAt BETWEEN :start AND :end', { start, end })
+            .getRawOne<{ avg: string | null }>(),
+        null,
+      ),
+      swallowQueryFailure(
+        () =>
+          this.shaChecks
+            .createQueryBuilder('sha')
+            .select('sha.outcome', 'outcome')
+            .addSelect('COUNT(*)', 'count')
+            .where('sha.createdAt BETWEEN :start AND :end', { start, end })
+            .groupBy('sha.outcome')
+            .getRawMany<{ outcome: string; count: string }>(),
+        [] as Array<{ outcome: string; count: string }>,
+      ),
       this.inventoryBatches
         .createQueryBuilder('batch')
         .where('batch.expiryDate IS NOT NULL')

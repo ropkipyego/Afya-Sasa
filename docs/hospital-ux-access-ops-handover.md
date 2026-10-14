@@ -4,17 +4,19 @@
 **Branch:** `main` plus uncommitted local work. **Not committed or pushed.**
 
 LIVE STACK CHANGED: **NO**  
-LIVE DATABASE CHANGED: **NO**  
+LIVE DATABASE CHANGED: **NO** (local Docker only: additive `lab_results` / `lab_samples` columns; no unique index; no role grants)  
 PRODUCTION MIGRATIONS APPLIED: **NONE**  
 PRODUCTION DEPLOYMENT PERFORMED: **NO**  
-COMMITS/PUSHES: **NONE**
+COMMITS/PUSHES: **NONE**  
+`TYPEORM_MIGRATIONS_RUN`: **false**  
+`AFYASASA_LAB_AMENDMENT_ENABLED`: **false**
 
 ## Before / after navigation
 
 | Before | After |
 | --- | --- |
 | Many groups always expanded (Front Office, Queue, Pharmacy, Outpatient) | Groups collapsed unless the user opens them or the active screen is inside |
-| Queue Management, Outpatient, Imaging, Specialty, Supply, Administration | Dashboard, Front Office, Clinical Services, Diagnostics, Specialty & Procedures, Pharmacy & Supply, Finance, Documents & Reports, Marketing & Outreach, Management & Intelligence, Hospital Control Center |
+| Queue Management, Outpatient, Imaging, Specialty, Supply, Administration | Dashboard, Front Office, OPD, IPD, Diagnostics, Specialty & Procedures, Pharmacy & Supply, Procurement and Store, Finance, Documents & Reports, Marketing & Outreach, Management & Intelligence, Hospital Control Center |
 | Duplicate mental model: Reports vs Director in the same Reports group | Director sits under Management; Reports under Documents & Reports |
 
 Deep-link aliases for retired labels remain in `screen-aliases.ts`.

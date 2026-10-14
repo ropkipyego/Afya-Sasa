@@ -1,4 +1,10 @@
-import { aliasInventoryHeader, isExpiredBatch, parseInventoryCsv, skuFromName } from './inventory.service';
+import {
+  InventoryService,
+  aliasInventoryHeader,
+  isExpiredBatch,
+  parseInventoryCsv,
+  skuFromName,
+} from './inventory.service';
 
 describe('isExpiredBatch', () => {
   const now = new Date('2026-09-23T10:00:00.000Z');
@@ -14,6 +20,23 @@ describe('isExpiredBatch', () => {
 
   it('rejects lots that expired yesterday', () => {
     expect(isExpiredBatch('2026-09-22', now)).toBe(true);
+  });
+});
+
+describe('pharmacy dispense confirmation', () => {
+  it('does not deduct stock until confirm is true', async () => {
+    const instance = Object.create(InventoryService.prototype) as InventoryService;
+    Object.assign(instance, { items: { manager: { transaction: jest.fn() } } });
+    await expect(
+      instance.dispensePrescription(
+        { confirm: false, lines: [{ clinicalOrderId: 'o1' }] } as never,
+        { user: { sub: 'pharm-1' } } as never,
+      ),
+    ).rejects.toThrow(/Confirm dispensing/);
+    expect(
+      (instance as unknown as { items: { manager: { transaction: jest.Mock } } }).items.manager
+        .transaction,
+    ).not.toHaveBeenCalled();
   });
 });
 

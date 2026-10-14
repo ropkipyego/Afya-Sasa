@@ -115,6 +115,39 @@ describe('laboratory integrity programme', () => {
     );
   });
 
+  it('refuses a second active result for the same parameter', async () => {
+    const lab = service({
+      items: {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'item-1',
+          request: { id: 'req-1', status: 'processing', patient: { gender: 'male', dateOfBirth: '1990-01-01' } },
+          orderableTest: {
+            code: 'CBC',
+            parameters: [{ id: 'p-wbc', code: 'WBC', unit: 'x10^9/L', referenceRanges: [] }],
+          },
+        }),
+        update: jest.fn(),
+      },
+      catalogService: {
+        evaluateResults: jest.fn().mockResolvedValue({ derived: [], flagged: [] }),
+      },
+      results: {
+        find: jest.fn().mockResolvedValue([
+          { id: 'a', parameter: { id: 'p-wbc' }, supersedesId: null, verifiedAt: null },
+          { id: 'b', parameter: { id: 'p-wbc' }, supersedesId: null, verifiedAt: null },
+        ]),
+        findOne: jest.fn().mockResolvedValue(null),
+        save: jest.fn(),
+        create: jest.fn((row) => row),
+      },
+      requests: { findOne: jest.fn(), update: jest.fn() },
+    });
+    await expect(
+      lab.enterResult({ requestItemId: 'item-1', parameterCode: 'WBC', value: '7' }, operator),
+    ).rejects.toThrow(/duplicate audit/i);
+    expect((lab as never as { results: { save: jest.Mock } }).results.save).not.toHaveBeenCalled();
+  });
+
   it('returns unassessed for unsupported catalog flags', () => {
     expect(mapFlagToLegacyResultFlag('WEIRD')).toBe('unassessed');
     expect(mapFlagToLegacyResultFlag('WEIRD')).not.toBe('normal');

@@ -7,6 +7,14 @@ export function occupancyPercent(occupied: number, total: number): number | null
   return Math.round((occupied / total) * 100);
 }
 
+export async function swallowQueryFailure<T>(work: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await work();
+  } catch {
+    return fallback;
+  }
+}
+
 export function compareDelta(current: number, previous: number) {
   const delta = current - previous;
   const percent =

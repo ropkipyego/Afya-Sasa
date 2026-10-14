@@ -11,6 +11,7 @@ export type HospitalModuleKey =
   | 'maternity'
   | 'emergency'
   | 'pharmacy'
+  | 'inventory'
   | 'documents'
   | 'reporting'
 
@@ -69,6 +70,7 @@ export const HOSPITAL_MODULES: {
   { key: 'maternity', label: 'Maternity', description: 'ANC, labour, delivery, postnatal' },
   { key: 'emergency', label: 'Emergency', description: 'Emergency department command center' },
   { key: 'pharmacy', label: 'Pharmacy', description: 'Prescribing and dispensing. Store and requisitions stay on Inventory.' },
+  { key: 'inventory', label: 'Procurement and Store', description: 'General store, requisitions, transfers, and goods receipt' },
   { key: 'documents', label: 'Documents', description: 'Medical documents and certificates' },
   { key: 'reporting', label: 'Reporting', description: 'Clinical and operational reports' },
 ]
