@@ -258,7 +258,8 @@ export function OpdCheckInWorkspace({
                   </option>
                 ))}
               </SelectField>
-              {visitDraft.clinicName ? (
+              {visitDraft.clinicName &&
+              !['laboratory_only', 'radiology_only', 'diagnostic'].includes(visitDraft.visitType) ? (
                 <p className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
                   Consultation fee for <strong>{visitDraft.clinicName}</strong> is{' '}
                   <strong>{formatConfiguredPrice(consultationFee) ?? 'Unpriced'}</strong>
@@ -267,7 +268,19 @@ export function OpdCheckInWorkspace({
                     : '. No hospital tariff is configured for this clinic. Do not collect KSh 0.'}
                 </p>
               ) : null}
-              <SelectField name="visitType" label="Visit type" required defaultValue={visitDraft.visitType}>
+              {['laboratory_only', 'radiology_only', 'diagnostic'].includes(visitDraft.visitType) ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                  Diagnostic-only visits do not add an OPD consultation charge. Laboratory or radiology
+                  charges follow the existing request/cashier path. The patient is not placed on the doctor queue.
+                </p>
+              ) : null}
+              <SelectField
+                name="visitType"
+                label="Visit type"
+                required
+                value={visitDraft.visitType}
+                onChange={(e) => setVisitDraft((current) => ({ ...current, visitType: e.target.value }))}
+              >
                 {(catalogData?.visitTypes ?? []).map((item: { value: string; label: string }) => (
                   <option key={item.value} value={item.value}>
                     {item.label}
@@ -335,9 +348,11 @@ export function OpdCheckInWorkspace({
                 {
                   icon: CalendarCheck,
                   label: 'Consultation fee',
-                  value: visitDraft.clinicName
-                    ? formatConfiguredPrice(consultationFee) ?? 'Unpriced'
-                    : '—',
+                  value: ['laboratory_only', 'radiology_only', 'diagnostic'].includes(visitDraft.visitType)
+                    ? 'Not charged for diagnostic-only visits'
+                    : visitDraft.clinicName
+                      ? formatConfiguredPrice(consultationFee) ?? 'Unpriced'
+                      : '—',
                 },
                 {
                   icon: User,

@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { assertIsolatedPostgresUrl } from '../common/isolated-database';
+import { assertDisposableLabTestUrl } from '../common/isolated-database';
 
 type PgQueryResult = { rowCount: number | null; rows: Record<string, unknown>[] };
 export type LabPgClient = {
@@ -24,9 +24,18 @@ export async function connectLabTestClient(): Promise<LabPgClient> {
   if (!LAB_TEST_DATABASE_URL) {
     throw new Error('LAB_TEST_DATABASE_URL is not set');
   }
-  assertIsolatedPostgresUrl(LAB_TEST_DATABASE_URL, 'LAB_TEST_DATABASE_URL');
+  assertDisposableLabTestUrl(LAB_TEST_DATABASE_URL);
   const client = new Client({ connectionString: LAB_TEST_DATABASE_URL });
   await client.connect();
+  const identity = await client.query('SELECT current_database() AS db, current_user AS usr');
+  const db = String(identity.rows[0]?.db ?? '');
+  const usr = String(identity.rows[0]?.usr ?? '');
+  if (db !== 'lab_it' || usr !== 'lab_it') {
+    await client.end();
+    throw new Error(
+      `Refusing session identity ${usr}@${db}. Disposable laboratory tests require lab_it/lab_it.`,
+    );
+  }
   return client;
 }
 

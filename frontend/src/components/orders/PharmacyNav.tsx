@@ -26,54 +26,32 @@ export type PharmacyScreen =
   | 'reports'
 
 const GROUPS: Array<{ label: string; items: Array<{ id: PharmacyScreen; label: string }> }> = [
-  { label: 'Control Center', items: [{ id: 'overview', label: 'Today' }] },
+  { label: 'Today', items: [{ id: 'overview', label: 'Dispensing dashboard' }] },
   {
-    label: 'Dispensing',
+    label: 'Queue',
     items: [
+      { id: 'dispense-pending', label: 'Pending prescriptions' },
       { id: 'dispense-opd', label: 'OPD' },
       { id: 'dispense-ipd', label: 'IPD' },
-      { id: 'dispense-pending', label: 'Pending requests' },
-      { id: 'dispense-partial', label: 'Partial dispensing' },
       { id: 'dispense-history', label: 'History' },
     ],
   },
   {
-    label: 'Sales',
+    label: 'Counter',
     items: [
-      { id: 'sales', label: 'Sales dashboard' },
-      { id: 'sales-unpaid', label: 'Unpaid sales' },
-      { id: 'sales-payments', label: 'Payments' },
-      { id: 'otc', label: 'OTC' },
+      { id: 'otc', label: 'OTC sales' },
+      { id: 'sales', label: 'Collections' },
+      { id: 'sales-unpaid', label: 'Outstanding' },
     ],
   },
   {
-    label: 'Stock',
+    label: 'On hand',
     items: [
-      { id: 'stock', label: 'Stock overview' },
-      { id: 'receive', label: 'Receive stock' },
-      { id: 'transfers', label: 'Transfers' },
-      { id: 'adjustments', label: 'Adjustments' },
-      { id: 'returns', label: 'Returns' },
-      { id: 'expiry', label: 'Batches & expiry' },
+      { id: 'stock', label: 'Stock' },
+      { id: 'expiry', label: 'Expiry' },
       { id: 'lowstock', label: 'Low stock' },
     ],
   },
-  {
-    label: 'Stock take',
-    items: [
-      { id: 'stocktake', label: 'New / import / review' },
-    ],
-  },
-  {
-    label: 'Products & prices',
-    items: [
-      { id: 'products', label: 'Products' },
-      { id: 'categories', label: 'Categories' },
-      { id: 'prices', label: 'Prices' },
-      { id: 'import', label: 'Import' },
-    ],
-  },
-  { label: 'Reports', items: [{ id: 'reports', label: 'Department export' }] },
 ]
 
 export function PharmacyNav({

@@ -26,6 +26,7 @@ type EmailStatus = {
   publicOriginUsesHttps: boolean
   lastAcceptedAt: string | null
   lastFailureReason: string | null
+  blockingReasons?: string[]
   recipientAllowlist: string[]
   allowUnrestrictedRecipients: boolean
   policies: {
@@ -140,6 +141,12 @@ export function EmailConfigPanel() {
           Recommended mailbox: {status?.recommendedHost}:{status?.recommendedPort} ({status?.recommendedTlsMode} TLS),
           username {status?.approvedSender}. Do not paste the mailbox password here.
         </p>
+        {status?.blockingReasons?.length ? (
+          <Alert tone="warning" className="mt-4">
+            <span className="font-semibold">Delivery is blocked. </span>
+            {status.blockingReasons.join(' · ')}
+          </Alert>
+        ) : null}
         {status?.lastFailureReason ? (
           <p className="mt-3 text-sm text-rose-700">{status.lastFailureReason}</p>
         ) : null}

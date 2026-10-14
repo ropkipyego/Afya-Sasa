@@ -37,7 +37,7 @@ export class Encounter extends SoftDeleteClinicalEntity {
   presentingComplaint!: string;
 
   @Column({ type: 'varchar',  name: 'visit_type', nullable: true })
-  visitType!: 'new' | 'follow_up' | 'referral' | null;
+  visitType!: 'new' | 'follow_up' | 'referral' | 'laboratory_only' | 'radiology_only' | 'diagnostic' | null;
 
   @Column({ type: 'varchar',  name: 'referral_source', nullable: true })
   referralSource!: string | null;

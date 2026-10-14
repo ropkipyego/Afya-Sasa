@@ -22,6 +22,9 @@ export function InventoryPricesPanel() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Record<string, { cost: string; markup: string; sell: string }>>({})
   const [query, setQuery] = useState('')
+  const [bulkMode, setBulkMode] = useState<'percent_markup' | 'add_amount' | 'set_sell'>('percent_markup')
+  const [bulkValue, setBulkValue] = useState('')
+  const [bulkReason, setBulkReason] = useState('')
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['inventory-items'],
@@ -39,6 +42,37 @@ export function InventoryPricesPanel() {
       await queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
     },
     onError: (error: Error) => notify('Could not save price', error.message, 'critical'),
+  })
+
+  const bulkPreview = useMutation({
+    mutationFn: () =>
+      apiRequest<{
+        ready: Array<{ sku: string; name: string; cost: number; currentSell: number; proposedSell: number }>
+        missingCost: unknown[]
+        count: number
+      }>('/inventory/pricing/bulk/preview', {
+        method: 'POST',
+        body: JSON.stringify({ mode: bulkMode, value: Number(bulkValue) }),
+      }),
+    onError: (error: Error) => notify('Bulk preview failed', error.message, 'critical'),
+  })
+
+  const bulkApply = useMutation({
+    mutationFn: () =>
+      apiRequest<{ applied: number }>('/inventory/pricing/bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: bulkMode,
+          value: Number(bulkValue),
+          reason: bulkReason,
+          confirm: true,
+        }),
+      }),
+    onSuccess: async (result) => {
+      notify('Prices updated', `${result.applied} selling prices saved. Invoices were not rewritten.`, 'success')
+      await queryClient.invalidateQueries({ queryKey: ['inventory-items'] })
+    },
+    onError: (error: Error) => notify('Bulk update failed', error.message, 'critical'),
   })
 
   const rows = useMemo(() => {
@@ -67,8 +101,50 @@ export function InventoryPricesPanel() {
     <Card className="p-6">
       <PageHeader
         title="Selling prices"
-        description="Change one product at a time. The hospital count sheet and drug template are under Stock take, not here."
+        description="Change one product at a time, or preview a bulk selling-price change. Historical invoices and acquisition cost in the ledger are not rewritten."
       />
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="text-sm">
+          Bulk mode
+          <select className="input mt-1" value={bulkMode} onChange={(e) => setBulkMode(e.target.value as typeof bulkMode)}>
+            <option value="percent_markup">Percent markup on cost</option>
+            <option value="add_amount">Add amount to selling price</option>
+            <option value="set_sell">Set selling price</option>
+          </select>
+        </label>
+        <Field
+          name="bulkValue"
+          label="Value"
+          value={bulkValue}
+          onChange={(e) => setBulkValue(e.target.value)}
+        />
+        <Field
+          name="bulkReason"
+          label="Reason"
+          value={bulkReason}
+          onChange={(e) => setBulkReason(e.target.value)}
+        />
+        <Button type="button" variant="secondary" loading={bulkPreview.isPending} onClick={() => bulkPreview.mutate()}>
+          Preview bulk
+        </Button>
+        <Button
+          type="button"
+          loading={bulkApply.isPending}
+          disabled={!bulkPreview.data}
+          onClick={() => {
+            if (window.confirm(`Apply ${bulkPreview.data?.count ?? 0} selling-price changes? Invoices will not change.`)) {
+              bulkApply.mutate()
+            }
+          }}
+        >
+          Apply previewed prices
+        </Button>
+      </div>
+      {bulkPreview.data ? (
+        <p className="mt-2 text-sm text-slate-600">
+          {bulkPreview.data.count} ready · {bulkPreview.data.missingCost.length} missing cost (excluded from percent markup)
+        </p>
+      ) : null}
       <input
         className="input mt-4 max-w-md"
         placeholder="Search product, SKU, or class…"

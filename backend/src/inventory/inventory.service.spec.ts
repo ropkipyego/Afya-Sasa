@@ -23,6 +23,22 @@ describe('isExpiredBatch', () => {
   });
 });
 
+describe('import session contract', () => {
+  it('refuses to post stock without a session id', async () => {
+    const instance = Object.create(InventoryService.prototype) as InventoryService;
+    await expect(
+      instance.importCatalog(
+        {
+          csv: 'name,counted_qty\nParacetamol,10',
+          importIntent: 'stock_take',
+          confirmStockTake: true,
+        } as never,
+        { user: { sub: 'u1' } } as never,
+      ),
+    ).rejects.toThrow(/sessionId is required/);
+  });
+});
+
 describe('pharmacy dispense confirmation', () => {
   it('does not deduct stock until confirm is true', async () => {
     const instance = Object.create(InventoryService.prototype) as InventoryService;
@@ -37,6 +53,17 @@ describe('pharmacy dispense confirmation', () => {
       (instance as unknown as { items: { manager: { transaction: jest.Mock } } }).items.manager
         .transaction,
     ).not.toHaveBeenCalled();
+  });
+});
+
+describe('stock-take import policy', () => {
+  it('maps counted and system quantity columns separately', () => {
+    const rows = parseInventoryCsv(
+      'item_id,sku,name,system_qty,counted_qty\nid-1,PARA,Paracetamol,10,8',
+    );
+    expect(rows[0].system_qty).toBe('10');
+    expect(rows[0].counted_qty).toBe('8');
+    expect(rows[0].opening_qty).toBeUndefined();
   });
 });
 

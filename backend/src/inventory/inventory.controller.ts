@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
@@ -9,6 +10,7 @@ import {
   DispenseOtcDto,
   DispensePharmacyDto,
   DispensePrescriptionDto,
+  BulkPricingDto,
   ImportInventoryCsvDto,
   ReceiveStockDto,
   UpdateItemPricingDto,
@@ -82,6 +84,43 @@ export class InventoryController {
     return this.inventoryService.importCatalog(dto, request);
   }
 
+  @Get('stock-sheet')
+  @RequirePermissions('inventory:read', 'pharmacy:read', 'inventory:manage')
+  async stockSheet(
+    @Query('locationId') locationId: string | undefined,
+    @Req() request: RequestContext,
+    @Res() response: Response,
+  ) {
+    const sheet = await this.inventoryService.exportStockSheetCsv(locationId, request);
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader('Content-Disposition', `attachment; filename="${sheet.filename}"`);
+    response.send(sheet.csv);
+  }
+
+  @Get('integrity')
+  @RequirePermissions('inventory:read', 'inventory:manage')
+  integrity(@Req() request: RequestContext) {
+    return this.inventoryService.integrityReport(request);
+  }
+
+  @Get('stock-takes')
+  @RequirePermissions('inventory:read', 'inventory:manage')
+  stockTakes() {
+    return this.inventoryService.listStockTakeHistory();
+  }
+
+  @Post('pricing/bulk/preview')
+  @RequirePermissions('inventory:manage')
+  previewBulkPricing(@Body() dto: BulkPricingDto, @Req() request: RequestContext) {
+    return this.inventoryService.previewBulkPricing(dto, request);
+  }
+
+  @Post('pricing/bulk')
+  @RequirePermissions('inventory:manage')
+  applyBulkPricing(@Body() dto: BulkPricingDto, @Req() request: RequestContext) {
+    return this.inventoryService.applyBulkPricing(dto, request);
+  }
+
   @Patch('items/:id/pricing')
   @RequirePermissions('inventory:manage')
   updatePricing(
@@ -114,6 +153,12 @@ export class InventoryController {
   @RequirePermissions('pharmacy:dispense', 'inventory:manage')
   dispensePrescription(@Body() dto: DispensePrescriptionDto, @Req() request: RequestContext) {
     return this.inventoryService.dispensePrescription(dto, request);
+  }
+
+  @Post('dispense/retry-billing/:orderId')
+  @RequirePermissions('pharmacy:dispense', 'payments:manage', 'inventory:manage')
+  retryDispenseBilling(@Param('orderId') orderId: string, @Req() request: RequestContext) {
+    return this.inventoryService.retryDispenseBilling(orderId, request);
   }
 
   @Post('dispense/otc')

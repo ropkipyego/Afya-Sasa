@@ -839,6 +839,24 @@ function DoctorQueue({
     refetchInterval: 20_000,
     enabled: Boolean(userId),
   })
+  const { data: todayAppointments = [] } = useQuery({
+    queryKey: ['doctor-appointments-today', userId],
+    queryFn: () =>
+      apiRequest<
+        Array<{
+          id: string
+          appointmentTime: string | null
+          status: string
+          reason?: string | null
+          patient: { firstName: string; lastName: string }
+          doctor?: { id: string } | null
+        }>
+      >('/opd/doctor/appointments/today'),
+    refetchInterval: 60_000,
+    enabled: Boolean(userId),
+    retry: false,
+  })
+  const myAppointments = todayAppointments.filter((row) => row.doctor?.id === userId)
 
   useEffect(() => {
     if (!selected) return
@@ -944,8 +962,20 @@ function DoctorQueue({
       <div className="space-y-2">
         <PageHeader
           title="Doctor queue"
-          description={`${queue.length} active · triaged, in consultation, awaiting results`}
+          description={`${queue.length} active visits · ${myAppointments.length} of your appointments today`}
         />
+        {myAppointments.length ? (
+          <Card className="space-y-1 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">My appointments today</p>
+            {myAppointments.slice(0, 8).map((row) => (
+              <p key={row.id} className="truncate text-xs text-slate-700">
+                {row.appointmentTime ?? '—'} · {row.patient.firstName} {row.patient.lastName} · {row.status}
+              </p>
+            ))}
+          </Card>
+        ) : (
+          <p className="text-xs text-slate-500">No appointments assigned to you today.</p>
+        )}
         <div className="max-h-[min(70vh,36rem)] space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100dvh-10rem)]">
           {queue.map((encounter) => (
             <button

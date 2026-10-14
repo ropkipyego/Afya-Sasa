@@ -21,10 +21,12 @@ export class CreateEncounterDto {
   @IsString()
   presentingComplaint?: string;
 
-  @ApiPropertyOptional({ enum: ['new', 'follow_up', 'referral'] })
+  @ApiPropertyOptional({
+    enum: ['new', 'follow_up', 'referral', 'laboratory_only', 'radiology_only', 'diagnostic'],
+  })
   @IsOptional()
-  @IsIn(['new', 'follow_up', 'referral'])
-  visitType?: 'new' | 'follow_up' | 'referral';
+  @IsIn(['new', 'follow_up', 'referral', 'laboratory_only', 'radiology_only', 'diagnostic'])
+  visitType?: 'new' | 'follow_up' | 'referral' | 'laboratory_only' | 'radiology_only' | 'diagnostic';
 
   @ApiPropertyOptional()
   @IsOptional()

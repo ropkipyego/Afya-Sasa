@@ -1,0 +1,21 @@
+-- Planned only. Do not apply to production from this programme.
+-- Stock-take currently posts through demo.inventory_transactions
+-- (transaction_type = STOCK_TAKE, reference_type = stock_take, reference_id = session UUID).
+-- First-class session tables would persist snapshots independently of the ledger.
+-- Apply only after hospital authorisation. TYPEORM_MIGRATIONS_RUN must stay false.
+
+-- CREATE TABLE IF NOT EXISTS demo.inventory_stock_takes (
+--   id uuid PRIMARY KEY,
+--   location_id uuid NOT NULL REFERENCES demo.inventory_locations(id),
+--   counted_at timestamptz NOT NULL,
+--   snapshot_at timestamptz NOT NULL,
+--   status varchar NOT NULL,
+--   session_no varchar NOT NULL,
+--   created_by uuid NULL,
+--   posted_by uuid NULL,
+--   posted_at timestamptz NULL,
+--   created_at timestamptz NOT NULL DEFAULT now()
+-- );
+
+-- Blood-bank units must NOT reuse inventory_batches as ordinary medicines.
+-- CREATE TABLE IF NOT EXISTS demo.blood_units ( ... unique donation/unit id, group, status, fridge ... );

@@ -156,6 +156,11 @@ export class DispenseOtcDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Client sale id. Repeated posts with the same id do not deduct stock twice.' })
+  @IsOptional()
+  @IsString()
+  saleId?: string;
 }
 
 export class CreateRequisitionLineDto {
@@ -202,11 +207,26 @@ export class ImportInventoryCsvDto {
   locationId?: string;
 
   @ApiPropertyOptional({
-    description: 'When true, opening quantities are received after product rows. Default is products and prices only.',
+    description:
+      'catalogue = products/prices only. receipt = goods receipt of listed qty. stock_take = adjust to counted qty. confirmStockTake without intent means stock_take, not a receipt.',
+    enum: ['catalogue', 'receipt', 'stock_take'],
+  })
+  @IsOptional()
+  @IsIn(['catalogue', 'receipt', 'stock_take'])
+  importIntent?: 'catalogue' | 'receipt' | 'stock_take';
+
+  @ApiPropertyOptional({
+    description:
+      'Required to post a stock_take or receipt import. Preview never writes. Catalogue imports do not move stock even when this is true.',
   })
   @IsOptional()
   @IsBoolean()
   confirmStockTake?: boolean;
+
+  @ApiPropertyOptional({ description: 'Client-generated id used to reject duplicate posts.' })
+  @IsOptional()
+  @IsString()
+  sessionId?: string;
 
   @ApiPropertyOptional({ description: 'Validate and classify rows without writing.' })
   @IsOptional()
@@ -241,6 +261,38 @@ export class UpdateItemPricingDto {
   @IsNumber()
   @Min(0)
   sell?: number;
+}
+
+export class BulkPricingDto {
+  @ApiProperty({ enum: ['percent_markup', 'add_amount', 'set_sell'] })
+  @IsIn(['percent_markup', 'add_amount', 'set_sell'])
+  mode!: 'percent_markup' | 'add_amount' | 'set_sell';
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  value!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  itemIds?: string[];
+
+  @ApiPropertyOptional({ enum: ['pharmaceutical', 'medical_consumable', 'non_medical'] })
+  @IsOptional()
+  @IsIn(['pharmaceutical', 'medical_consumable', 'non_medical'])
+  category?: 'pharmaceutical' | 'medical_consumable' | 'non_medical';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  confirm?: boolean;
 }
 
 export class CreateTransferDto {

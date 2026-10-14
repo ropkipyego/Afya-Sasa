@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThan, Repository } from 'typeorm';
+import { EntityManager, In, MoreThan, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { Encounter } from '../opd/opd.entities';
 import { LabRequest } from '../laboratory/laboratory.entities';
@@ -515,27 +515,41 @@ export class PaymentsService {
     return refund;
   }
 
-  async upsertPharmacyCharge(params: {
-    patientId: string;
-    encounterId: string | null;
-    admissionId?: string | null;
-    serviceEntityId: string;
-    description: string;
-    amountDelta: number;
-    orderNo?: string;
-    userId: string | null;
-  }) {
+  async upsertPharmacyCharge(
+    params: {
+      patientId: string;
+      encounterId: string | null;
+      admissionId?: string | null;
+      serviceEntityId: string;
+      description: string;
+      amountDelta: number;
+      orderNo?: string;
+      userId: string | null;
+      dispenseOpId?: string;
+    },
+    manager?: EntityManager,
+  ) {
     if (!chargesEnabled()) return null;
     if (!Number.isFinite(params.amountDelta) || params.amountDelta <= 0) return null;
 
-    const existing = await this.charges.findOne({
+    const charges = manager ? manager.getRepository(Charge) : this.charges;
+    const existing = await charges.findOne({
       where: {
         serviceLine: 'pharmacy',
         serviceEntityId: params.serviceEntityId,
         status: In(['owed', 'partially_paid', 'paid']),
       },
       relations: { patient: true, encounter: true },
+      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
+
+    const priorOps = Array.isArray(existing?.metadata?.dispenseOps)
+      ? (existing?.metadata?.dispenseOps as string[])
+      : [];
+    if (params.dispenseOpId && priorOps.includes(params.dispenseOpId)) {
+      return existing;
+    }
+    const dispenseOps = params.dispenseOpId ? [...priorOps, params.dispenseOpId] : priorOps;
 
     if (existing && existing.status !== 'cancelled' && existing.status !== 'waived') {
       existing.amountOwed = String(Number(existing.amountOwed) + params.amountDelta);
@@ -546,14 +560,15 @@ export class PaymentsService {
         admissionId: params.admissionId ?? existing.metadata?.admissionId ?? null,
         source: 'PHARMACY',
         kind: 'pharmacy_dispense',
+        dispenseOps,
       };
       existing.status = chargeRemaining(existing) <= 0 ? 'paid' : Number(existing.amountPaid) > 0 ? 'partially_paid' : 'owed';
       existing.updatedBy = params.userId;
-      return this.charges.save(existing);
+      return charges.save(existing);
     }
 
-    return this.charges.save(
-      this.charges.create({
+    return charges.save(
+      charges.create({
         patient: { id: params.patientId } as Patient,
         encounter: params.encounterId ? ({ id: params.encounterId } as Encounter) : null,
         serviceLine: 'pharmacy',
@@ -569,6 +584,7 @@ export class PaymentsService {
           kind: 'pharmacy_dispense',
           source: 'PHARMACY',
           admissionId: params.admissionId ?? null,
+          dispenseOps,
         },
         createdBy: params.userId,
         updatedBy: params.userId,

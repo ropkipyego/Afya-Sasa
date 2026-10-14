@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
 import { Alert, Button, Card, PageHeader, Select } from '../ui'
 import { apiRequest } from '../../lib/api'
+import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { readSpreadsheetAsCsv, SPREADSHEET_UPLOAD_ACCEPT } from '../../lib/spreadsheet-import'
 
@@ -16,6 +17,28 @@ type Preview = {
   duplicates: string[]
   errors: string[]
   unresolved?: string[]
+  intent?: string
+  totals?: {
+    matched: number
+    unresolved: number
+    positiveAdjustments: number
+    negativeAdjustments: number
+    unchanged: number
+    grossPositiveQty: number
+    grossNegativeQty: number
+    netQty: number
+    netValue: number
+  }
+  rows?: Array<{
+    line: number
+    sku: string
+    name: string
+    action: string
+    systemQty: number | null
+    countedQty: number | null
+    varianceQty: number | null
+    staleSnapshot: boolean
+  }>
 }
 
 const EXPECTED_COLUMNS = [
@@ -32,6 +55,9 @@ export function StockTakeWorkspace() {
   const [fileName, setFileName] = useState('')
   const [pendingCsv, setPendingCsv] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [sessionId] = useState(() =>
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `take-${Date.now()}`,
+  )
 
   const { data: locations = [] } = useQuery({
     queryKey: ['inventory-locations'],
@@ -47,7 +73,12 @@ export function StockTakeWorkspace() {
     mutationFn: (csv: string) =>
       apiRequest<Preview>('/inventory/items/import/preview', {
         method: 'POST',
-        body: JSON.stringify({ csv, locationId: locationId || undefined }),
+        body: JSON.stringify({
+          csv,
+          locationId: locationId || undefined,
+          importIntent: 'stock_take',
+          sessionId,
+        }),
       }),
     onSuccess: (summary, csv) => {
       setPendingCsv(csv)
@@ -86,6 +117,8 @@ export function StockTakeWorkspace() {
           locationId: locationId || undefined,
           confirmStockTake,
           updateExisting,
+          importIntent: confirmStockTake ? 'stock_take' : 'catalogue',
+          sessionId,
         }),
       }),
     onSuccess: async (summary) => {
@@ -123,8 +156,9 @@ export function StockTakeWorkspace() {
           )}
         </ol>
         <Alert tone="warning" className="mt-4">
-          There is no draft/approval session in the backend yet. Preview validates the sheet. Posting
-          with confirmation writes receipts for counted quantities. Do not post during an unsupervised count.
+          Download the current stock sheet, count physical stock, then import. Posting writes ledger
+          adjustments (counted minus system quantity). It does not receive counted quantity as new stock.
+          Catalogue-only import never moves stock. Valuation uses unit cost, not selling price.
         </Alert>
 
         <div className="mt-5 overflow-x-auto">
@@ -148,7 +182,7 @@ export function StockTakeWorkspace() {
 
         <div className="mt-5 flex flex-wrap items-end gap-3">
           <label className="text-sm">
-            <span className="font-medium text-slate-700">Receive counted qty into</span>
+            <span className="font-medium text-slate-700">Count location</span>
             <Select className="mt-1 min-w-[14rem]" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
               <option value="">Auto (pharmacy / main store)</option>
               {locations.map((loc) => (
@@ -168,7 +202,34 @@ export function StockTakeWorkspace() {
               link.click()
             }}
           >
-            Download sheet template
+            Download empty template
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={async () => {
+              const { accessToken, tenant } = useAuthStore.getState()
+              const query = locationId ? `?locationId=${encodeURIComponent(locationId)}` : ''
+              const response = await fetch(`/api/v1/inventory/stock-sheet${query}`, {
+                headers: {
+                  Authorization: accessToken ? `Bearer ${accessToken}` : '',
+                  'X-Tenant': tenant,
+                },
+                credentials: 'include',
+              })
+              if (!response.ok) {
+                notify('Could not download stock sheet', 'Check inventory access and try again.', 'critical')
+                return
+              }
+              const blob = await response.blob()
+              const link = document.createElement('a')
+              link.href = URL.createObjectURL(blob)
+              link.download = `current-stock-sheet.csv`
+              link.click()
+              URL.revokeObjectURL(link.href)
+            }}
+          >
+            Download current stock sheet
           </Button>
           <label className="inline-flex cursor-pointer items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             Import stock-take sheet
@@ -209,8 +270,11 @@ export function StockTakeWorkspace() {
             <Stat label="Exact matches" value={preview.updated} />
             <Stat label="New products" value={preview.created} />
             <Stat label="Existing left unchanged" value={preview.skippedExisting ?? 0} />
-            <Stat label="Counts held" value={preview.heldOpeningQty} />
+            <Stat label="Counts held until confirm" value={preview.heldOpeningQty} />
             <Stat label="Expired lots rejected" value={preview.rejectedExpiredQty} tone="rose" />
+            <Stat label="Positive variance qty" value={preview.totals?.grossPositiveQty ?? 0} />
+            <Stat label="Negative variance qty" value={preview.totals?.grossNegativeQty ?? 0} tone="rose" />
+            <Stat label="Net qty" value={preview.totals?.netQty ?? 0} />
           </div>
 
           {preview.duplicates.length ? (
@@ -261,14 +325,18 @@ export function StockTakeWorkspace() {
               onClick={() => {
                 if (
                   window.confirm(
-                    `Post this stock take? ${preview.heldOpeningQty} counted rows will become inventory receipts. Catalogue-only rows stay unposted. Existing batches are not rewritten unless those rows match.`,
+                    `Post this stock take as ledger adjustments (counted minus system quantity) for ${preview.heldOpeningQty} counted rows? Unresolved matches will not move stock. Repeat posts with the same session are rejected.`,
                   )
                 ) {
+                  if (!locationId) {
+                    notify('Choose a location', 'Stock-take posting needs a count location.', 'critical')
+                    return
+                  }
                   importCsv.mutate({ csv: pendingCsv, confirmStockTake: true })
                 }
               }}
             >
-              Confirm and post counted stock
+              Confirm and post adjustments
             </Button>
           </div>
         </Card>

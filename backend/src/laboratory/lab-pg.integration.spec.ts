@@ -23,6 +23,11 @@ describePg('laboratory PostgreSQL isolation (LAB_TEST_DATABASE_URL)', () => {
     await client?.end();
   });
 
+  it('identifies the disposable database, not a live service', async () => {
+    const identity = await client.query('SELECT current_database() AS db, current_user AS usr');
+    expect(identity.rows[0]).toEqual({ db: 'lab_it', usr: 'lab_it' });
+  });
+
   it('applies planned SQL, keeps existing rows, and rolls back', async () => {
     await resetIsolatedLabSchema(client);
     const ids = await seedSyntheticLabGraph(client);
@@ -295,10 +300,14 @@ describePg('laboratory PostgreSQL isolation (LAB_TEST_DATABASE_URL)', () => {
   });
 });
 
-if (!labPgConfigured()) {
-  describe('laboratory PostgreSQL isolation', () => {
-    it('is skipped until LAB_TEST_DATABASE_URL points at an isolated database', () => {
-      expect(labPgConfigured()).toBe(false);
+describe('laboratory PostgreSQL isolation availability', () => {
+  if (labPgConfigured()) {
+    it('is configured for isolated localhost use', () => {
+      expect(labPgConfigured()).toBe(true);
     });
+    return;
+  }
+  it('is skipped until LAB_TEST_DATABASE_URL points at an isolated database', () => {
+    expect(labPgConfigured()).toBe(false);
   });
-}
+});

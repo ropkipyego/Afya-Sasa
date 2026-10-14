@@ -271,7 +271,7 @@ describe('PatientsService.history', () => {
     });
 
     const result = await service.history('p1');
-    expect(result.message).toBeUndefined();
+    expect(result).not.toHaveProperty('message');
     expect(result.encounters).toHaveLength(1);
     expect(result.diagnoses[0].description).toBe('Malaria');
     expect(result.events[0].type).toBe('visit');

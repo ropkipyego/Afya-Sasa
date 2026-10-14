@@ -45,13 +45,19 @@ describe('PaymentsService M-Pesa callback idempotency', () => {
         claimed.delete(stage);
       }),
     });
+    const internals = instance as unknown as {
+      applyCompletedPayment: jest.Mock;
+      applyPaymentToCharge: jest.Mock;
+      enqueueQuickbooksOnce: jest.Mock;
+      claimFinalizationStage: jest.Mock;
+    };
     return {
       instance,
       execute,
-      applyCompletedPayment: instance.applyCompletedPayment as jest.Mock,
-      applyPaymentToCharge: instance.applyPaymentToCharge as jest.Mock,
-      enqueueQuickbooksOnce: instance.enqueueQuickbooksOnce as jest.Mock,
-      claimFinalizationStage: instance.claimFinalizationStage as jest.Mock,
+      applyCompletedPayment: internals.applyCompletedPayment,
+      applyPaymentToCharge: internals.applyPaymentToCharge,
+      enqueueQuickbooksOnce: internals.enqueueQuickbooksOnce,
+      claimFinalizationStage: internals.claimFinalizationStage,
       claimed,
     };
   }

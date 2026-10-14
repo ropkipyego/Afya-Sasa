@@ -75,6 +75,7 @@ type Tab =
   | 'transfers'
   | 'receive'
   | 'ledger'
+  | 'integrity'
 
 const statusClass: Record<Requisition['status'], string> = {
   submitted: 'bg-sky-100 text-sky-800',
@@ -112,6 +113,7 @@ export function InventoryModule() {
           { id: 'transfers', label: 'Transfers', icon: <ArrowRightLeft className="h-4 w-4" /> },
           { id: 'receive', label: 'Receive', icon: <PackagePlus className="h-4 w-4" /> },
           { id: 'ledger', label: 'Ledger', icon: <ClipboardList className="h-4 w-4" /> },
+          { id: 'integrity', label: 'Integrity', icon: <ClipboardCheck className="h-4 w-4" /> },
         ]}
       />
       {tab === 'overview' ? <InventoryOverview onOpen={setTab} /> : null}
@@ -131,6 +133,7 @@ export function InventoryModule() {
       {tab === 'transfers' ? <TransfersPanel /> : null}
       {tab === 'receive' ? <ReceiveStockPanel initialItemId={receiveItemId} /> : null}
       {tab === 'ledger' ? <LedgerPanel /> : null}
+      {tab === 'integrity' ? <IntegrityPanel /> : null}
     </div>
   )
 }
@@ -858,6 +861,76 @@ function ReceiveStockPanel({ initialItemId = '' }: { initialItemId?: string }) {
         >
           Post receipt
         </Button>
+      </div>
+    </Card>
+  )
+}
+
+function IntegrityPanel() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['inventory-integrity'],
+    queryFn: () =>
+      apiRequest<{
+        generatedAt: string
+        valuation: string
+        negativeStock: Array<{ sku: string; name: string; qty: number; location: string }>
+        missingBatchOrExpiry: Array<{ sku: string; name: string }>
+        movementsWithoutReference: number
+        balanceMismatch: Array<{ sku: string; name: string; stored: number; ledger: number; difference: number }>
+        duplicateSkus: string[]
+        repeatedAdjustments: Array<{ sku?: string; name?: string; adjustmentCount: number }>
+        didNotAutoRepair: boolean
+        dispensesAwaitingBilling?: Array<{ orderId: string; orderNo: string; billingStatus: string }>
+        legacyDispensesForReview?: Array<{ orderId: string; orderNo: string; billingStatus: string }>
+      }>('/inventory/integrity'),
+  })
+
+  if (isLoading) return <div className="h-40 animate-skeleton rounded-xl" />
+  if (error) return <Alert tone="error">Unable to load the integrity report.</Alert>
+  if (!data) return null
+
+  return (
+    <Card className="space-y-4 p-6">
+      <PageHeader
+        title="Stock discrepancy review"
+        description={`${data.valuation} This screen does not repair balances.`}
+      />
+      <p className="text-xs text-slate-500">Generated {data.generatedAt}</p>
+      <p className="text-sm">
+        Negative stock {data.negativeStock.length} · Ledger vs on-hand mismatch {data.balanceMismatch.length} ·
+        Movements without reference {data.movementsWithoutReference} · Duplicate SKUs {data.duplicateSkus.length}
+        {' '}
+        · Awaiting billing {data.dispensesAwaitingBilling?.length ?? 0} · Legacy dispenses for review{' '}
+        {data.legacyDispensesForReview?.length ?? 0}
+      </p>
+      {data.balanceMismatch.slice(0, 20).map((row) => (
+        <p key={row.sku} className="text-sm">
+          {row.name} ({row.sku}): stored {row.stored} vs ledger {row.ledger} (diff {row.difference})
+        </p>
+      ))}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <p className="text-xs font-semibold uppercase text-slate-500">Awaiting charge (retry billing)</p>
+          {(data.dispensesAwaitingBilling ?? []).slice(0, 15).map((row) => (
+            <p key={row.orderId} className="text-sm">
+              {row.orderNo} · {row.billingStatus}
+            </p>
+          ))}
+          {!(data.dispensesAwaitingBilling ?? []).length ? (
+            <p className="text-sm text-slate-500">None.</p>
+          ) : null}
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase text-slate-500">Legacy dispenses (review, do not auto-charge)</p>
+          {(data.legacyDispensesForReview ?? []).slice(0, 15).map((row) => (
+            <p key={row.orderId} className="text-sm">
+              {row.orderNo} · {row.billingStatus}
+            </p>
+          ))}
+          {!(data.legacyDispensesForReview ?? []).length ? (
+            <p className="text-sm text-slate-500">None.</p>
+          ) : null}
+        </div>
       </div>
     </Card>
   )

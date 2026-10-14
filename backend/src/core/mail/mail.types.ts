@@ -96,4 +96,5 @@ export type MailDiagnostics = {
   recommendedHost: 'mail.jalaram.co.ke';
   recommendedPort: 465;
   recommendedTlsMode: 'implicit';
+  blockingReasons: string[];
 };

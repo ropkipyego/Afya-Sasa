@@ -8,7 +8,7 @@ function actor(
 ): RequestContext {
   return {
     user: { sub: id, email: `${id}@test`, roles: [], permissions },
-  } as RequestContext;
+  } as unknown as RequestContext;
 }
 
 describe('MarketingService ownership and validation', () => {

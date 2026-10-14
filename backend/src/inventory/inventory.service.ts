@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, IsNull, MoreThan, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { ClinicalOrderMirrorService } from '../clinical-order/clinical-order-mirror.service';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
@@ -16,6 +16,7 @@ import { TenantSettings } from '../core/core.entities';
 import { PaymentsService } from '../payments/payments.service';
 import { lookupCatalogueTariff, readHospitalChargeCatalogue } from '../payments/hospital-charges';
 import {
+  BulkPricingDto,
   CreateInventoryItemDto,
   CreateRequisitionDto,
   CreateTransferDto,
@@ -26,6 +27,33 @@ import {
   ReceiveStockDto,
   UpdateItemPricingDto,
 } from './inventory.dto';
+import {
+  csvEscape,
+  ledgerNetQuantity,
+  proposedSellPrice,
+  resolveStockImportIntent,
+  roundQty,
+  stockVariance,
+  summarizeVariances,
+  varianceValue,
+} from './stock-integrity';
+import {
+  ADVISORY_LOCK_NAMESPACE,
+  IMPORT_RECEIPT_REFERENCE_TYPE,
+  MANUAL_RECEIPT_REFERENCE_TYPE,
+  STOCK_TAKE_REFERENCE_TYPE,
+  assertFreshSnapshot,
+  dispenseOperationId,
+  duplicateImportSessionMessage,
+  importLedgerReferenceType,
+  importSessionReferenceId,
+  otcSaleReferenceId,
+  isUndefinedFunction,
+  isUndefinedTable,
+  isUniqueViolation,
+  nextOnHand,
+  sortStockLockKeys,
+} from './stock-posting';
 import {
   InventoryBatch,
   InventoryItem,
@@ -42,6 +70,8 @@ import {
 @Injectable()
 export class InventoryService {
   private reorderColumnsReady: boolean | null = null;
+  /** Test-only failure injection. Never exposed on HTTP DTOs. */
+  failNextImportWrite?: 'catalogue' | 'adjust' | 'ledger' | 'charge';
 
   constructor(
     @InjectRepository(InventoryItem)
@@ -218,11 +248,24 @@ export class InventoryService {
   }
 
   async receiveStock(dto: ReceiveStockDto, request: RequestContext) {
-    const item = await this.items.findOne({ where: { id: dto.itemId, active: true } });
+    return this.items.manager.transaction((manager) => this.receiveStockIn(manager, dto, request));
+  }
+
+  private async receiveStockIn(
+    manager: EntityManager,
+    dto: ReceiveStockDto,
+    request: RequestContext,
+    importSessionKey?: string | null,
+  ) {
+    const items = manager.getRepository(InventoryItem);
+    const locations = manager.getRepository(InventoryLocation);
+    const batchesRepo = manager.getRepository(InventoryBatch);
+    const ledger = manager.getRepository(InventoryTransaction);
+    const item = await items.findOne({ where: { id: dto.itemId, active: true } });
     if (!item) {
       throw new NotFoundException('Item not found');
     }
-    const location = await this.locations.findOne({ where: { id: dto.locationId, active: true } });
+    const location = await locations.findOne({ where: { id: dto.locationId, active: true } });
     if (!location) {
       throw new NotFoundException('Location not found');
     }
@@ -242,58 +285,29 @@ export class InventoryService {
     }
 
     const qty = dto.quantity.toString();
-    let batch: InventoryBatch | null = null;
-
-    if (item.trackBatch) {
-      batch = await this.batches.findOne({
-        where: {
-          item: { id: item.id },
-          location: { id: location.id },
-          batchNo: dto.batchNo!.trim(),
-        },
-      });
-      if (batch) {
-        batch.qtyOnHand = (Number(batch.qtyOnHand) + dto.quantity).toString();
-        batch.updatedBy = request.user?.sub ?? null;
-        batch = await this.batches.save(batch);
-      } else {
-        batch = await this.batches.save(
-          this.batches.create({
-            item,
-            location,
-            batchNo: dto.batchNo!.trim(),
-            expiryDate: dto.expiryDate ?? null,
-            qtyOnHand: qty,
-            createdBy: request.user?.sub ?? null,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        );
-      }
+    const lot = item.trackBatch ? dto.batchNo!.trim() : null;
+    await this.lockItem(manager, item.id);
+    let batch = await this.lockMatchingBatch(manager, item.id, location.id, lot);
+    if (batch) {
+      batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), dto.quantity).toString();
+      batch.updatedBy = request.user?.sub ?? null;
+      batch = await batchesRepo.save(batch);
     } else {
-      batch = await this.batches.findOne({
-        where: { item: { id: item.id }, location: { id: location.id }, batchNo: IsNull() },
-      });
-      if (!batch) {
-        batch = await this.batches.save(
-          this.batches.create({
-            item,
-            location,
-            batchNo: null,
-            expiryDate: null,
-            qtyOnHand: qty,
-            createdBy: request.user?.sub ?? null,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        );
-      } else {
-        batch.qtyOnHand = (Number(batch.qtyOnHand) + dto.quantity).toString();
-        batch.updatedBy = request.user?.sub ?? null;
-        batch = await this.batches.save(batch);
-      }
+      batch = await batchesRepo.save(
+        batchesRepo.create({
+          item,
+          location,
+          batchNo: lot,
+          expiryDate: item.trackBatch ? (dto.expiryDate ?? null) : null,
+          qtyOnHand: qty,
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
     }
 
-    const transaction = await this.transactions.save(
-      this.transactions.create({
+    const transaction = await ledger.save(
+      ledger.create({
         item,
         batch,
         sourceLocation: null,
@@ -301,8 +315,8 @@ export class InventoryService {
         quantity: qty,
         unit: item.unit,
         transactionType: 'RECEIPT',
-        referenceType: 'receipt',
-        referenceId: batch.id,
+        referenceType: importSessionKey ? IMPORT_RECEIPT_REFERENCE_TYPE : MANUAL_RECEIPT_REFERENCE_TYPE,
+        referenceId: importSessionKey ? importSessionReferenceId(importSessionKey) : batch.id,
         reason: dto.reason?.trim() || null,
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
@@ -318,11 +332,13 @@ export class InventoryService {
     manager?: EntityManager,
   ) {
     if (!manager) {
-      const result = await this.items.manager.transaction((txn) =>
-        this.issuePharmacyLine(dto, request, txn),
-      );
-      await this.recordDispenseCharge(result.billing, request);
-      return result;
+      return this.items.manager.transaction(async (txn) => {
+        const result = await this.issuePharmacyLine(dto, request, txn);
+        await this.recordDispenseCharge(result.billing, request, txn, [
+          { orderId: result.orderId, quantity: result.quantity },
+        ]);
+        return result;
+      });
     }
     return this.issuePharmacyLine(dto, request, manager);
   }
@@ -364,16 +380,7 @@ export class InventoryService {
 
       const item = await this.resolvePharmacyItem(items, order, dto.itemId);
       const quantity = this.resolveDispenseQuantity(dto.quantity, order, remaining);
-      const batches = await batchesRepo.find({
-        where: {
-          item: { id: item.id },
-          location: { id: pharmacy.id },
-          qtyOnHand: MoreThan('0'),
-        },
-        relations: { item: true, location: true },
-        order: { expiryDate: 'ASC', createdAt: 'ASC' },
-        lock: { mode: 'pessimistic_write' },
-      });
+      const batches = await this.lockLocationBatches(manager, item.id, pharmacy.id);
 
       const usable = batches.filter((batch) => !isExpiredBatch(batch.expiryDate));
       const available = usable.reduce((sum, batch) => sum + Number(batch.qtyOnHand), 0);
@@ -385,7 +392,7 @@ export class InventoryService {
 
       const ledgerRows: InventoryTransaction[] = [];
       for (const { batch, quantity: take } of allocations) {
-        batch.qtyOnHand = (Number(batch.qtyOnHand) - take).toString();
+        batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), -take).toString();
         batch.updatedBy = request.user?.sub ?? null;
         await batchesRepo.save(batch);
         ledgerRows.push(
@@ -425,6 +432,7 @@ export class InventoryService {
         dispensedQuantity: nextDispensed,
         quantityDispensed: nextDispensed,
         dispensedAt: new Date().toISOString(),
+        billingStatus: 'awaiting_charge',
         allocations: [
           ...previousAllocations,
           ...allocations.map(({ batch, quantity: take }) => ({
@@ -478,12 +486,17 @@ export class InventoryService {
   }
 
   async dispenseOtcSale(dto: DispenseOtcDto, request: RequestContext) {
-    const pharmacy = await this.locations.findOne({ where: { code: 'PHARMACY', active: true } });
+    return this.items.manager.transaction(async (manager) => {
+    const locations = manager.getRepository(InventoryLocation);
+    const items = manager.getRepository(InventoryItem);
+    const batchesRepo = manager.getRepository(InventoryBatch);
+    const ledger = manager.getRepository(InventoryTransaction);
+    const pharmacy = await locations.findOne({ where: { code: 'PHARMACY', active: true } });
     if (!pharmacy) {
       throw new NotFoundException('Pharmacy location not configured');
     }
 
-    const item = await this.items.findOne({ where: { id: dto.itemId, active: true } });
+    const item = await items.findOne({ where: { id: dto.itemId, active: true } });
     if (!item) {
       throw new NotFoundException('Inventory item not found');
     }
@@ -491,15 +504,19 @@ export class InventoryService {
       throw new BadRequestException('OTC sales are limited to pharmaceutical items');
     }
 
-    const batches = await this.batches.find({
-      where: {
-        item: { id: item.id },
-        location: { id: pharmacy.id },
-        qtyOnHand: MoreThan('0'),
-      },
-      relations: { item: true, location: true },
-      order: { expiryDate: 'ASC', createdAt: 'ASC' },
-    });
+    const clientSaleId = dto.saleId?.trim() || '';
+    const saleRef = otcSaleReferenceId(clientSaleId || null);
+    await this.acquireImportAdvisoryLock(manager, `otc_sale:${saleRef}`);
+    if (clientSaleId) {
+      const duplicate = await ledger.findOne({
+        where: { referenceType: 'otc_sale', referenceId: saleRef },
+      });
+      if (duplicate) {
+        throw new BadRequestException('This OTC sale was already posted. Stock was not deducted again.');
+      }
+    }
+
+    const batches = await this.lockLocationBatches(manager, item.id, pharmacy.id);
 
     const usable = batches.filter((batch) => !isExpiredBatch(batch.expiryDate));
     const allocations = this.allocateFromBatches(
@@ -510,12 +527,12 @@ export class InventoryService {
     const ledgerRows: InventoryTransaction[] = [];
 
     for (const { batch, quantity } of allocations) {
-      batch.qtyOnHand = (Number(batch.qtyOnHand) - quantity).toString();
+      batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), -quantity).toString();
       batch.updatedBy = request.user?.sub ?? null;
-      await this.batches.save(batch);
+      await batchesRepo.save(batch);
       ledgerRows.push(
-        await this.transactions.save(
-          this.transactions.create({
+        await ledger.save(
+          ledger.create({
             item,
             batch,
             sourceLocation: pharmacy,
@@ -524,7 +541,7 @@ export class InventoryService {
             unit: item.unit,
             transactionType: 'DISPENSE',
             referenceType: 'otc_sale',
-            referenceId: dto.patientId ?? null,
+            referenceId: saleRef,
             reason: dto.notes?.trim() || 'OTC sale',
             createdBy: request.user?.sub ?? null,
             updatedBy: request.user?.sub ?? null,
@@ -533,16 +550,59 @@ export class InventoryService {
       );
     }
 
+    let billing: {
+      status: 'charged' | 'walk_in_unbilled' | 'not_required' | 'charges_disabled';
+      chargeId: string | null;
+    } = {
+      status: dto.patientId ? 'not_required' : 'walk_in_unbilled',
+      chargeId: null,
+    };
+    if (dto.patientId) {
+      const pricing = await this.readPricingMap(request);
+      const unitSell = Number(pricing[item.sku]?.sell ?? 0);
+      const suggested =
+        Number.isFinite(unitSell) && unitSell > 0
+          ? Math.round(unitSell * dto.quantity * 100) / 100
+          : null;
+      if (suggested && suggested > 0) {
+        if (this.failNextImportWrite === 'charge') {
+          this.failNextImportWrite = undefined;
+          throw new BadRequestException('Forced charge failure');
+        }
+        const opId = saleRef;
+        const charge = await this.payments.upsertPharmacyCharge(
+          {
+            patientId: dto.patientId,
+            encounterId: null,
+            serviceEntityId: opId,
+            description: `OTC ${item.name} × ${dto.quantity} ${item.unit}`,
+            amountDelta: suggested,
+            orderNo: `OTC-${opId.slice(0, 8)}`,
+            userId: request.user?.sub ?? null,
+            dispenseOpId: opId,
+          },
+          manager,
+        );
+        billing = {
+          status: charge ? 'charged' : 'charges_disabled',
+          chargeId: charge?.id ?? null,
+        };
+      }
+    }
+
     return {
       item,
       patientId: dto.patientId ?? null,
+      saleId: saleRef,
       allocations: allocations.map(({ batch, quantity }) => ({
         batchId: batch.id,
         batchNo: batch.batchNo,
         quantity,
       })),
       transactions: ledgerRows,
+      billing,
     };
+    });
   }
 
   listRequisitions(params?: { status?: InventoryRequisition['status'] }) {
@@ -644,80 +704,88 @@ export class InventoryService {
   }
 
   async issueRequisition(id: string, request: RequestContext) {
-    const requisition = await this.getRequisition(id);
-    if (requisition.status !== 'approved') {
-      throw new BadRequestException('Requisition must be approved before issue');
-    }
-    if (!requisition.destinationLocation) {
-      throw new BadRequestException('Requisition has no destination location');
-    }
-
-    const ledgerRows: InventoryTransaction[] = [];
-    for (const line of requisition.lines) {
-      if (line.status !== 'pending') continue;
-
-      const qty = Number(line.quantityRequested);
-      const batches = await this.batches.find({
-        where: {
-          item: { id: line.item.id },
-          location: { id: line.sourceLocation.id },
-          qtyOnHand: MoreThan('0'),
+    return this.items.manager.transaction(async (manager) => {
+      const requisitions = manager.getRepository(InventoryRequisition);
+      const requisition = await requisitions.findOne({
+        where: { id },
+        relations: {
+          destinationLocation: true,
+          lines: { item: true, sourceLocation: true },
         },
-        relations: { item: true, location: true },
-        order: { expiryDate: 'ASC', createdAt: 'ASC' },
+        lock: { mode: 'pessimistic_write' },
       });
-
-      const allocations = this.allocateFromBatches(batches, qty);
-      for (const { batch, quantity } of allocations) {
-        batch.qtyOnHand = (Number(batch.qtyOnHand) - quantity).toString();
-        batch.updatedBy = request.user?.sub ?? null;
-        await this.batches.save(batch);
-        ledgerRows.push(
-          await this.transactions.save(
-            this.transactions.create({
-              item: line.item,
-              batch,
-              sourceLocation: line.sourceLocation,
-              destinationLocation: requisition.destinationLocation,
-              quantity: (-quantity).toString(),
-              unit: line.item.unit,
-              transactionType: 'ISSUE',
-              referenceType: 'requisition',
-              referenceId: requisition.id,
-              reason: `Issue ${requisition.requisitionNo} to ${requisition.requestingDepartment}`,
-              createdBy: request.user?.sub ?? null,
-              updatedBy: request.user?.sub ?? null,
-            }),
-          ),
+      if (!requisition) throw new NotFoundException('Requisition not found');
+      if (requisition.status !== 'approved') {
+        throw new BadRequestException(
+          requisition.status === 'issued' || requisition.status === 'completed'
+            ? 'This requisition was already issued. Stock was not moved again.'
+            : 'Requisition must be approved before issue',
         );
-        const destCredit = await this.creditLocationBatch({
-          item: line.item,
-          sourceBatch: batch,
-          destinationLocation: requisition.destinationLocation,
-          quantity,
-          transactionType: 'RECEIPT',
-          referenceType: 'requisition',
-          referenceId: requisition.id,
-          reason: `Receive ${requisition.requisitionNo} at ${requisition.destinationLocation.name}`,
-          request,
-        });
-        ledgerRows.push(destCredit.transaction);
+      }
+      if (!requisition.destinationLocation) {
+        throw new BadRequestException('Requisition has no destination location');
       }
 
-      line.quantityIssued = qty.toString();
-      line.status = 'issued';
-      line.updatedBy = request.user?.sub ?? null;
-      await this.requisitionLines.save(line);
-    }
+      const itemIds = [...new Set(requisition.lines.map((line) => line.item.id))].sort();
+      for (const itemId of itemIds) await this.lockItem(manager, itemId);
 
-    requisition.status = 'issued';
-    requisition.updatedBy = request.user?.sub ?? null;
-    await this.requisitions.save(requisition);
-
-    return {
-      requisition: await this.getRequisition(id),
-      transactions: ledgerRows,
-    };
+      const ledger = manager.getRepository(InventoryTransaction);
+      const linesRepo = manager.getRepository(InventoryRequisitionLine);
+      const ledgerRows: InventoryTransaction[] = [];
+      for (const line of requisition.lines) {
+        if (line.status !== 'pending') continue;
+        const qty = Number(line.quantityRequested);
+        const batches = await this.lockLocationBatches(manager, line.item.id, line.sourceLocation.id);
+        const allocations = this.allocateFromBatches(batches, qty);
+        for (const { batch, quantity } of allocations) {
+          batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), -quantity).toString();
+          batch.updatedBy = request.user?.sub ?? null;
+          await manager.getRepository(InventoryBatch).save(batch);
+          ledgerRows.push(
+            await ledger.save(
+              ledger.create({
+                item: line.item,
+                batch,
+                sourceLocation: line.sourceLocation,
+                destinationLocation: requisition.destinationLocation,
+                quantity: (-quantity).toString(),
+                unit: line.item.unit,
+                transactionType: 'ISSUE',
+                referenceType: 'requisition',
+                referenceId: requisition.id,
+                reason: `Issue ${requisition.requisitionNo} to ${requisition.requestingDepartment}`,
+                createdBy: request.user?.sub ?? null,
+                updatedBy: request.user?.sub ?? null,
+              }),
+            ),
+          );
+          const destCredit = await this.creditLocationBatch({
+            manager,
+            item: line.item,
+            sourceBatch: batch,
+            destinationLocation: requisition.destinationLocation,
+            quantity,
+            transactionType: 'RECEIPT',
+            referenceType: 'requisition',
+            referenceId: requisition.id,
+            reason: `Receive ${requisition.requisitionNo} at ${requisition.destinationLocation.name}`,
+            request,
+          });
+          ledgerRows.push(destCredit.transaction);
+        }
+        line.quantityIssued = qty.toString();
+        line.status = 'issued';
+        line.updatedBy = request.user?.sub ?? null;
+        await linesRepo.save(line);
+      }
+      requisition.status = 'issued';
+      requisition.updatedBy = request.user?.sub ?? null;
+      await requisitions.save(requisition);
+      return {
+        requisition: await this.getRequisition(id),
+        transactions: ledgerRows,
+      };
+    });
   }
 
   async acknowledgeRequisition(id: string, request: RequestContext) {
@@ -802,155 +870,137 @@ export class InventoryService {
   }
 
   async shipTransfer(id: string, request: RequestContext) {
-    const transfer = await this.getTransfer(id);
-    if (transfer.status !== 'pending') {
-      throw new BadRequestException('Only pending transfers can be shipped');
-    }
-
-    for (const line of transfer.lines) {
-      const qty = Number(line.quantity);
-      const batches = await this.batches.find({
-        where: {
-          item: { id: line.item.id },
-          location: { id: transfer.sourceLocation.id },
-          qtyOnHand: MoreThan('0'),
+    return this.items.manager.transaction(async (manager) => {
+      const transfers = manager.getRepository(InventoryTransfer);
+      const transfer = await transfers.findOne({
+        where: { id },
+        relations: {
+          sourceLocation: true,
+          destinationLocation: true,
+          lines: { item: true, batch: true },
         },
-        relations: { item: true, location: true },
-        order: { expiryDate: 'ASC', createdAt: 'ASC' },
+        lock: { mode: 'pessimistic_write' },
       });
-      const allocations = this.allocateFromBatches(batches, qty);
-      for (const { batch, quantity } of allocations) {
-        batch.qtyOnHand = (Number(batch.qtyOnHand) - quantity).toString();
-        batch.updatedBy = request.user?.sub ?? null;
-        await this.batches.save(batch);
-        await this.transactions.save(
-          this.transactions.create({
-            item: line.item,
-            batch,
-            sourceLocation: transfer.sourceLocation,
-            destinationLocation: transfer.destinationLocation,
-            quantity: (-quantity).toString(),
-            unit: line.item.unit,
-            transactionType: 'TRANSFER_OUT',
-            referenceType: 'transfer',
-            referenceId: transfer.id,
-            reason: `Ship ${transfer.transferNo} to ${transfer.destinationLocation.name}`,
-            createdBy: request.user?.sub ?? null,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        );
+      if (!transfer) throw new NotFoundException('Transfer not found');
+      if (transfer.status !== 'pending') {
+        throw new BadRequestException('Only pending transfers can be shipped');
       }
-      line.status = 'shipped';
-      line.updatedBy = request.user?.sub ?? null;
-      await this.transferLines.save(line);
-    }
-
-    transfer.status = 'in_transit';
-    transfer.updatedBy = request.user?.sub ?? null;
-    await this.transfers.save(transfer);
-    return this.getTransfer(id);
+      const itemIds = [...new Set(transfer.lines.map((line) => line.item.id))].sort();
+      for (const itemId of itemIds) await this.lockItem(manager, itemId);
+      const ledger = manager.getRepository(InventoryTransaction);
+      const linesRepo = manager.getRepository(InventoryTransferLine);
+      for (const line of transfer.lines) {
+        const qty = Number(line.quantity);
+        const batches = await this.lockLocationBatches(
+          manager,
+          line.item.id,
+          transfer.sourceLocation.id,
+        );
+        const allocations = this.allocateFromBatches(batches, qty);
+        for (const { batch, quantity } of allocations) {
+          batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), -quantity).toString();
+          batch.updatedBy = request.user?.sub ?? null;
+          await manager.getRepository(InventoryBatch).save(batch);
+          await ledger.save(
+            ledger.create({
+              item: line.item,
+              batch,
+              sourceLocation: transfer.sourceLocation,
+              destinationLocation: transfer.destinationLocation,
+              quantity: (-quantity).toString(),
+              unit: line.item.unit,
+              transactionType: 'TRANSFER_OUT',
+              referenceType: 'transfer',
+              referenceId: transfer.id,
+              reason: `Ship ${transfer.transferNo} to ${transfer.destinationLocation.name}`,
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          );
+        }
+        line.status = 'shipped';
+        line.updatedBy = request.user?.sub ?? null;
+        await linesRepo.save(line);
+      }
+      transfer.status = 'in_transit';
+      transfer.updatedBy = request.user?.sub ?? null;
+      await transfers.save(transfer);
+      return this.getTransfer(id);
+    });
   }
 
   async receiveTransfer(id: string, request: RequestContext) {
-    const transfer = await this.getTransfer(id);
-    if (transfer.status !== 'in_transit') {
-      throw new BadRequestException('Transfer must be in transit before receive');
-    }
-
-    const outbound = await this.transactions.find({
-      where: {
-        referenceType: 'transfer',
-        referenceId: transfer.id,
-        transactionType: 'TRANSFER_OUT',
-      },
-      relations: { item: true, batch: true, sourceLocation: true, destinationLocation: true },
-    });
-
-    for (const txn of outbound) {
-      const qty = Math.abs(Number(txn.quantity));
-      const batch = txn.batch;
-      let destBatch: InventoryBatch | null = null;
-
-      if (batch?.batchNo) {
-        destBatch = await this.batches.findOne({
-          where: {
-            item: { id: txn.item.id },
-            location: { id: transfer.destinationLocation.id },
-            batchNo: batch.batchNo,
-          },
-        });
-        if (destBatch) {
-          destBatch.qtyOnHand = (Number(destBatch.qtyOnHand) + qty).toString();
-          destBatch.updatedBy = request.user?.sub ?? null;
-          destBatch = await this.batches.save(destBatch);
-        } else {
-          destBatch = await this.batches.save(
-            this.batches.create({
-              item: txn.item,
-              location: transfer.destinationLocation,
-              batchNo: batch.batchNo,
-              expiryDate: batch.expiryDate,
-              qtyOnHand: qty.toString(),
-              createdBy: request.user?.sub ?? null,
-              updatedBy: request.user?.sub ?? null,
-            }),
-          );
-        }
-      } else {
-        destBatch = await this.batches.findOne({
-          where: {
-            item: { id: txn.item.id },
-            location: { id: transfer.destinationLocation.id },
-            batchNo: IsNull(),
-          },
-        });
-        if (destBatch) {
-          destBatch.qtyOnHand = (Number(destBatch.qtyOnHand) + qty).toString();
-          destBatch.updatedBy = request.user?.sub ?? null;
-          destBatch = await this.batches.save(destBatch);
-        } else {
-          destBatch = await this.batches.save(
-            this.batches.create({
-              item: txn.item,
-              location: transfer.destinationLocation,
-              batchNo: null,
-              expiryDate: null,
-              qtyOnHand: qty.toString(),
-              createdBy: request.user?.sub ?? null,
-              updatedBy: request.user?.sub ?? null,
-            }),
-          );
-        }
+    return this.items.manager.transaction(async (manager) => {
+      const transfers = manager.getRepository(InventoryTransfer);
+      const transfer = await transfers.findOne({
+        where: { id },
+        relations: {
+          sourceLocation: true,
+          destinationLocation: true,
+          lines: { item: true },
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!transfer) throw new NotFoundException('Transfer not found');
+      if (transfer.status !== 'in_transit') {
+        throw new BadRequestException('Transfer must be in transit before receive');
       }
-
-      await this.transactions.save(
-        this.transactions.create({
+      const alreadyIn = await manager.getRepository(InventoryTransaction).find({
+        where: {
+          referenceType: 'transfer',
+          referenceId: transfer.id,
+          transactionType: 'TRANSFER_IN',
+        },
+      });
+      if (alreadyIn.length) {
+        throw new BadRequestException('This transfer was already received. Stock was not credited again.');
+      }
+      const outbound = await manager.getRepository(InventoryTransaction).find({
+        where: {
+          referenceType: 'transfer',
+          referenceId: transfer.id,
+          transactionType: 'TRANSFER_OUT',
+        },
+        relations: { item: true, batch: true, sourceLocation: true, destinationLocation: true },
+      });
+      const shipped = outbound.reduce((sum, row) => sum + Math.abs(Number(row.quantity)), 0);
+      if (!(shipped > 0)) {
+        throw new BadRequestException('No shipped quantity exists for this transfer.');
+      }
+      const itemIds = [...new Set(outbound.map((row) => row.item.id))].sort();
+      for (const itemId of itemIds) await this.lockItem(manager, itemId);
+      for (const txn of outbound) {
+        if (txn.sourceLocation?.id !== transfer.sourceLocation.id) {
+          throw new BadRequestException('Transfer source location does not match the shipped lots.');
+        }
+        if (txn.destinationLocation?.id && txn.destinationLocation.id !== transfer.destinationLocation.id) {
+          throw new BadRequestException('Transfer destination location does not match the shipped lots.');
+        }
+        const qty = Math.abs(Number(txn.quantity));
+        await this.creditLocationBatch({
+          manager,
           item: txn.item,
-          batch: destBatch,
-          sourceLocation: transfer.sourceLocation,
+          sourceBatch: txn.batch!,
           destinationLocation: transfer.destinationLocation,
-          quantity: qty.toString(),
-          unit: txn.unit,
+          quantity: qty,
           transactionType: 'TRANSFER_IN',
           referenceType: 'transfer',
           referenceId: transfer.id,
           reason: `Receive ${transfer.transferNo} at ${transfer.destinationLocation.name}`,
-          createdBy: request.user?.sub ?? null,
-          updatedBy: request.user?.sub ?? null,
-        }),
-      );
-    }
-
-    for (const line of transfer.lines) {
-      line.status = 'received';
-      line.updatedBy = request.user?.sub ?? null;
-      await this.transferLines.save(line);
-    }
-
-    transfer.status = 'completed';
-    transfer.updatedBy = request.user?.sub ?? null;
-    await this.transfers.save(transfer);
-    return this.getTransfer(id);
+          request,
+        });
+      }
+      const linesRepo = manager.getRepository(InventoryTransferLine);
+      for (const line of transfer.lines) {
+        line.status = 'received';
+        line.updatedBy = request.user?.sub ?? null;
+        await linesRepo.save(line);
+      }
+      transfer.status = 'completed';
+      transfer.updatedBy = request.user?.sub ?? null;
+      await transfers.save(transfer);
+      return this.getTransfer(id);
+    });
   }
 
   private async nextTransferNo() {
@@ -960,6 +1010,7 @@ export class InventoryService {
   }
 
   private async creditLocationBatch(params: {
+    manager: EntityManager;
     item: InventoryItem;
     sourceBatch: InventoryBatch;
     destinationLocation: InventoryLocation;
@@ -970,63 +1021,35 @@ export class InventoryService {
     reason: string;
     request: RequestContext;
   }) {
-    const { item, sourceBatch, destinationLocation, quantity, request } = params;
-    let destBatch: InventoryBatch | null = null;
-
-    if (sourceBatch.batchNo) {
-      destBatch = await this.batches.findOne({
-        where: {
-          item: { id: item.id },
-          location: { id: destinationLocation.id },
-          batchNo: sourceBatch.batchNo,
-        },
-      });
-      if (destBatch) {
-        destBatch.qtyOnHand = (Number(destBatch.qtyOnHand) + quantity).toString();
-        destBatch.updatedBy = request.user?.sub ?? null;
-        destBatch = await this.batches.save(destBatch);
-      } else {
-        destBatch = await this.batches.save(
-          this.batches.create({
-            item,
-            location: destinationLocation,
-            batchNo: sourceBatch.batchNo,
-            expiryDate: sourceBatch.expiryDate,
-            qtyOnHand: quantity.toString(),
-            createdBy: request.user?.sub ?? null,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        );
-      }
+    const { item, sourceBatch, destinationLocation, quantity, request, manager } = params;
+    const batches = manager.getRepository(InventoryBatch);
+    const ledger = manager.getRepository(InventoryTransaction);
+    await this.lockItem(manager, item.id);
+    let destBatch = await this.lockMatchingBatch(
+      manager,
+      item.id,
+      destinationLocation.id,
+      sourceBatch.batchNo ?? null,
+    );
+    if (destBatch) {
+      destBatch.qtyOnHand = nextOnHand(Number(destBatch.qtyOnHand), quantity).toString();
+      destBatch.updatedBy = request.user?.sub ?? null;
+      destBatch = await batches.save(destBatch);
     } else {
-      destBatch = await this.batches.findOne({
-        where: {
-          item: { id: item.id },
-          location: { id: destinationLocation.id },
-          batchNo: IsNull(),
-        },
-      });
-      if (destBatch) {
-        destBatch.qtyOnHand = (Number(destBatch.qtyOnHand) + quantity).toString();
-        destBatch.updatedBy = request.user?.sub ?? null;
-        destBatch = await this.batches.save(destBatch);
-      } else {
-        destBatch = await this.batches.save(
-          this.batches.create({
-            item,
-            location: destinationLocation,
-            batchNo: null,
-            expiryDate: null,
-            qtyOnHand: quantity.toString(),
-            createdBy: request.user?.sub ?? null,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        );
-      }
+      destBatch = await batches.save(
+        batches.create({
+          item,
+          location: destinationLocation,
+          batchNo: sourceBatch.batchNo ?? null,
+          expiryDate: sourceBatch.batchNo ? sourceBatch.expiryDate : null,
+          qtyOnHand: quantity.toString(),
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
     }
-
-    const transaction = await this.transactions.save(
-      this.transactions.create({
+    const transaction = await ledger.save(
+      ledger.create({
         item,
         batch: destBatch,
         sourceLocation: sourceBatch.location,
@@ -1041,7 +1064,6 @@ export class InventoryService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-
     return { batch: destBatch, transaction };
   }
 
@@ -1092,46 +1114,84 @@ export class InventoryService {
       throw new BadRequestException('Select at least one medication line to dispense.');
     }
     return this.items.manager.transaction(async (manager) => {
-    const results = [];
-    for (const line of dto.lines) {
-      if (line.rejected) continue;
-      results.push(
-        await this.dispensePharmacyOrder(
-          {
-            clinicalOrderId: line.clinicalOrderId,
-            itemId: line.itemId,
-            quantity: line.quantity,
-          },
-          request,
-          manager,
-        ),
+      const results = [];
+      for (const line of dto.lines) {
+        if (line.rejected) continue;
+        results.push(
+          await this.dispensePharmacyOrder(
+            {
+              clinicalOrderId: line.clinicalOrderId,
+              itemId: line.itemId,
+              quantity: line.quantity,
+            },
+            request,
+            manager,
+          ),
+        );
+      }
+      if (!results.length) {
+        throw new BadRequestException('No lines were dispensed.');
+      }
+      const suggestedAmount = results.reduce(
+        (sum, row) => sum + (row.billing.suggestedAmount ?? 0),
+        0,
       );
-    }
-    if (!results.length) {
-      throw new BadRequestException('No lines were dispensed.');
-    }
-    const suggestedAmount = results.reduce(
-      (sum, row) => sum + (row.billing.suggestedAmount ?? 0),
-      0,
-    );
-    const billing = {
-      serviceLine: 'pharmacy' as const,
-      serviceEntityId: dto.prescriptionGroupId ?? results[0].billing.serviceEntityId,
-      patientId: results[0].billing.patientId,
-      encounterId: results[0].billing.encounterId,
-      admissionId: results[0].billing.admissionId ?? null,
-      description: results.map((row) => row.billing.description).join(' · '),
-      suggestedAmount: suggestedAmount > 0 ? Math.round(suggestedAmount * 100) / 100 : null,
-      orderNo: results[0].orderNo,
-    };
-    return {
-      prescriptionGroupId: billing.serviceEntityId,
-      lines: results,
-      billing,
-    };
-    }).then(async (result) => {
-      await this.recordDispenseCharge(result.billing, request);
-      return result;
+      const billing = {
+        serviceLine: 'pharmacy' as const,
+        serviceEntityId: dto.prescriptionGroupId ?? results[0].billing.serviceEntityId,
+        patientId: results[0].billing.patientId,
+        encounterId: results[0].billing.encounterId,
+        admissionId: results[0].billing.admissionId ?? null,
+        description: results.map((row) => row.billing.description).join(' · '),
+        suggestedAmount: suggestedAmount > 0 ? Math.round(suggestedAmount * 100) / 100 : null,
+        orderNo: results[0].orderNo,
+      };
+      await this.recordDispenseCharge(
+        billing,
+        request,
+        manager,
+        results.map((row) => ({ orderId: row.orderId, quantity: row.quantity })),
+      );
+      if (this.failNextImportWrite === 'charge') {
+        this.failNextImportWrite = undefined;
+        throw new BadRequestException('Forced charge failure');
+      }
+      return {
+        prescriptionGroupId: billing.serviceEntityId,
+        lines: results,
+        billing,
+      };
+    });
+  }
+
+  async retryDispenseBilling(orderId: string, request: RequestContext) {
+    return this.items.manager.transaction(async (manager) => {
+      const orders = manager.getRepository(ClinicalOrder);
+      const order = await orders.findOne({
+        where: { id: orderId, orderType: 'pharmacy' },
+        relations: { patient: true, encounter: true, admission: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) throw new NotFoundException('Pharmacy order not found');
+      if (order.status !== 'dispensed' && order.status !== 'partially_dispensed') {
+        throw new BadRequestException('Stock has not been dispensed for this order.');
+      }
+      const quantity = dispensedQuantity(order);
+      await this.recordDispenseCharge(
+        {
+          patientId: order.patient.id,
+          encounterId: order.encounter?.id ?? null,
+          admissionId: order.admission?.id ?? null,
+          serviceEntityId: prescriptionGroupId(order),
+          description: String(order.metadata?.dispensedItemName ?? order.orderNo),
+          suggestedAmount: Number(order.metadata?.suggestedAmount ?? 0) || null,
+          orderNo: order.orderNo,
+        },
+        request,
+        manager,
+        [{ orderId: order.id, quantity }],
+      );
+      return { orderId: order.id, retried: true, stockDeducted: false };
     });
   }
 
@@ -1146,17 +1206,42 @@ export class InventoryService {
       orderNo?: string;
     },
     request: RequestContext,
+    manager: EntityManager,
+    lines: Array<{ orderId: string; quantity: number }>,
   ) {
-    if (billing.suggestedAmount == null || billing.suggestedAmount <= 0) return;
-    await this.payments.upsertPharmacyCharge({
-      patientId: billing.patientId,
-      encounterId: billing.encounterId,
-      admissionId: billing.admissionId ?? null,
-      serviceEntityId: billing.serviceEntityId,
-      description: billing.description,
-      amountDelta: billing.suggestedAmount,
-      orderNo: billing.orderNo,
-      userId: request.user?.sub ?? null,
+    const orders = manager.getRepository(ClinicalOrder);
+    const mark = async (status: string, extra?: Record<string, unknown>) => {
+      for (const line of lines) {
+        const order = await orders.findOne({ where: { id: line.orderId } });
+        if (!order) continue;
+        order.metadata = { ...(order.metadata ?? {}), billingStatus: status, ...extra };
+        order.updatedBy = request.user?.sub ?? null;
+        await orders.save(order);
+      }
+    };
+    if (billing.suggestedAmount == null || billing.suggestedAmount <= 0) {
+      await mark('not_required');
+      return;
+    }
+    const opId = dispenseOperationId({ serviceEntityId: billing.serviceEntityId, lines });
+    const charge = await this.payments.upsertPharmacyCharge(
+      {
+        patientId: billing.patientId,
+        encounterId: billing.encounterId,
+        admissionId: billing.admissionId ?? null,
+        serviceEntityId: billing.serviceEntityId,
+        description: billing.description,
+        amountDelta: billing.suggestedAmount,
+        orderNo: billing.orderNo,
+        userId: request.user?.sub ?? null,
+        dispenseOpId: opId,
+      },
+      manager,
+    );
+    await mark(charge ? 'charged' : 'charges_disabled', {
+      chargeId: charge?.id ?? null,
+      dispenseOpId: opId,
+      suggestedAmount: billing.suggestedAmount,
     });
   }
 
@@ -1260,11 +1345,19 @@ export class InventoryService {
       throw new BadRequestException('CSV is empty or missing a header row.');
     }
     const previewOnly = Boolean(dto.previewOnly);
-    const receiveOpening = Boolean(dto.confirmStockTake) && !previewOnly;
+    const intent = resolveStockImportIntent(dto);
+    const applyStock = Boolean(dto.confirmStockTake) && !previewOnly && intent !== 'catalogue';
     const updateExisting = Boolean(dto.updateExisting);
+    const sessionId = dto.sessionId?.trim() || null;
+    if (applyStock && !sessionId) {
+      throw new BadRequestException('A sessionId is required before posting a stock-take or receipt import.');
+    }
     const summary = {
       preview: previewOnly,
-      stockTakeApplied: receiveOpening,
+      intent,
+      sessionId,
+      stockTakeApplied: applyStock && intent === 'stock_take',
+      receiptApplied: applyStock && intent === 'receipt',
       updateExisting,
       created: 0,
       updated: 0,
@@ -1281,9 +1374,30 @@ export class InventoryService {
         sku: string;
         name: string;
         match: string;
+        action: string;
+        status: 'validated' | 'applied' | 'rejected' | 'failed';
         existingSku?: string;
         existingName?: string;
+        systemQty: number | null;
+        countedQty: number | null;
+        varianceQty: number | null;
+        varianceValue: number | null;
+        staleSnapshot: boolean;
       }>,
+      totals: {
+        itemsCounted: 0,
+        matched: 0,
+        unresolved: 0,
+        positiveAdjustments: 0,
+        negativeAdjustments: 0,
+        unchanged: 0,
+        grossPositiveQty: 0,
+        grossNegativeQty: 0,
+        netQty: 0,
+        grossPositiveValue: 0,
+        grossNegativeValue: 0,
+        netValue: 0,
+      },
     };
     const defaultLocation = dto.locationId
       ? await this.locations.findOne({ where: { id: dto.locationId, active: true } })
@@ -1291,7 +1405,40 @@ export class InventoryService {
     if (dto.locationId && !defaultLocation) {
       throw new BadRequestException('Receive location was not found.');
     }
+    if (!previewOnly && applyStock && !defaultLocation) {
+      throw new BadRequestException('Choose a location before posting stock or a stock-take.');
+    }
 
+    type PendingMove = {
+      intent: 'receipt' | 'stock_take';
+      sku: string;
+      locationId: string;
+      quantity: number;
+      snapshotQty: number | null;
+      batchNo: string | null;
+      expiryDate: string | null;
+      line: number;
+      matchId?: string;
+      create?: {
+        sku: string;
+        name: string;
+        category: InventoryCategory;
+        drugClass: string;
+        unit: string;
+        trackBatch: boolean;
+      };
+      updateExisting?: {
+        id: string;
+        name: string;
+        category: InventoryCategory;
+        drugClass: string;
+        unit: string;
+        trackBatch?: boolean;
+      };
+      price?: ItemPrice;
+    };
+    const pendingMoves: PendingMove[] = [];
+    const pendingCatalogue: PendingMove[] = [];
     const seenSku = new Set<string>();
     const seenIdentity = new Set<string>();
     const catalogue = await this.items.find({ select: { id: true, sku: true, name: true } });
@@ -1322,13 +1469,15 @@ export class InventoryService {
         seenIdentity.add(identity);
       }
 
-      const qty = Number(row.opening_qty ?? row.quantity ?? '');
+      const countedRaw = row.counted_qty ?? row.physical_qty ?? row.opening_qty ?? row.quantity ?? '';
+      const qty = countedRaw === '' ? NaN : Number(countedRaw);
+      const snapshotQty = row.system_qty === '' || row.system_qty == null ? null : Number(row.system_qty);
       const expiry = row.expiry || row.expiry_date || '';
       if (Number.isFinite(qty) && qty > 0) {
         if (expiry && isExpiredBatch(expiry)) {
           summary.rejectedExpiredQty += 1;
           summary.errors.push(`Line ${line}: expired opening stock for ${sku} was not received.`);
-        } else if (!receiveOpening) {
+        } else if (!applyStock) {
           summary.heldOpeningQty += 1;
         }
       }
@@ -1350,14 +1499,71 @@ export class InventoryService {
           `Line ${line}: ${name} likely matches ${classified.existingSku} (${classified.existingName}). Not applied.`,
         );
       }
+      const action =
+        classified.match === 'likely_name'
+          ? 'hold_unresolved'
+          : classified.match === 'new'
+            ? 'create_product'
+            : intent === 'catalogue'
+              ? 'update_or_skip_product'
+              : intent === 'receipt'
+                ? 'receipt'
+                : 'adjust';
+      const rejected =
+        classified.match === 'likely_name' ||
+        (Number.isFinite(qty) && qty > 0 && expiry && isExpiredBatch(expiry));
       summary.rows.push({
         line,
         sku,
         name,
         match: classified.match,
+        action,
+        status: rejected ? 'rejected' : 'validated',
         existingSku: classified.existingSku,
         existingName: classified.existingName,
+        systemQty: null,
+        countedQty: Number.isFinite(qty) ? qty : null,
+        varianceQty: null,
+        varianceValue: null,
+        staleSnapshot: false,
       });
+      const previewRow = summary.rows[summary.rows.length - 1];
+
+      const matchId =
+        existingBySku?.id ??
+        (classified.match === 'exact_name' || classified.match === 'exact_sku' ? existingByName?.id : undefined);
+      if (matchId && defaultLocation && Number.isFinite(qty)) {
+        const systemQty = await this.quantityOnHand(matchId, defaultLocation.id, row.batch_no?.trim() || null);
+        previewRow.systemQty = systemQty;
+        previewRow.varianceQty = stockVariance(qty, systemQty);
+        const unitCost = (await this.readPricingMap(request))[sku]?.cost ?? 0;
+        previewRow.varianceValue = varianceValue(previewRow.varianceQty, unitCost);
+        if (snapshotQty != null && Number.isFinite(snapshotQty) && snapshotQty !== systemQty) {
+          previewRow.staleSnapshot = true;
+          previewRow.status = 'rejected';
+          summary.errors.push(
+            `Line ${line}: system quantity changed (${snapshotQty} → ${systemQty}) since the sheet was downloaded. Recount before posting.`,
+          );
+        }
+      }
+
+      const cost = Number(row.cost ?? row.cost_price ?? '');
+      const sell = Number(row.sell ?? row.selling_price ?? row.rate ?? '');
+      const markup = Number(row.markup ?? row.markup_percent ?? '');
+      let price: ItemPrice | undefined;
+      if ([cost, sell, markup].some((value) => Number.isFinite(value) && value !== 0) || row.sell === '0') {
+        if ([cost, sell, markup].some((value) => Number.isFinite(value) && value < 0)) {
+          previewRow.status = 'rejected';
+          summary.errors.push(`Line ${line}: prices cannot be negative.`);
+        } else {
+          price = resolvePrice({
+            cost: Number.isFinite(cost) ? cost : 0,
+            markup: Number.isFinite(markup) ? markup : 0,
+            sell: Number.isFinite(sell) ? sell : 0,
+            preferSell: Number.isFinite(sell) && sell > 0,
+          });
+        }
+      }
 
       if (previewOnly) {
         if (classified.match === 'new') summary.created += 1;
@@ -1366,103 +1572,700 @@ export class InventoryService {
         continue;
       }
 
-      try {
-        let item = existingBySku ? await this.items.findOne({ where: { id: existingBySku.id } }) : null;
-        if (!item && existingByName && classified.match === 'exact_name') {
-          item = await this.items.findOne({ where: { id: existingByName.id } });
+      if (classified.match === 'likely_name') {
+        summary.skippedExisting += 1;
+        continue;
+      }
+
+      const location =
+        defaultLocation ??
+        (await this.locations.findOne({
+          where: {
+            code: category === 'pharmaceutical' ? 'PHARMACY' : 'MAIN_STORE',
+            active: true,
+          },
+        }));
+      const work: PendingMove = {
+        intent: intent === 'stock_take' ? 'stock_take' : 'receipt',
+        sku,
+        locationId: location?.id ?? '',
+        quantity: qty,
+        snapshotQty: Number.isFinite(snapshotQty as number) ? snapshotQty : previewRow.systemQty,
+        batchNo: row.batch_no?.trim() || null,
+        expiryDate: expiry || null,
+        line,
+        matchId,
+        price,
+      };
+      if (!matchId) {
+        work.create = {
+          sku,
+          name,
+          category,
+          drugClass,
+          unit,
+          trackBatch: parseBool(row.track_batch) ?? category === 'pharmaceutical',
+        };
+      } else if (updateExisting) {
+        work.updateExisting = {
+          id: matchId,
+          name,
+          category,
+          drugClass,
+          unit: (row.unit ?? unit).trim() || unit,
+          trackBatch: row.track_batch != null && row.track_batch !== '' ? parseBool(row.track_batch) : undefined,
+        };
+      }
+      pendingCatalogue.push(work);
+      if (
+        applyStock &&
+        Number.isFinite(qty) &&
+        qty >= 0 &&
+        !(expiry && isExpiredBatch(expiry)) &&
+        location &&
+        !previewRow.staleSnapshot
+      ) {
+        if (intent === 'stock_take' && (parseBool(row.track_batch) ?? category === 'pharmaceutical') && !work.batchNo) {
+          previewRow.status = 'rejected';
+          summary.errors.push(
+            `Line ${line}: stock-take for a batch-tracked item must include batch_no so variance is per lot.`,
+          );
+        } else {
+          pendingMoves.push(work);
         }
-        let allowCatalogueWrite = false;
-        if (!item) {
-          if (classified.match === 'likely_name') {
-            summary.skippedExisting += 1;
-            continue;
+      } else if (applyStock && Number.isFinite(qty) && qty >= 0 && !location) {
+        previewRow.status = 'rejected';
+        summary.errors.push(`Line ${line}: no location for quantity.`);
+      }
+    }
+
+    summary.totals = summarizeVariances(
+      summary.rows.map((row) => ({
+        varianceQty: row.varianceQty ?? 0,
+        varianceValue: row.varianceValue ?? 0,
+        unresolved: row.match === 'likely_name',
+      })),
+    );
+
+    if (previewOnly) {
+      return summary;
+    }
+
+    if (applyStock && intent === 'stock_take' && summary.errors.length) {
+      throw new BadRequestException(
+        `Stock-take was not posted: ${summary.errors.length} row(s) need review. ${summary.errors[0]}`,
+      );
+    }
+
+    await this.items.manager.transaction(async (manager) => {
+      const itemIds = new Map<string, string>();
+      for (const work of pendingCatalogue) {
+        const items = manager.getRepository(InventoryItem);
+        let item: InventoryItem | null = work.matchId
+          ? await items.findOne({ where: { id: work.matchId } })
+          : null;
+        if (!item && work.create) {
+          if (this.failNextImportWrite === 'catalogue') {
+            this.failNextImportWrite = undefined;
+            throw new BadRequestException('Forced catalogue write failure');
           }
-          allowCatalogueWrite = true;
-          item = await this.items.save(
-            this.items.create({
-              sku,
-              name,
-              category,
-              drugClass,
-              unit,
-              trackBatch: parseBool(row.track_batch) ?? category === 'pharmaceutical',
+          item = await items.save(
+            items.create({
+              ...work.create,
               active: true,
               createdBy: request.user?.sub ?? null,
               updatedBy: request.user?.sub ?? null,
             }),
           );
           summary.created += 1;
-          bySku.set(sku, { id: item.id, sku: item.sku, name: item.name });
-          byName.set(normalizeProductName(item.name), { id: item.id, sku: item.sku, name: item.name });
-        } else if (updateExisting) {
-          allowCatalogueWrite = true;
-          item.name = name;
-          item.category = category;
-          item.drugClass = drugClass;
-          item.unit = (row.unit ?? item.unit).trim() || item.unit;
-          if (row.track_batch != null && row.track_batch !== '') {
-            item.trackBatch = parseBool(row.track_batch) ?? item.trackBatch;
-          }
+        } else if (item && work.updateExisting) {
+          item.name = work.updateExisting.name;
+          item.category = work.updateExisting.category;
+          item.drugClass = work.updateExisting.drugClass;
+          item.unit = work.updateExisting.unit;
+          if (work.updateExisting.trackBatch != null) item.trackBatch = work.updateExisting.trackBatch;
           item.updatedBy = request.user?.sub ?? null;
-          item = await this.items.save(item);
+          item = await items.save(item);
           summary.updated += 1;
-        } else {
+        } else if (item) {
           summary.skippedExisting += 1;
         }
-
-        const cost = Number(row.cost ?? row.cost_price ?? '');
-        const sell = Number(row.sell ?? row.selling_price ?? row.rate ?? '');
-        const markup = Number(row.markup ?? row.markup_percent ?? '');
-        if (
-          allowCatalogueWrite &&
-          ([cost, sell, markup].some((value) => Number.isFinite(value) && value !== 0) || row.sell === '0')
-        ) {
-          if ([cost, sell, markup].some((value) => Number.isFinite(value) && value < 0)) {
-            summary.errors.push(`Line ${line}: prices cannot be negative.`);
-            continue;
-          }
-          const price = resolvePrice({
-            cost: Number.isFinite(cost) ? cost : 0,
-            markup: Number.isFinite(markup) ? markup : 0,
-            sell: Number.isFinite(sell) ? sell : 0,
-            preferSell: Number.isFinite(sell) && sell > 0,
-          });
-          await this.writePricing(item.sku, price, request);
+        if (!item) continue;
+        itemIds.set(work.sku, item.id);
+        if (work.price) {
+          await this.writePricing(item.sku, work.price, request, manager);
           summary.priced += 1;
         }
-
-        if (receiveOpening && Number.isFinite(qty) && qty > 0 && !(expiry && isExpiredBatch(expiry))) {
-          const location =
-            defaultLocation ??
-            (await this.locations.findOne({
-              where: {
-                code: category === 'pharmaceutical' ? 'PHARMACY' : 'MAIN_STORE',
-                active: true,
-              },
-            }));
-          if (!location) {
-            summary.errors.push(`Line ${line}: no location for opening quantity.`);
-            continue;
-          }
-          await this.receiveStock(
-            {
-              itemId: item.id,
-              locationId: location.id,
-              quantity: qty,
-              batchNo: row.batch_no?.trim() || undefined,
-              expiryDate: expiry || undefined,
-              reason: `Confirmed stock-take import ${sku}`,
-            },
-            request,
-          );
-          summary.received += 1;
-        }
-      } catch (error) {
-        summary.errors.push(`Line ${line}: ${error instanceof Error ? error.message : 'import failed'}`);
       }
-    }
+
+      if (applyStock) {
+        const prepared = pendingMoves.map((move) => ({
+          ...move,
+          itemId: itemIds.get(move.sku) ?? move.matchId,
+        }));
+        if (sessionId) {
+          const claimIntent = intent === 'stock_take' ? 'stock_take' : 'receipt';
+          await this.claimImportSession(manager, sessionId, claimIntent);
+          const claimItemId =
+            prepared.find((move) => move.itemId)?.itemId ?? [...itemIds.values()][0] ?? null;
+          if (claimItemId) {
+            await this.writeImportSessionClaim(manager, claimItemId, sessionId, claimIntent, request);
+          }
+        }
+        const lockKeys = sortStockLockKeys(
+          prepared
+            .filter((move) => move.itemId && move.locationId)
+            .map((move) => ({
+              itemId: move.itemId as string,
+              locationId: move.locationId,
+              batchNo: move.batchNo,
+            })),
+        );
+        const itemLockIds = [...new Set(lockKeys.map((key) => key.itemId))].sort();
+        for (const itemId of itemLockIds) {
+          await this.lockItem(manager, itemId);
+        }
+        for (const key of lockKeys) {
+          await this.lockMatchingBatch(manager, key.itemId, key.locationId, key.batchNo);
+        }
+        for (const move of prepared) {
+          const previewRow = summary.rows.find((row) => row.line === move.line);
+          try {
+            if (!move.itemId || !move.locationId) {
+              throw new BadRequestException(`Line ${move.line}: item or location is missing.`);
+            }
+            const item = await manager.getRepository(InventoryItem).findOneByOrFail({ id: move.itemId });
+            const location = await manager.getRepository(InventoryLocation).findOneByOrFail({ id: move.locationId });
+            if (move.intent === 'stock_take') {
+              if (this.failNextImportWrite === 'adjust') {
+                this.failNextImportWrite = undefined;
+                throw new BadRequestException('Forced stock adjustment failure');
+              }
+              const systemQty = await this.quantityOnHand(move.itemId, move.locationId, move.batchNo, manager);
+              try {
+                assertFreshSnapshot(move.snapshotQty, systemQty, move.line);
+              } catch (error) {
+                throw new BadRequestException(error instanceof Error ? error.message : 'Stale snapshot');
+              }
+              const variance = stockVariance(move.quantity, systemQty);
+              if (variance !== 0) {
+                await this.adjustOnHand({
+                  manager,
+                  item,
+                  location,
+                  variance,
+                  batchNo: move.batchNo,
+                  expiryDate: move.expiryDate,
+                  sessionId,
+                  reason: `Stock-take ${move.sku}: counted ${move.quantity}, system ${systemQty}, variance ${variance}`,
+                  request,
+                });
+                summary.received += 1;
+              }
+            } else {
+              await this.receiveStockIn(
+                manager,
+                {
+                  itemId: move.itemId,
+                  locationId: move.locationId,
+                  quantity: move.quantity,
+                  batchNo: move.batchNo || undefined,
+                  expiryDate: move.expiryDate || undefined,
+                  reason: `Confirmed receipt import ${move.sku}`,
+                },
+                request,
+                sessionId,
+              );
+              summary.received += 1;
+            }
+            if (previewRow) previewRow.status = 'applied';
+          } catch (error) {
+            if (previewRow) previewRow.status = 'failed';
+            throw error;
+          }
+        }
+      } else {
+        for (const row of summary.rows) {
+          if (row.status === 'validated') row.status = 'applied';
+        }
+      }
+    });
 
     return summary;
+  }
+
+  private async quantityOnHand(
+    itemId: string,
+    locationId: string,
+    batchNo: string | null,
+    manager?: EntityManager,
+  ) {
+    const batches = manager ? manager.getRepository(InventoryBatch) : this.batches;
+    const where = batchNo
+      ? { item: { id: itemId }, location: { id: locationId }, batchNo }
+      : { item: { id: itemId }, location: { id: locationId } };
+    const rows = await batches.find({ where });
+    return roundQty(rows.reduce((sum, row) => sum + Number(row.qtyOnHand), 0));
+  }
+
+  private async lockItem(manager: EntityManager, itemId: string) {
+    await manager.getRepository(InventoryItem).findOne({
+      where: { id: itemId },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
+  private async lockLocationBatches(manager: EntityManager, itemId: string, locationId: string) {
+    await this.lockItem(manager, itemId);
+    const batches = manager.getRepository(InventoryBatch);
+    const candidates = await batches.find({
+      where: { item: { id: itemId }, location: { id: locationId } },
+      order: { id: 'ASC' },
+    });
+    const locked: InventoryBatch[] = [];
+    for (const id of [...new Set(candidates.map((row) => row.id))].sort()) {
+      const row = await batches.findOne({
+        where: { id },
+        relations: { item: true, location: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (row) locked.push(row);
+    }
+    return locked;
+  }
+
+  private async lockMatchingBatch(
+    manager: EntityManager,
+    itemId: string,
+    locationId: string,
+    batchNo: string | null,
+  ) {
+    const batches = manager.getRepository(InventoryBatch);
+    const where = batchNo
+      ? { item: { id: itemId }, location: { id: locationId }, batchNo }
+      : { item: { id: itemId }, location: { id: locationId }, batchNo: IsNull() };
+    const matches = await batches.find({ where, order: { id: 'ASC' } });
+    let locked: InventoryBatch | null = null;
+    for (const id of matches.map((row) => row.id).sort()) {
+      const row = await batches.findOne({
+        where: { id },
+        relations: { item: true, location: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (row && !locked) locked = row;
+    }
+    return locked;
+  }
+
+  private async claimImportSession(
+    manager: EntityManager,
+    sessionKey: string,
+    intent: 'receipt' | 'stock_take',
+  ) {
+    await this.acquireImportAdvisoryLock(manager, `${intent}:${sessionKey}`);
+    const referenceType = importLedgerReferenceType(intent);
+    const referenceId = importSessionReferenceId(sessionKey);
+    const inserted = await this.tryInsertImportSessionRow(manager, sessionKey, referenceId, intent);
+    if (inserted === 'duplicate') {
+      throw new BadRequestException(duplicateImportSessionMessage());
+    }
+    const existing = await manager.getRepository(InventoryTransaction).findOne({
+      where: { referenceType, referenceId },
+    });
+    if (existing) {
+      throw new BadRequestException(duplicateImportSessionMessage());
+    }
+    return referenceId;
+  }
+
+  private async writeImportSessionClaim(
+    manager: EntityManager,
+    itemId: string,
+    sessionKey: string,
+    intent: 'receipt' | 'stock_take',
+    request: RequestContext,
+  ) {
+    const item = await manager.getRepository(InventoryItem).findOneByOrFail({ id: itemId });
+    const ledger = manager.getRepository(InventoryTransaction);
+    await ledger.save(
+      ledger.create({
+        item,
+        batch: null,
+        sourceLocation: null,
+        destinationLocation: null,
+        quantity: '0',
+        unit: item.unit,
+        transactionType: intent === 'stock_take' ? 'STOCK_TAKE' : 'RECEIPT',
+        referenceType: importLedgerReferenceType(intent),
+        referenceId: importSessionReferenceId(sessionKey),
+        reason: 'Import session posted',
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
+  }
+
+  private async acquireImportAdvisoryLock(manager: EntityManager, key: string) {
+    try {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+        ADVISORY_LOCK_NAMESPACE,
+        key,
+      ]);
+    } catch (error) {
+      if (isUndefinedFunction(error)) return;
+      throw error;
+    }
+  }
+
+  private async tryInsertImportSessionRow(
+    manager: EntityManager,
+    sessionKey: string,
+    referenceId: string,
+    intent: 'receipt' | 'stock_take',
+  ): Promise<'inserted' | 'missing' | 'duplicate'> {
+    try {
+      await manager.query(
+        `INSERT INTO demo.inventory_import_sessions (id, session_key, intent, status, posted_at)
+         VALUES ($1, $2, $3, 'posted', now())`,
+        [referenceId, sessionKey, intent],
+      );
+      return 'inserted';
+    } catch (error) {
+      if (isUndefinedTable(error)) return 'missing';
+      if (isUniqueViolation(error)) return 'duplicate';
+      const message = error instanceof Error ? error.message : String(error);
+      if (/inventory_import_sessions|does not exist|no such table/i.test(message)) return 'missing';
+      throw error;
+    }
+  }
+
+  private async adjustOnHand(input: {
+    manager: EntityManager;
+    item: InventoryItem;
+    location: InventoryLocation;
+    variance: number;
+    batchNo: string | null;
+    expiryDate: string | null;
+    sessionId: string | null;
+    reason: string;
+    request: RequestContext;
+  }) {
+    const batches = input.manager.getRepository(InventoryBatch);
+    const ledger = input.manager.getRepository(InventoryTransaction);
+    await this.lockItem(input.manager, input.item.id);
+    let batch = await this.lockMatchingBatch(
+      input.manager,
+      input.item.id,
+      input.location.id,
+      input.batchNo,
+    );
+    if (!batch) {
+      batch = await batches.save(
+        batches.create({
+          item: input.item,
+          location: input.location,
+          batchNo: input.batchNo,
+          expiryDate: input.expiryDate,
+          qtyOnHand: '0',
+          createdBy: input.request.user?.sub ?? null,
+          updatedBy: input.request.user?.sub ?? null,
+        }),
+      );
+    }
+    try {
+      batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), input.variance).toString();
+    } catch {
+      throw new BadRequestException(
+        `Stock-take for ${input.item.sku} would make quantity negative. Recount or receive missing stock first.`,
+      );
+    }
+    batch.updatedBy = input.request.user?.sub ?? null;
+    await batches.save(batch);
+    if (this.failNextImportWrite === 'ledger') {
+      this.failNextImportWrite = undefined;
+      throw new BadRequestException('Forced ledger write failure');
+    }
+    await ledger.save(
+      ledger.create({
+        item: input.item,
+        batch,
+        sourceLocation: input.variance < 0 ? input.location : null,
+        destinationLocation: input.variance > 0 ? input.location : null,
+        quantity: input.variance.toString(),
+        unit: input.item.unit,
+        transactionType: 'STOCK_TAKE',
+        referenceType: STOCK_TAKE_REFERENCE_TYPE,
+        referenceId: input.sessionId ? importSessionReferenceId(input.sessionId) : null,
+        reason: input.reason,
+        createdBy: input.request.user?.sub ?? null,
+        updatedBy: input.request.user?.sub ?? null,
+      }),
+    );
+  }
+
+  async exportStockSheetCsv(locationId: string | undefined, request: RequestContext) {
+    const location = locationId
+      ? await this.locations.findOne({ where: { id: locationId, active: true } })
+      : await this.locations.findOne({ where: { code: 'PHARMACY', active: true } });
+    if (!location) throw new NotFoundException('Location not found');
+    const items = await this.listItems({ request });
+    const batches = await this.batches.find({
+      where: { location: { id: location.id } },
+      relations: { item: true, location: true },
+    });
+    const byItem = new Map<string, InventoryBatch[]>();
+    for (const batch of batches) {
+      const list = byItem.get(batch.item.id) ?? [];
+      list.push(batch);
+      byItem.set(batch.item.id, list);
+    }
+    const header = [
+      'item_id',
+      'sku',
+      'name',
+      'unit',
+      'category',
+      'location_id',
+      'location_code',
+      'batch_id',
+      'batch_no',
+      'expiry',
+      'system_qty',
+      'cost',
+      'sell',
+      'counted_qty',
+      'variance',
+    ];
+    const lines = [header.join(',')];
+    for (const item of items) {
+      const itemBatches = byItem.get(item.id) ?? [];
+      if (!itemBatches.length) {
+        lines.push(
+          [
+            csvEscape(item.id),
+            csvEscape(item.sku),
+            csvEscape(item.name),
+            csvEscape(item.unit),
+            csvEscape(item.category),
+            csvEscape(location.id),
+            csvEscape(location.code),
+            '',
+            '',
+            '',
+            '0',
+            csvEscape(item.cost ?? 0),
+            csvEscape(item.sell ?? 0),
+            '',
+            '',
+          ].join(','),
+        );
+        continue;
+      }
+      for (const batch of itemBatches) {
+        lines.push(
+          [
+            csvEscape(item.id),
+            csvEscape(item.sku),
+            csvEscape(item.name),
+            csvEscape(item.unit),
+            csvEscape(item.category),
+            csvEscape(location.id),
+            csvEscape(location.code),
+            csvEscape(batch.id),
+            csvEscape(batch.batchNo),
+            csvEscape(batch.expiryDate),
+            csvEscape(batch.qtyOnHand),
+            csvEscape(item.cost ?? 0),
+            csvEscape(item.sell ?? 0),
+            '',
+            '',
+          ].join(','),
+        );
+      }
+    }
+    return { filename: `stock-sheet-${location.code}-${new Date().toISOString().slice(0, 10)}.csv`, csv: lines.join('\n') };
+  }
+
+  async previewBulkPricing(dto: BulkPricingDto, request: RequestContext) {
+    const items = await this.listItems({ category: dto.category, request });
+    const selected = dto.itemIds?.length ? items.filter((item) => dto.itemIds!.includes(item.id)) : items;
+    const ready: Array<Record<string, unknown>> = [];
+    const missingCost: Array<Record<string, unknown>> = [];
+    for (const item of selected) {
+      const cost = Number(item.cost ?? 0);
+      const currentSell = Number(item.sell ?? 0);
+      const proposed = proposedSellPrice({
+        cost,
+        currentSell,
+        mode: dto.mode,
+        value: dto.value,
+      });
+      const row = {
+        id: item.id,
+        sku: item.sku,
+        name: item.name,
+        ...proposed,
+      };
+      if (!(cost > 0) && dto.mode === 'percent_markup') missingCost.push(row);
+      else ready.push(row);
+    }
+    return { preview: true, ready, missingCost, count: ready.length };
+  }
+
+  async applyBulkPricing(dto: BulkPricingDto, request: RequestContext) {
+    if (!dto.confirm) {
+      throw new BadRequestException('Confirm the price preview before applying. Historical invoices are not changed.');
+    }
+    const preview = await this.previewBulkPricing(dto, request);
+    const reason = dto.reason?.trim() || 'Bulk selling-price update';
+    for (const row of preview.ready) {
+      const sku = String(row.sku);
+      await this.writePricing(
+        sku,
+        {
+          cost: Number(row.cost),
+          markup: Number(row.markup),
+          sell: Number(row.proposedSell),
+        },
+        request,
+      );
+    }
+    const settings = await this.loadSettings(request);
+    if (settings) {
+      const catalog = { ...(settings.clinicalCatalog ?? {}) } as Record<string, unknown>;
+      const history = Array.isArray(catalog.inventoryPriceHistory)
+        ? (catalog.inventoryPriceHistory as unknown[])
+        : [];
+      history.push({
+        at: new Date().toISOString(),
+        by: request.user?.sub ?? null,
+        reason,
+        mode: dto.mode,
+        value: dto.value,
+        count: preview.ready.length,
+      });
+      catalog.inventoryPriceHistory = history.slice(-50);
+      await this.settings.update(settings.id, {
+        clinicalCatalog: catalog as never,
+        updatedBy: request.user?.sub ?? null,
+      });
+    }
+    return { applied: preview.ready.length, skippedMissingCost: preview.missingCost.length, reason };
+  }
+
+  async integrityReport(request: RequestContext) {
+    const batches = await this.batches.find({ relations: { item: true, location: true } });
+    const ledger = await this.transactions.find({ relations: { batch: true, item: true } });
+    const ledgerByBatch = new Map<string, Array<{ quantity: string }>>();
+    for (const row of ledger) {
+      if (!row.batch?.id) continue;
+      const list = ledgerByBatch.get(row.batch.id) ?? [];
+      list.push(row);
+      ledgerByBatch.set(row.batch.id, list);
+    }
+    const negative = batches.filter((batch) => Number(batch.qtyOnHand) < 0);
+    const missingBatch = batches.filter(
+      (batch) => batch.item.trackBatch && (!batch.batchNo || !batch.expiryDate) && Number(batch.qtyOnHand) !== 0,
+    );
+    const withoutReference = ledger.filter((row) => !row.referenceType || !row.referenceId);
+    const balanceMismatch = batches
+      .map((batch) => {
+        const expected = ledgerNetQuantity(ledgerByBatch.get(batch.id) ?? []);
+        const stored = Number(batch.qtyOnHand);
+        return {
+          batchId: batch.id,
+          sku: batch.item.sku,
+          name: batch.item.name,
+          stored,
+          ledger: expected,
+          difference: roundQty(stored - expected),
+        };
+      })
+      .filter((row) => row.difference !== 0);
+    const skuCounts = new Map<string, number>();
+    const items = await this.items.find();
+    for (const item of items) skuCounts.set(item.sku.toUpperCase(), (skuCounts.get(item.sku.toUpperCase()) ?? 0) + 1);
+    const duplicateSkus = [...skuCounts.entries()].filter(([, count]) => count > 1).map(([sku]) => sku);
+    const repeats = new Map<string, number>();
+    for (const row of ledger.filter((entry) => entry.transactionType === 'STOCK_TAKE' || entry.transactionType === 'ADJUSTMENT')) {
+      repeats.set(row.item.id, (repeats.get(row.item.id) ?? 0) + 1);
+    }
+    const repeatedAdjustments = [...repeats.entries()]
+      .filter(([, count]) => count >= 3)
+      .map(([itemId, count]) => {
+        const item = items.find((row) => row.id === itemId);
+        return { itemId, sku: item?.sku, name: item?.name, adjustmentCount: count };
+      });
+    const gaps = await this.listDispensesAwaitingBilling();
+    return {
+      generatedAt: new Date().toISOString(),
+      valuation: 'Unit cost from hospital price overlay. Selling price is not used for stock value.',
+      negativeStock: negative.map((batch) => ({
+        sku: batch.item.sku,
+        name: batch.item.name,
+        qty: Number(batch.qtyOnHand),
+        location: batch.location.code,
+      })),
+      missingBatchOrExpiry: missingBatch.map((batch) => ({
+        sku: batch.item.sku,
+        name: batch.item.name,
+        batchNo: batch.batchNo,
+        expiryDate: batch.expiryDate,
+      })),
+      movementsWithoutReference: withoutReference.length,
+      balanceMismatch,
+      duplicateSkus,
+      repeatedAdjustments,
+      didNotAutoRepair: true,
+      dispensesAwaitingBilling: gaps.awaiting,
+      legacyDispensesForReview: gaps.legacy,
+    };
+  }
+
+  private async listDispensesAwaitingBilling() {
+    const orders = await this.clinicalOrders.find({
+      where: { orderType: 'pharmacy', status: In(['dispensed', 'partially_dispensed']) },
+      take: 200,
+      order: { completedAt: 'DESC' },
+    });
+    const awaiting: Array<{ orderId: string; orderNo: string; billingStatus: string }> = [];
+    const legacy: Array<{ orderId: string; orderNo: string; billingStatus: string }> = [];
+    for (const order of orders) {
+      if (order.metadata?.kind === 'prescription') continue;
+      const status = String(order.metadata?.billingStatus ?? '');
+      if (status === 'awaiting_charge') {
+        awaiting.push({ orderId: order.id, orderNo: order.orderNo, billingStatus: status });
+      } else if (!status) {
+        legacy.push({
+          orderId: order.id,
+          orderNo: order.orderNo,
+          billingStatus: 'legacy_unreviewed',
+        });
+      }
+    }
+    return { awaiting, legacy };
+  }
+
+  async listStockTakeHistory() {
+    const rows = await this.transactions.find({
+      where: { transactionType: 'STOCK_TAKE' },
+      relations: { item: true, batch: true },
+      order: { createdAt: 'DESC' },
+      take: 200,
+    });
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const key = row.referenceId ?? row.id;
+      const list = groups.get(key) ?? [];
+      list.push(row);
+      groups.set(key, list);
+    }
+    return [...groups.entries()].map(([sessionId, lines]) => ({
+      sessionId,
+      postedAt: lines[0]?.createdAt,
+      lines: lines.length,
+      netQty: ledgerNetQuantity(lines),
+    }));
   }
 
   private async readPricingMap(request?: RequestContext): Promise<Record<string, ItemPrice>> {
@@ -1472,8 +2275,13 @@ export class InventoryService {
     return raw && typeof raw === 'object' ? raw : {};
   }
 
-  private async writePricing(sku: string, price: ItemPrice, request: RequestContext) {
-    const settings = await this.loadSettings(request);
+  private async writePricing(
+    sku: string,
+    price: ItemPrice,
+    request: RequestContext,
+    manager?: EntityManager,
+  ) {
+    const settings = await this.loadSettings(request, manager);
     if (!settings) {
       throw new BadRequestException('Hospital settings are missing — cannot save prices.');
     }
@@ -1483,16 +2291,18 @@ export class InventoryService {
       [sku]: price,
     };
     catalog.inventoryPricing = pricing;
-    await this.settings.update(settings.id, {
+    const repo = manager ? manager.getRepository(TenantSettings) : this.settings;
+    await repo.update(settings.id, {
       clinicalCatalog: catalog as never,
       updatedBy: request.user?.sub ?? null,
     });
   }
 
-  private async loadSettings(request?: RequestContext) {
+  private async loadSettings(request?: RequestContext, manager?: EntityManager) {
     const tenantId = request?.tenant?.id;
     if (!tenantId) return null;
-    return this.settings.findOne({ where: { tenant: { id: tenantId } } });
+    const repo = manager ? manager.getRepository(TenantSettings) : this.settings;
+    return repo.findOne({ where: { tenant: { id: tenantId } } });
   }
 
   private routeFulfillment(category: InventoryCategory): RequisitionFulfillmentRoute {
@@ -1622,6 +2432,13 @@ export function aliasInventoryHeader(header: string) {
     qty: 'opening_qty',
     quantity: 'opening_qty',
     qty_on_hand: 'opening_qty',
+    counted_qty: 'counted_qty',
+    counted: 'counted_qty',
+    physical_qty: 'counted_qty',
+    system_qty: 'system_qty',
+    system_quantity: 'system_qty',
+    item_id: 'item_id',
+    product_id: 'item_id',
     rate: 'sell',
     selling_price: 'sell',
     unit_price: 'sell',

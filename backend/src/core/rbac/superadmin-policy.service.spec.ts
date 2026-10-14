@@ -11,7 +11,7 @@ const SUPERADMIN_USER_ID = 'user-super';
 const ADMIN_USER_ID = 'user-admin';
 
 function actor(roles: string[]): RequestContext {
-  return { user: { sub: 'actor-1', email: 'a@test', roles, permissions: [] } } as RequestContext;
+  return { user: { sub: 'actor-1', email: 'a@test', roles, permissions: [] } } as unknown as RequestContext;
 }
 
 describe('SuperadminPolicyService', () => {

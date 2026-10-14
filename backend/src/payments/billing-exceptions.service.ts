@@ -6,6 +6,7 @@ import { LabRequest } from '../laboratory/laboratory.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { SurgeryBooking } from '../theatre/theatre.entities';
+import { prescriptionGroupId } from '../clinical-order/pharmacy-prescription';
 import { Charge } from './charge.entities';
 import { AccommodationChargeService } from './accommodation-charge.service';
 import { classifyZeroPrice, resolveChargeUnitPrice } from './hospital-charges';
@@ -109,16 +110,26 @@ export class BillingExceptionsService {
 
     for (const row of pharmacy) {
       if (row.metadata?.kind === 'prescription') continue;
-      if (chargeKeys.has(row.id)) continue;
+      const billingStatus = String(row.metadata?.billingStatus ?? '');
+      if (billingStatus === 'charged' || billingStatus === 'not_required' || billingStatus === 'charges_disabled') {
+        continue;
+      }
+      if (chargeKeys.has(row.id) || chargeKeys.has(prescriptionGroupId(row))) continue;
       exceptions.push({
         kind: 'missed_charge',
-        reason: 'Dispensed pharmacy item has no operational charge',
+        reason:
+          billingStatus === 'awaiting_charge'
+            ? 'Dispense completed but pharmacy charge is awaiting recovery'
+            : 'Legacy dispensed pharmacy item has no billing status or operational charge. Review only — do not auto-repair stock or invoices.',
         patient: row.patient ? `${row.patient.firstName} ${row.patient.lastName}` : undefined,
         patientNo: row.patient?.patientNo,
         source: 'pharmacy',
         sourceId: row.id,
         expectedService: String(row.metadata?.dispensedItemName ?? row.metadata?.medication ?? row.orderNo),
-        action: 'Confirm the inventory sell price, then post from the dispense',
+        action:
+          billingStatus === 'awaiting_charge'
+            ? 'Retry billing without deducting stock again (POST /inventory/dispense/retry-billing/:orderId)'
+            : 'Review the historical dispense against charges. Do not silently convert the record.',
       });
     }
 

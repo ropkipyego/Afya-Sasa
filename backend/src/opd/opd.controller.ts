@@ -98,6 +98,12 @@ export class OpdController {
     return this.opdService.doctorQueue(request, doctorId);
   }
 
+  @Get('doctor/appointments/today')
+  @RequirePermissions('consultations:read')
+  doctorAppointmentsToday(@Req() request: RequestContext) {
+    return this.opdService.doctorAppointmentsToday(request);
+  }
+
   @Post('encounters/:id/consultations')
   @RequirePermissions('consultations:create')
   createConsultation(

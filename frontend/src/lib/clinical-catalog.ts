@@ -104,6 +104,9 @@ export const defaultClinicalCatalog: ClinicalCatalog = {
     { value: 'new', label: 'New visit' },
     { value: 'follow_up', label: 'Follow-up' },
     { value: 'referral', label: 'Referral' },
+    { value: 'laboratory_only', label: 'Laboratory only' },
+    { value: 'radiology_only', label: 'Radiology only' },
+    { value: 'diagnostic', label: 'Laboratory and radiology' },
   ],
   referralSources: [
     { value: 'self', label: 'Self / walk-in' },

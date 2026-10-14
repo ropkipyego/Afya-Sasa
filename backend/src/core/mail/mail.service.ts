@@ -101,6 +101,15 @@ export class MailService {
       recommendedHost: 'mail.jalaram.co.ke',
       recommendedPort: 465,
       recommendedTlsMode: 'implicit',
+      blockingReasons: [
+        !envConfig.deliveryEnabled
+          ? 'Deployment switch EMAIL_DELIVERY_ENABLED is false'
+          : null,
+        !(overlay?.operatorDeliveryRequested)
+          ? 'Operator delivery toggle is off'
+          : null,
+        !configurationComplete ? 'SMTP host, username, password, or approved sender is incomplete' : null,
+      ].filter((row): row is string => Boolean(row)),
     };
   }
 

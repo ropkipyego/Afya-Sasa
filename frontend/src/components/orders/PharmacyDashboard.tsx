@@ -41,7 +41,6 @@ function startOfToday() {
 
 export function PharmacyDashboard({
   onOpenDispense,
-  onOpenStockTake,
   onOpenReceive,
   onOpenProducts,
   onOpenSales,
@@ -139,9 +138,9 @@ export function PharmacyDashboard({
         <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenDispense}>
           Dispense
         </button>
-        <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenStockTake}>
-          Stock take
-        </button>
+        <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+          Stock take and catalogue import are under Procurement and Store.
+        </p>
         <button type="button" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium" onClick={onOpenReceive}>
           Receive stock
         </button>

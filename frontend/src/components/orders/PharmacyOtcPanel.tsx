@@ -67,10 +67,17 @@ export function PharmacyOtcPanel() {
           quantity: Number(quantity) || 1,
           patientId: patient?.id ?? undefined,
           notes: notes.trim() || undefined,
+          saleId: crypto.randomUUID(),
         }),
       }),
     onSuccess: () => {
-      notify('OTC sale recorded', 'Stock deducted from pharmacy ledger.', 'success')
+      notify(
+        'OTC sale recorded',
+        patient
+          ? 'Stock deducted. A pharmacy charge was posted when a selling price exists.'
+          : 'Stock deducted. Walk-in sales without a patient are not billed in the charge ledger.',
+        'success',
+      )
       setQuantity('1')
       setNotes('')
       void queryClient.invalidateQueries({ queryKey: ['inventory-balances'] })

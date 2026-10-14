@@ -80,6 +80,10 @@ function startOfNairobiDay(now = new Date()): Date {
   return new Date(`${year}-${month}-${day}T00:00:00+03:00`);
 }
 
+function nairobiCalendarDate(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi' }).format(now);
+}
+
 function asIsoDate(value?: string | Date | null): string | null {
   if (!value) return null;
   if (typeof value === 'string') {
@@ -166,7 +170,15 @@ export class OpdService {
       visitType: dto.visitType ?? 'new',
       referralSource: dto.referralSource ?? null,
       referralReason: dto.referralReason ?? null,
-      destination: dto.destination ?? 'doctor',
+      destination:
+        dto.destination ??
+        (dto.visitType === 'laboratory_only'
+          ? 'laboratory'
+          : dto.visitType === 'radiology_only'
+            ? 'radiology'
+            : dto.visitType === 'diagnostic'
+              ? 'laboratory'
+              : 'doctor'),
       departmentName: dto.clinicName?.trim() || dto.departmentName?.trim() || null,
       paymentMethod: dto.paymentMethod ?? null,
       receiptNumber: dto.receiptNumber ?? null,
@@ -178,10 +190,16 @@ export class OpdService {
       where: { id: saved.id },
       relations: { patient: true, attendingDoctor: true },
     });
+    const queueType =
+      loaded.destination === 'laboratory'
+        ? 'LAB'
+        : loaded.destination === 'radiology'
+          ? 'RAD'
+          : 'OPD';
     const queueItem = await this.visitQueue.issue({
       patientId: patient.id,
       encounterId: loaded.id,
-      queueType: 'OPD',
+      queueType,
       request,
     });
     this.publishEncounterUpdated(request, loaded.id, { status: loaded.status });
@@ -535,6 +553,22 @@ export class OpdService {
         const bPriority = TRIAGE_PRIORITY[b.triage?.colour ?? 'green'];
         return aPriority - bPriority || a.startedAt.getTime() - b.startedAt.getTime();
       });
+  }
+
+  async doctorAppointmentsToday(request: RequestContext) {
+    const actorId = request.user?.sub;
+    if (!actorId) {
+      throw new BadRequestException('Authenticated user is required');
+    }
+    return this.appointments.find({
+      where: {
+        appointmentDate: nairobiCalendarDate(),
+        doctorId: actorId,
+      },
+      relations: { patient: true, doctor: true },
+      order: { appointmentTime: 'ASC' },
+      take: 50,
+    });
   }
 
   private publishEncounterUpdated(

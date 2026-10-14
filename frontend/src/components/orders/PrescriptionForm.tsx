@@ -19,6 +19,7 @@ type DraftLine = {
   dose: string
   route: string
   frequency: string
+  duration: string
   quantity: string
   instructions: string
 }
@@ -29,6 +30,7 @@ const emptyLine = (): DraftLine => ({
   dose: '',
   route: 'oral',
   frequency: '',
+  duration: '',
   quantity: '',
   instructions: '',
 })
@@ -69,7 +71,7 @@ export function PrescriptionForm({
           medication: name,
           dose: line.dose.trim() || undefined,
           route: line.route.trim() || undefined,
-          frequency: line.frequency.trim() || undefined,
+          frequency: [line.frequency.trim(), line.duration.trim()].filter(Boolean).join(' × ') || undefined,
           quantity: qty,
           itemId: line.itemId || undefined,
           instructions: line.instructions.trim() || undefined,
@@ -192,10 +194,17 @@ export function PrescriptionForm({
           </SelectField>
           <Field
             name={`frequency-${index}`}
-            label="Frequency / duration"
-            placeholder="e.g. TDS × 5 days"
+            label="Frequency"
+            placeholder="e.g. TDS"
             value={line.frequency}
             onChange={(e) => updateLine(index, { frequency: e.target.value })}
+          />
+          <Field
+            name={`duration-${index}`}
+            label="Duration"
+            placeholder="e.g. 5 days"
+            value={line.duration}
+            onChange={(e) => updateLine(index, { duration: e.target.value })}
           />
           <Field
             name={`quantity-${index}`}

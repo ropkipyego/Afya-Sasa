@@ -193,3 +193,19 @@ describe('OpdService.doctorQueue', () => {
     expect(rows.map((row) => row.id).sort()).toEqual(['enc-a', 'enc-b', 'enc-u']);
   });
 });
+
+describe('OpdService.doctorAppointmentsToday', () => {
+  it('loads only the authenticated doctor appointments', async () => {
+    const find = jest.fn().mockResolvedValue([{ id: 'appt-1' }]);
+    const service = Object.create(OpdService.prototype) as OpdService;
+    Object.assign(service, { appointments: { find } });
+    await service.doctorAppointmentsToday({
+      user: { sub: 'doc-a', email: 'a@test', roles: ['doctor'], permissions: ['consultations:read'] },
+    } as never);
+    expect(find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ doctorId: 'doc-a' }),
+      }),
+    );
+  });
+});
