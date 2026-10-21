@@ -9,7 +9,7 @@ import { PermissionsGuard } from '../core/auth/auth.guards';
 const MODULE_API_PERMISSIONS: Record<string, string[]> = {
   'Director Dashboard': ['reports:read'],
   'Cashier / Billing': ['payments:initiate'],
-  'Insurance workspace': ['patients:read', 'payments:read', 'payments:initiate'],
+  'Insurance workspace': ['payments:read'],
   Interoperability: ['settings:manage', 'reports:read'],
   'Refund payment': ['payments:manage'],
 };
@@ -50,5 +50,15 @@ describe('module API authorization', () => {
   it('denies refunds without payments:manage', () => {
     requireKeys(...MODULE_API_PERMISSIONS['Refund payment']);
     expect(() => guard.canActivate(contextWith(['payments:initiate']))).toThrow(ForbiddenException);
+  });
+
+  it('denies insurance workspace without payments:read', () => {
+    requireKeys(...MODULE_API_PERMISSIONS['Insurance workspace']);
+    expect(() => guard.canActivate(contextWith(['patients:read']))).toThrow(ForbiddenException);
+  });
+
+  it('allows insurance workspace with payments:read', () => {
+    requireKeys(...MODULE_API_PERMISSIONS['Insurance workspace']);
+    expect(guard.canActivate(contextWith(['payments:read']))).toBe(true);
   });
 });

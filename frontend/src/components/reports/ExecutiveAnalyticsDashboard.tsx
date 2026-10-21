@@ -807,6 +807,14 @@ export function ExecutiveAnalyticsDashboard() {
           {config.showBreakdowns ? (
             <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
               <BreakdownTable title="OPD by visit type" rows={data.breakdowns.opdByVisitType} />
+              <BreakdownTable
+                title="Check-in referral source"
+                rows={data.breakdowns.opdByReferralSource}
+              />
+              <BreakdownTable
+                title="Referring facilities"
+                rows={data.breakdowns.referringFacilities}
+              />
               <BreakdownTable title="Lab by status" rows={data.breakdowns.labByStatus} />
               <BreakdownTable title="Radiology by status" rows={data.breakdowns.radiologyByStatus} />
               <BreakdownTable title="Radiology by priority" rows={data.breakdowns.radiologyByPriority} />

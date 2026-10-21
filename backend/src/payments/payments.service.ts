@@ -121,38 +121,68 @@ export class PaymentsService {
     const serviceEntityId = dto.serviceEntityId ?? dto.labRequestId ?? null;
     const labRequest = await this.resolveLabRequest(dto.serviceLine, serviceEntityId, dto.labRequestId);
     const encounterId = dto.encounterId ?? labRequest?.encounter?.id ?? null;
-    const charge = await this.lockChargeForPayment(dto.chargeId, patient.id, amount ?? 0, dto.method === 'waived');
-    const receiptNo = dto.reference?.trim() || (await this.nextHospitalReceiptNo());
+    const idempotencyKey = dto.idempotencyKey?.trim() || '';
 
-    const txn = await this.transactions.save(
-      this.transactions.create({
-        patient,
-        labRequest,
-        encounter: encounterId ? ({ id: encounterId } as Encounter) : null,
-        serviceLine: dto.serviceLine,
-        serviceEntityId,
-        serviceDescription: dto.serviceDescription ?? null,
-        method: dto.method,
-        payerScheme: dto.payerScheme ?? null,
-        amount: amount != null ? String(amount) : null,
-        currency: 'KES',
-        status: 'completed',
-        externalReference: receiptNo,
-        mpesaPhone: null,
-        chargeId: charge?.id ?? null,
-        metadata: {
-          ...(charge ? { chargeId: charge.id } : {}),
-          ...(dto.idempotencyKey?.trim() ? { idempotencyKey: dto.idempotencyKey.trim() } : {}),
-          kind: 'payment',
-        },
-        createdBy: request.user?.sub ?? null,
-        updatedBy: request.user?.sub ?? null,
-      }),
-    );
+    const posted = await this.transactions.manager.transaction(async (manager) => {
+      if (idempotencyKey) {
+        const existing = await this.findByIdempotencyKey(idempotencyKey, manager);
+        if (existing) return { replay: true as const, txn: existing, receiptNo: existing.externalReference };
+      }
+      if (amount != null) {
+        await this.assertNoRecentDuplicate(
+          {
+            patientId: patient.id,
+            amount,
+            method: dto.method,
+            serviceLine: dto.serviceLine,
+          },
+          manager,
+        );
+      }
 
-    if (charge && amount != null) {
-      await this.applyPaymentToCharge(charge, amount, dto.method === 'waived');
-    }
+      const charge = await this.lockChargeForPayment(
+        dto.chargeId,
+        patient.id,
+        amount ?? 0,
+        dto.method === 'waived',
+        manager,
+      );
+      const receiptNo = dto.reference?.trim() || (await this.nextHospitalReceiptNo(manager));
+      const txnRepo = manager.getRepository(PaymentTransaction);
+      const txn = await txnRepo.save(
+        txnRepo.create({
+          patient,
+          labRequest,
+          encounter: encounterId ? ({ id: encounterId } as Encounter) : null,
+          serviceLine: dto.serviceLine,
+          serviceEntityId,
+          serviceDescription: dto.serviceDescription ?? null,
+          method: dto.method,
+          payerScheme: dto.payerScheme ?? null,
+          amount: amount != null ? String(amount) : null,
+          currency: 'KES',
+          status: 'completed',
+          externalReference: receiptNo,
+          mpesaPhone: null,
+          chargeId: charge?.id ?? null,
+          metadata: {
+            ...(charge ? { chargeId: charge.id } : {}),
+            ...(idempotencyKey ? { idempotencyKey } : {}),
+            kind: 'payment',
+          },
+          createdBy: request.user?.sub ?? null,
+          updatedBy: request.user?.sub ?? null,
+        }),
+      );
+
+      if (charge && amount != null) {
+        await this.applyPaymentToCharge(charge, amount, dto.method === 'waived', manager);
+      }
+
+      return { replay: false as const, txn, receiptNo };
+    });
+
+    if (posted.replay) return posted.txn;
 
     await this.applyCompletedPayment({
       serviceLine: dto.serviceLine,
@@ -160,13 +190,13 @@ export class PaymentsService {
       encounterId,
       method: dto.method,
       payerScheme: dto.payerScheme ?? null,
-      reference: receiptNo,
+      reference: posted.receiptNo ?? undefined,
       amount,
       updatedBy: request.user?.sub ?? null,
     });
 
     if (dto.method === 'quickbooks') {
-      await this.enqueueQuickbooks('payment', txn.id, 'payment_add', {
+      await this.enqueueQuickbooks('payment', posted.txn.id, 'payment_add', {
         patientNo: patient.patientNo,
         serviceLine: dto.serviceLine,
         serviceEntityId,
@@ -175,7 +205,7 @@ export class PaymentsService {
       });
     }
 
-    return txn;
+    return posted.txn;
   }
 
   async handleMpesaCallback(body: Record<string, unknown>) {
@@ -676,10 +706,10 @@ export class PaymentsService {
       });
   }
 
-  private async nextHospitalReceiptNo() {
+  private async nextHospitalReceiptNo(manager?: EntityManager) {
     const year = new Date().getFullYear();
     const prefix = `JH-RCP-${year}-`;
-    const latest = await this.transactions
+    const latest = await this.paymentRepo(manager)
       .createQueryBuilder('txn')
       .where('txn.externalReference LIKE :prefix', { prefix: `${prefix}%` })
       .orderBy('txn.externalReference', 'DESC')
@@ -795,16 +825,26 @@ export class PaymentsService {
     }
   }
 
+  private paymentRepo(manager?: EntityManager) {
+    return manager ? manager.getRepository(PaymentTransaction) : this.transactions;
+  }
+
+  private chargeRepo(manager?: EntityManager) {
+    return manager ? manager.getRepository(Charge) : this.charges;
+  }
+
   private async lockChargeForPayment(
     chargeId: string | undefined,
     patientId: string,
     amount: number,
     waived: boolean,
+    manager?: EntityManager,
   ) {
     if (!chargeId || !chargesEnabled()) return null;
-    const charge = await this.charges.findOne({
+    const charge = await this.chargeRepo(manager).findOne({
       where: { id: chargeId },
       relations: { patient: true },
+      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
     if (!charge) throw new NotFoundException('Charge not found');
     if (charge.patient.id !== patientId) {
@@ -822,7 +862,12 @@ export class PaymentsService {
     return charge;
   }
 
-  private async applyPaymentToCharge(charge: Charge, amount: number, waived: boolean) {
+  private async applyPaymentToCharge(
+    charge: Charge,
+    amount: number,
+    waived: boolean,
+    manager?: EntityManager,
+  ) {
     if (waived) {
       charge.amountWaived = String(Number(charge.amountWaived) + amount);
     } else {
@@ -830,24 +875,27 @@ export class PaymentsService {
     }
     const remaining = chargeRemaining(charge);
     charge.status = remaining <= 0 ? (waived && Number(charge.amountPaid) <= 0 ? 'waived' : 'paid') : 'partially_paid';
-    await this.charges.save(charge);
+    await this.chargeRepo(manager).save(charge);
   }
 
-  private async findByIdempotencyKey(key: string) {
-    return this.transactions
+  private async findByIdempotencyKey(key: string, manager?: EntityManager) {
+    return this.paymentRepo(manager)
       .createQueryBuilder('txn')
       .leftJoinAndSelect('txn.patient', 'patient')
       .where("txn.metadata->>'idempotencyKey' = :key", { key })
       .getOne();
   }
 
-  private async assertNoRecentDuplicate(params: {
-    patientId: string;
-    amount: number;
-    method: string;
-    serviceLine: PaymentServiceLine;
-  }) {
-    const recent = await this.transactions.findOne({
+  private async assertNoRecentDuplicate(
+    params: {
+      patientId: string;
+      amount: number;
+      method: string;
+      serviceLine: PaymentServiceLine;
+    },
+    manager?: EntityManager,
+  ) {
+    const recent = await this.paymentRepo(manager).findOne({
       where: {
         patient: { id: params.patientId },
         method: params.method as PaymentTransaction['method'],

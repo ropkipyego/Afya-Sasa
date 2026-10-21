@@ -114,7 +114,8 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
   {
     name: 'insurance_officer',
     label: 'Insurance / Claims Officer',
-    description: 'Eligibility and operational claim drafts. SHA portal remains the claim system.',
+    description:
+      'Eligibility, operational claim drafts, and portal-number recording. Remittance (partially_paid/settled) and cashier collections stay on payments:manage / payments:initiate. SHA portal remains the claim system.',
     permissionKeys: ['patients:read', 'payments:read', 'encounters:read'],
   },
   {

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
 import { ChevronDown, Hospital, Menu, X } from 'lucide-react'
 import clsx from 'clsx'
-import { groupIcons, type NavItem } from '../../lib/navigation'
+import { groupIcons, sortNavGroups, type NavItem } from '../../lib/navigation'
 import { SINGLE_TENANT_MODE } from '../../lib/tenant-config'
 
 export function AppMobileNav({
@@ -69,22 +69,21 @@ export function AppMobileNav({
           </div>
 
           <nav className="flex-1 space-y-2 overflow-y-auto overscroll-contain p-4">
-            {Object.entries(grouped).map(([group, groupItems]) => {
+            {sortNavGroups(Object.keys(grouped)).map((group) => {
+              const groupItems = grouped[group] ?? []
               const GroupIcon = groupIcons[group] ?? Hospital
               const isOpen =
-                collapsedGroups[group] === false
-                  ? false
-                  : collapsedGroups[group] === true || groupItems.some((item) => item.label === activeScreen)
+                collapsedGroups[group] === true ||
+                (collapsedGroups[group] !== false &&
+                  groupItems.some((item) => item.label === activeScreen) &&
+                  !Object.values(collapsedGroups).some(Boolean))
               return (
                 <div key={group}>
                   <button
                     type="button"
                     className="mb-1 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50"
                     onClick={() =>
-                      setCollapsedGroups((current) => ({
-                        ...current,
-                        [group]: !current[group],
-                      }))
+                      setCollapsedGroups(() => (isOpen ? {} : { [group]: true }))
                     }
                     aria-expanded={isOpen}
                   >
@@ -102,23 +101,30 @@ export function AppMobileNav({
                       aria-hidden
                     />
                   </button>
-                  {isOpen ? (
-                    <div className="space-y-1">
-                      {groupItems.map((item) => (
-                        <NavButton
-                          key={item.label}
-                          icon={item.icon}
-                          label={item.label}
-                          shortLabel={item.shortLabel}
-                          active={activeScreen === item.label}
-                          onClick={() => {
-                            onNavigate(item.label)
-                            setOpen(false)
-                          }}
-                        />
-                      ))}
+                  <div
+                    className={clsx(
+                      'grid transition-[grid-template-rows] duration-200 ease-out',
+                      isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+                    )}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <div className="space-y-1">
+                        {groupItems.map((item) => (
+                          <NavButton
+                            key={item.label}
+                            icon={item.icon}
+                            label={item.label}
+                            shortLabel={item.shortLabel}
+                            active={activeScreen === item.label}
+                            onClick={() => {
+                              onNavigate(item.label)
+                              setOpen(false)
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  ) : null}
+                  </div>
                 </div>
               )
             })}

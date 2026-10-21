@@ -28,6 +28,7 @@ export function actionFromRequest(method: string, endpoint: string) {
 export function shouldSkipAudit(endpoint: string) {
   return (
     endpoint.includes('/health') ||
+    endpoint.includes('/ready') ||
     endpoint.startsWith('/docs') ||
     endpoint.includes('/swagger')
   );

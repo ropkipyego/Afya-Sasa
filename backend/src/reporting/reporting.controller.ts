@@ -159,6 +159,25 @@ export class ReportingController {
     );
   }
 
+  @Get('revenue-summary')
+  @RequirePermissions('payments:read', 'payments:initiate', 'reports:read')
+  revenueSummary(
+    @Req() request: RequestContext,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const today = new Date();
+    const defaultTo = today.toISOString().slice(0, 10);
+    const defaultFrom = new Date(today.getTime() - 29 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    return this.reportingService.compactRevenueSummary(
+      from ?? defaultFrom,
+      to ?? defaultTo,
+      request.user,
+    );
+  }
+
   @Get('executive-analytics')
   @RequirePermissions('reports:read')
   executiveAnalytics(

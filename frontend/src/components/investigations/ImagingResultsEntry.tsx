@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileUp } from 'lucide-react'
-import { Button, PageHeader, TextareaField } from '../ui'
+import { Button, Field, PageHeader, TextareaField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
@@ -69,12 +69,16 @@ export function ImagingResultsEntry() {
           findings: form.get('findings'),
           impression: form.get('impression'),
           recommendation: form.get('recommendation') || undefined,
+          imageUrl: form.get('imageUrl'),
         }),
       })
     },
     onSuccess: async () => {
-      notify('Report saved', 'Ordering clinician notified.', 'success')
+      notify('Report saved', 'Ordering clinician notified. RadWeb link stored with the report.', 'success')
       await refresh()
+    },
+    onError: (error: Error) => {
+      notify('Report not saved', error.message, 'critical')
     },
   })
 
@@ -113,7 +117,7 @@ export function ImagingResultsEntry() {
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="Enter & upload imaging reports"
-        description="Search a patient first for patient-centric entry, or browse all open imaging requests."
+        description="Radiographer workspace. A RadWeb image link is required before a report is marked ready. PDF is optional supporting evidence."
       />
 
       <PatientSearchAutocomplete
@@ -231,11 +235,18 @@ export function ImagingResultsEntry() {
                 }}
               >
                 <input type="hidden" name="requestId" value={detail.id} />
+                <Field
+                  name="imageUrl"
+                  label="RadWeb / image link"
+                  hint="Compulsory when the report is ready. Paste the study URL from RadWeb."
+                  placeholder="https://"
+                  required
+                />
                 <TextareaField name="findings" label="Findings" required />
                 <TextareaField name="impression" label="Impression" required />
                 <TextareaField name="recommendation" label="Recommendation" />
                 <Button type="submit" loading={createReport.isPending}>
-                  Save text report
+                  Save radiographer report
                 </Button>
               </form>
 

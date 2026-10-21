@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import { ClinicalOrderMirrorService } from './clinical-order-mirror.service';
-import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsNotEmpty, IsNumber, IsOptional, IsString, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -47,10 +47,10 @@ class CreatePharmacyOrderDto {
   @IsString()
   priority?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  itemId?: string;
+  @IsNotEmpty()
+  itemId!: string;
 
   @ApiProperty({ example: 10 })
   @Type(() => Number)
@@ -70,25 +70,37 @@ class PharmacyPrescriptionLineDto {
   @MinLength(1)
   medication!: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  dose?: string;
+  @MinLength(1)
+  dose!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  route!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  frequency!: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  route?: string;
+  duration?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
-  frequency?: string;
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.0001)
+  unitsPerAdmin?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  itemId?: string;
+  @IsNotEmpty()
+  itemId!: string;
 
   @ApiProperty()
   @Type(() => Number)
@@ -121,6 +133,11 @@ class CreatePharmacyPrescriptionDto {
   @IsOptional()
   @IsString()
   priority?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  clientRequestId?: string;
 
   @ApiProperty({ type: [PharmacyPrescriptionLineDto] })
   @IsArray()

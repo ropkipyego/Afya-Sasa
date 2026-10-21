@@ -50,4 +50,7 @@ export class ClinicalOrder extends SoftDeleteClinicalEntity {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
+
+  @Column({ name: 'client_request_id', type: 'varchar', nullable: true, select: false })
+  clientRequestId!: string | null;
 }

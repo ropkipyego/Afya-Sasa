@@ -120,19 +120,31 @@ export class InventoryService {
     });
   }
 
-  async listItems(params?: { category?: InventoryItem['category']; request?: RequestContext }) {
-    const rows = await this.items.find({
-      where: {
-        active: true,
-        ...(params?.category ? { category: params.category } : {}),
-      },
-      order: { name: 'ASC' },
-    });
+  async listItems(params?: {
+    category?: InventoryItem['category']
+    includeInactive?: boolean
+    request?: RequestContext
+  }) {
+    const qb = this.items
+      .createQueryBuilder('item')
+      .orderBy('item.name', 'ASC');
+    if (params?.category) qb.andWhere('item.category = :category', { category: params.category });
+    if (!params?.includeInactive) qb.andWhere('item.active = true');
+    if (await this.hasStrengthColumns()) {
+      qb.addSelect('item.strength').addSelect('item.dosageForm');
+    }
+    const rows = await qb.getMany();
     const pricing = await this.readPricingMap(params?.request);
     return rows.map((item) => {
       const price = pricing[item.sku] ?? { cost: 0, markup: 0, sell: 0 };
       const drugClass = item.drugClass ?? classifyDrug(item.name, item.category);
-      return { ...item, ...price, drugClass };
+      return {
+        ...item,
+        ...price,
+        drugClass,
+        strength: item.strength ?? null,
+        dosageForm: item.dosageForm ?? null,
+      };
     });
   }
 
@@ -183,6 +195,7 @@ export class InventoryService {
     const trackBatch =
       dto.trackBatch ?? dto.category === 'pharmaceutical';
     const canStoreReorder = await this.hasReorderColumns();
+    const canStoreStrength = await this.hasStrengthColumns();
     return this.items.save(
       this.items.create({
         sku: dto.sku.trim().toUpperCase(),
@@ -192,6 +205,12 @@ export class InventoryService {
         unit: dto.unit.trim(),
         trackBatch,
         active: true,
+        ...(canStoreStrength
+          ? {
+              strength: dto.strength?.trim() || null,
+              dosageForm: dto.dosageForm?.trim() || null,
+            }
+          : {}),
         ...(canStoreReorder
           ? {
               minLevel: dto.minLevel != null ? String(dto.minLevel) : null,
@@ -202,6 +221,22 @@ export class InventoryService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
+  }
+
+  async updateItem(
+    itemId: string,
+    dto: { strength?: string; dosageForm?: string; active?: boolean },
+    request: RequestContext,
+  ) {
+    const item = await this.items.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Catalogue product not found');
+    if (dto.active != null) item.active = dto.active;
+    if (await this.hasStrengthColumns()) {
+      if (dto.strength !== undefined) item.strength = dto.strength.trim() || null;
+      if (dto.dosageForm !== undefined) item.dosageForm = dto.dosageForm.trim() || null;
+    }
+    item.updatedBy = request.user?.sub ?? null;
+    return this.items.save(item);
   }
 
   async listLowStock() {
@@ -1250,55 +1285,32 @@ export class InventoryService {
     order: ClinicalOrder,
     itemId?: string,
   ) {
-    if (itemId) {
-      const selected = await items.findOne({ where: { id: itemId, active: true } });
-      if (!selected) {
-        throw new BadRequestException('Selected stock item was not found.');
-      }
-      if (selected.category !== 'pharmaceutical') {
-        throw new BadRequestException('Dispense only pharmaceutical items from pharmacy.');
-      }
-      return selected;
-    }
-
-    const prescribedId = typeof order.metadata?.itemId === 'string' ? order.metadata.itemId : '';
-    if (prescribedId) {
-      const linked = await items.findOne({ where: { id: prescribedId, active: true } });
-      if (linked) return linked;
-    }
-
-    const name = String(order.metadata?.medication ?? '').trim();
-    if (!name) {
-      throw new BadRequestException('This prescription has no medication name. Select the stock item to issue.');
-    }
-
-    const catalog = await items.find({
-      where: { active: true, category: 'pharmaceutical' },
-      order: { name: 'ASC' },
-    });
-    const needle = this.normalizeMedName(name);
-    const exact = catalog.find(
-      (row) => this.normalizeMedName(row.name) === needle || this.normalizeMedName(row.sku) === needle,
-    );
-    if (exact) return exact;
-
-    const partial = catalog.filter((row) => {
-      const hay = this.normalizeMedName(row.name);
-      return hay.includes(needle) || needle.includes(hay);
-    });
-    if (partial.length === 1) return partial[0];
-    if (partial.length > 1) {
+    const requested = itemId?.trim() ?? '';
+    if (!requested) {
       throw new BadRequestException(
-        `Several stock items match "${name}". Select the exact item on the dispense form.`,
+        'Select the exact catalogue product to dispense. Matching a drug by name is not allowed.',
       );
     }
-    throw new BadRequestException(
-      `No pharmacy stock item matches "${name}". Select the item to issue.`,
-    );
-  }
 
-  private normalizeMedName(value: string) {
-    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const selected = await items.findOne({ where: { id: requested, active: true } });
+    if (!selected) {
+      throw new BadRequestException(
+        'The selected catalogue product was not found or is inactive. Choose a current pharmacy product.',
+      );
+    }
+    if (selected.category !== 'pharmaceutical') {
+      throw new BadRequestException('Dispense only pharmaceutical items from pharmacy.');
+    }
+
+    const prescribedId =
+      typeof order.metadata?.itemId === 'string' ? order.metadata.itemId.trim() : '';
+    if (prescribedId && prescribedId !== selected.id) {
+      throw new BadRequestException(
+        'The selected product does not match the prescribed catalogue product. Issue the prescribed item, or ask the prescriber to correct the prescription.',
+      );
+    }
+
+    return selected;
   }
 
   private allocateFromBatches(
@@ -1308,10 +1320,16 @@ export class InventoryService {
   ): Array<{ batch: InventoryBatch; quantity: number }> {
     let remaining = quantity;
     const allocations: Array<{ batch: InventoryBatch; quantity: number }> = [];
-    for (const batch of batches) {
-      if (isExpiredBatch(batch.expiryDate)) continue;
+    const usable = [...batches]
+      .filter((batch) => !isExpiredBatch(batch.expiryDate) && Number(batch.qtyOnHand) > 0)
+      .sort((a, b) => {
+        const ax = a.expiryDate || '9999-12-31';
+        const bx = b.expiryDate || '9999-12-31';
+        if (ax !== bx) return ax.localeCompare(bx);
+        return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+      });
+    for (const batch of usable) {
       const available = Number(batch.qtyOnHand);
-      if (available <= 0) continue;
       const take = Math.min(available, remaining);
       allocations.push({ batch, quantity: take });
       remaining -= take;
@@ -2321,6 +2339,21 @@ export class InventoryService {
     const year = new Date().getFullYear();
     const count = await this.requisitions.count();
     return `REQ-${year}-${String(count + 1).padStart(5, '0')}`;
+  }
+
+  private strengthColumnsReady?: boolean;
+
+  private async hasStrengthColumns() {
+    if (this.strengthColumnsReady != null) return this.strengthColumnsReady;
+    const rows = (await this.items.query(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = 'demo'
+          AND table_name = 'inventory_items'
+          AND column_name IN ('strength', 'dosage_form')`,
+    )) as Array<{ column_name: string }>;
+    this.strengthColumnsReady = rows.length === 2;
+    return this.strengthColumnsReady;
   }
 
   private async hasReorderColumns() {

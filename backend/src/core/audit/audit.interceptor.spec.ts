@@ -16,6 +16,7 @@ describe('AuditInterceptor helpers', () => {
 
   it('skips noisy operational endpoints', () => {
     expect(shouldSkipAudit('/api/v1/health')).toBe(true);
+    expect(shouldSkipAudit('/api/v1/ready')).toBe(true);
     expect(shouldSkipAudit('/docs')).toBe(true);
     expect(shouldSkipAudit('/api/v1/patients')).toBe(false);
   });

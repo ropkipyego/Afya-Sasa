@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDateString,
   IsIn,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -47,6 +48,33 @@ export class CreateInventoryItemDto {
   @IsNumber()
   @Min(0)
   maxLevel?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  strength?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  dosageForm?: string;
+}
+
+export class UpdateInventoryItemDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  strength?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  dosageForm?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
 }
 
 export class ReceiveStockDto {
@@ -84,10 +112,10 @@ export class DispensePharmacyDto {
   @IsString()
   clinicalOrderId!: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  itemId?: string;
+  @IsNotEmpty()
+  itemId!: string;
 
   @ApiPropertyOptional({ example: 10 })
   @IsOptional()
@@ -102,10 +130,10 @@ export class DispensePrescriptionLineDto {
   @IsString()
   clinicalOrderId!: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  itemId?: string;
+  @IsNotEmpty()
+  itemId!: string;
 
   @ApiPropertyOptional()
   @Type(() => Number)

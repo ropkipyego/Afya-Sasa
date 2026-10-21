@@ -52,6 +52,24 @@ export class LabCatalogService {
     return this.specimens.find({ where: { active: true }, order: { name: 'ASC' } });
   }
 
+  async listTemplateGaps() {
+    const tests = await this.listOrderableTests(true);
+    return tests.flatMap((test) =>
+      (test.parameters ?? [])
+        .filter((parameter) => parameter.active !== false && !parameter.calculatedFormula)
+        .filter((parameter) => !(parameter.referenceRanges ?? []).length)
+        .map((parameter) => ({
+          testCode: test.code,
+          testName: test.name,
+          parameterCode: parameter.code,
+          parameterName: parameter.name,
+          unit: parameter.unit ?? null,
+          specimen: test.specimen?.name ?? null,
+          missing: 'reference_interval',
+        })),
+    );
+  }
+
   async listOrderableTests(includeParameters = false, request?: RequestContext) {
     const rows = await this.orderableTests.find({
       where: { active: true },

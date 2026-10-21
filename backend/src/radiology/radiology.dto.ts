@@ -77,6 +77,10 @@ export class CreateRadiologyReportDto {
   @IsOptional()
   @IsString()
   recommendation?: string;
+
+  @ApiProperty({ description: 'Compulsory RadWeb / PACS image URL when the report is ready' })
+  @IsString()
+  imageUrl!: string;
 }
 
 export class CreateRadiologyAttachmentDto {

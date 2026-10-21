@@ -27,6 +27,8 @@ import {
   LabSection,
   waitLabel,
 } from './lab-ui'
+import { formatReferringDetails } from '../../lib/referring-details'
+import { LAB_WORK_AREAS, labWorkArea, labWorkAreaNextAction } from '../../lib/lab-work-areas'
 
 type LabAttachment = {
   id: string
@@ -54,6 +56,10 @@ type LabRequestRow = {
   createdAt: string
   requestNo?: string
   patient?: { id?: string; firstName: string; lastName: string; patientNo: string }
+  encounter?: {
+    referralReason?: string | null
+    referralSource?: string | null
+  } | null
   items?: {
     id: string
     status: string
@@ -65,14 +71,6 @@ type LabRequestRow = {
   attachments?: LabAttachment[]
 }
 
-const stages = [
-  { id: 'requested', label: 'Requested', tone: 'border-sky-200/80 bg-gradient-to-b from-sky-50 to-white' },
-  { id: 'sample_collected', label: 'Collected', tone: 'border-amber-200/80 bg-gradient-to-b from-amber-50 to-white' },
-  { id: 'processing', label: 'Processing', tone: 'border-violet-200/80 bg-gradient-to-b from-violet-50 to-white' },
-  { id: 'resulted', label: 'Resulted', tone: 'border-teal-200/80 bg-gradient-to-b from-teal-50 to-white' },
-  { id: 'verified', label: 'Verified', tone: 'border-emerald-200/80 bg-gradient-to-b from-emerald-50 to-white' },
-  { id: 'cancelled', label: 'Cancelled', tone: 'border-slate-200/80 bg-gradient-to-b from-slate-50 to-white' },
-] as const
 
 function itemSummary(items?: LabRequestRow['items']) {
   if (!items?.length) return undefined
@@ -308,12 +306,12 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
     }
   }
 
-  const byStage = useMemo(() => {
+  const byArea = useMemo(() => {
     const map: Record<string, LabRequestRow[]> = {}
-    for (const s of stages) map[s.id] = []
-    for (const r of requests) {
-      if (map[r.status]) map[r.status].push(r)
-      else map.requested?.push(r)
+    for (const area of LAB_WORK_AREAS) map[area.id] = []
+    for (const request of requests) {
+      const area = labWorkArea(request.status)
+      if (map[area]) map[area].push(request)
     }
     return map
   }, [requests])
@@ -321,8 +319,8 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
   return (
     <div className="space-y-6">
       <LabSection
-        title="Specimen workflow board"
-        description="Board from order through collection, receipt, result entry, verification, and cancellation. A PDF is not a substitute for structured results."
+        title="Formal laboratory requests"
+        description="These are ordered tests, not reception check-ins. Check-ins sit in the arrivals list above until a request is created. A PDF is not a substitute for structured results."
         action={
           <Button type="button" variant="secondary" onClick={() => setShowNewRequest((v) => !v)}>
             <Plus className="h-4 w-4" />
@@ -370,20 +368,20 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
 
         {isLoading ? (
           <div className="lab-kanban-scroll">
-            {stages.map((s) => (
-              <div key={s.id} className="h-72 animate-skeleton rounded-2xl" />
+            {LAB_WORK_AREAS.map((area) => (
+              <div key={area.id} className="h-72 animate-skeleton rounded-2xl" />
             ))}
           </div>
         ) : (
           <div className="lab-kanban-scroll">
-            {stages.map((stage) => (
+            {LAB_WORK_AREAS.map((area) => (
               <LabKanbanColumn
-                key={stage.id}
-                label={stage.label}
-                count={byStage[stage.id]?.length ?? 0}
-                tone={stage.tone}
+                key={area.id}
+                label={area.label}
+                count={byArea[area.id]?.length ?? 0}
+                tone={area.tone}
               >
-                {(byStage[stage.id] ?? []).map((req) => (
+                {(byArea[area.id] ?? []).map((req) => (
                   <LabQueueItem
                     key={req.id}
                     active={activeId === req.id}
@@ -391,14 +389,26 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
                     name={
                       req.patient ? `${req.patient.firstName} ${req.patient.lastName}` : 'Unknown patient'
                     }
-                    patientNo={req.patient?.patientNo ? formatPatientNoShort(req.patient.patientNo) : undefined}
+                    patientNo={
+                      req.requestNo
+                        ? `${req.requestNo}${req.patient?.patientNo ? ` · ${formatPatientNoShort(req.patient.patientNo)}` : ''}`
+                        : req.patient?.patientNo
+                          ? formatPatientNoShort(req.patient.patientNo)
+                          : undefined
+                    }
                     status={req.status}
                     priority={req.priority}
                     wait={waitLabel(req.createdAt)}
-                    subtitle={itemSummary(req.items)}
+                    subtitle={[
+                      itemSummary(req.items),
+                      labWorkAreaNextAction(req.status),
+                      formatReferringDetails(req.encounter?.referralReason) || req.encounter?.referralSource,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   />
                 ))}
-                {!byStage[stage.id]?.length ? (
+                {!byArea[area.id]?.length ? (
                   <p className="py-8 text-center text-xs text-slate-400">Empty</p>
                 ) : null}
               </LabKanbanColumn>

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -8,8 +8,12 @@ import { Charge, chargeRemaining } from '../../payments/charge.entities';
 import { Patient } from '../../patients/patient.entities';
 import { ShaEligibilityCheck } from '../sha/sha.entities';
 import {
+  allowedClaimTransitions,
   assertClaimTransition,
+  claimIsRemittanceStatus,
+  claimTransitionRequiresReason,
   DEFAULT_PAYERS,
+  eligibilityVerificationKind,
   INSURANCE_CLAIM_STATUSES,
   splitResponsibility,
   type InsuranceClaimStatus,
@@ -35,7 +39,13 @@ type ClaimRecord = {
   patientShare: number | null;
   amountReceived: number;
   externalReference: string | null;
-  history: Array<{ at: string; from: InsuranceClaimStatus | null; to: InsuranceClaimStatus; actor: string | null }>;
+  history: Array<{
+    at: string;
+    from: InsuranceClaimStatus | null;
+    to: InsuranceClaimStatus;
+    actor: string | null;
+    reason: string | null;
+  }>;
 };
 
 type WorkspaceState = {
@@ -64,13 +74,15 @@ export class InsuranceService {
       claims: state.claims.map((claim) => ({
         ...claim,
         split: splitResponsibility(claim),
-        cashEquivalent: claim.status === 'settled' || claim.status === 'partially_paid',
+        cashEquivalent: claimIsRemittanceStatus(claim.status),
+        allowedTransitions: allowedClaimTransitions(claim.status),
       })),
       eligibility: eligibility.map((row) => ({
         id: row.id,
         patientId: row.patientId,
         outcome: row.outcome,
         source: row.source,
+        verificationKind: eligibilityVerificationKind(row.source),
         createdAt: row.createdAt,
         identificationType: row.identificationType,
       })),
@@ -78,6 +90,8 @@ export class InsuranceService {
       notes: [
         'A drafted or approved claim is not a payment.',
         'submitted_manual means staff recorded a portal claim number. AfyaSasa does not post to SHA from this workspace.',
+        'Settled / partially_paid records remittance status only. They do not create cashier payment_transactions.',
+        'Live SHA checks are verified insurer responses. Stub and disconnected rows are not live eligibility.',
         'Unapproved insurer estimates are not guaranteed receivables.',
       ],
     };
@@ -125,6 +139,9 @@ export class InsuranceService {
     if (charges.some((charge) => charge.patient.id !== body.patientId)) {
       throw new BadRequestException('Charges must belong to the selected patient');
     }
+    if (charges.some((charge) => charge.status === 'cancelled')) {
+      throw new BadRequestException('Cancelled charges cannot be added to a claim');
+    }
     const totalCharge = charges.reduce((sum, charge) => sum + Number(charge.amountOwed), 0);
     const amountReceived = charges.reduce((sum, charge) => sum + Number(charge.amountPaid), 0);
     const now = new Date().toISOString();
@@ -139,7 +156,15 @@ export class InsuranceService {
       patientShare: charges.reduce((sum, charge) => sum + chargeRemaining(charge), 0),
       amountReceived,
       externalReference: null,
-      history: [{ at: now, from: null, to: 'draft', actor: request.user?.sub ?? null }],
+      history: [
+        {
+          at: now,
+          from: null,
+          to: 'draft',
+          actor: request.user?.sub ?? null,
+          reason: 'Prepared from existing charges',
+        },
+      ],
     };
     state.claims.push(claim);
     await this.persist(state, request);
@@ -148,7 +173,12 @@ export class InsuranceService {
 
   async transitionClaim(
     id: string,
-    body: { status: InsuranceClaimStatus; externalReference?: string; approvedAmount?: number | null },
+    body: {
+      status: InsuranceClaimStatus;
+      externalReference?: string;
+      approvedAmount?: number | null;
+      reason?: string;
+    },
     request: RequestContext,
   ) {
     const state = await this.load(request);
@@ -159,8 +189,18 @@ export class InsuranceService {
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
+    const permissions = request.user?.permissions ?? [];
+    if (claimIsRemittanceStatus(body.status) && !permissions.includes('payments:manage')) {
+      throw new ForbiddenException(
+        'Recording remittance (partially_paid or settled) needs payments:manage. This does not post a cashier payment.',
+      );
+    }
     if (body.status === 'submitted_manual' && !body.externalReference?.trim()) {
       throw new BadRequestException('Record the SHA/portal claim number before marking submitted_manual');
+    }
+    const reason = body.reason?.trim() || null;
+    if (claimTransitionRequiresReason(body.status) && !reason) {
+      throw new BadRequestException('Record a reason for this claim status change');
     }
     const from = claim.status;
     claim.status = body.status;
@@ -171,9 +211,10 @@ export class InsuranceService {
       from,
       to: body.status,
       actor: request.user?.sub ?? null,
+      reason,
     });
     await this.persist(state, request);
-    return { ...claim, split: splitResponsibility(claim) };
+    return { ...claim, split: splitResponsibility(claim), cashEquivalent: claimIsRemittanceStatus(claim.status) };
   }
 
   private async loadSettings(request: RequestContext) {

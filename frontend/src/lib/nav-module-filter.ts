@@ -20,6 +20,7 @@ export const navModuleMap: Partial<Record<string, HospitalModuleKey>> = {
   'All Queues': 'reporting',
   Worklists: 'reporting',
   Laboratory: 'laboratory',
+  'Blood Bank': 'laboratory',
   Radiology: 'radiology',
   'Pharmacy Dispensing': 'pharmacy',
   'Pharmacy Sales': 'pharmacy',

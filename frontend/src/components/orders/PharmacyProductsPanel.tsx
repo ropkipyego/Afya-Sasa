@@ -12,6 +12,8 @@ type Product = {
   category: string
   drugClass?: string | null
   unit: string
+  strength?: string | null
+  dosageForm?: string | null
   sell?: number
   active?: boolean
 }
@@ -24,8 +26,8 @@ export function PharmacyProductsPanel() {
   const [drugClass, setDrugClass] = useState('')
 
   const { data: items = [], isLoading, error } = useQuery({
-    queryKey: ['inventory-items'],
-    queryFn: () => apiRequest<Product[]>('/inventory/items'),
+    queryKey: ['inventory-items', 'include-inactive'],
+    queryFn: () => apiRequest<Product[]>('/inventory/items?includeInactive=true'),
   })
 
   const { data: locations = [] } = useQuery({
@@ -96,8 +98,10 @@ export function PharmacyProductsPanel() {
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                 <th className="pb-2 pr-3">Product</th>
                 <th className="pb-2 pr-3">SKU</th>
+                <th className="pb-2 pr-3">Strength</th>
+                <th className="pb-2 pr-3">Form</th>
                 <th className="pb-2 pr-3">Class</th>
-                <th className="pb-2 pr-3">Unit</th>
+                <th className="pb-2 pr-3">Status</th>
                 <th className="pb-2 pr-3">Sell</th>
                 <th className="pb-2 pr-3 text-right">Usable stock</th>
               </tr>
@@ -107,8 +111,10 @@ export function PharmacyProductsPanel() {
                 <tr key={item.id} className="border-b border-slate-100">
                   <td className="py-2 pr-3 font-medium">{item.name}</td>
                   <td className="py-2 pr-3 font-mono text-xs">{item.sku}</td>
+                  <td className="py-2 pr-3">{item.strength || '—'}</td>
+                  <td className="py-2 pr-3">{item.dosageForm || item.unit}</td>
                   <td className="py-2 pr-3">{drugClassLabel(item.drugClass)}</td>
-                  <td className="py-2 pr-3">{item.unit}</td>
+                  <td className="py-2 pr-3">{item.active === false ? 'Inactive' : 'Active'}</td>
                   <td className="py-2 pr-3">
                     {formatConfiguredPrice(item.sell) ?? (
                       <span className="text-amber-800">No price configured</span>

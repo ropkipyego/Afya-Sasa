@@ -28,6 +28,9 @@ import { LaboratoryController } from './laboratory.controller';
 import { LaboratoryService } from './laboratory.service';
 import { LabCatalogController } from './lab-catalog.controller';
 import { LabCatalogService } from './lab-catalog.service';
+import { BloodBankRequest } from './blood-bank.entities';
+import { BloodBankUnit } from './blood-bank-unit.entities';
+import { BloodBankService } from './blood-bank.service';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
@@ -54,10 +57,12 @@ import { PaymentsModule } from '../payments/payments.module';
       LabTestParameter,
       LabReferenceRange,
       TenantSettings,
+      BloodBankRequest,
+      BloodBankUnit,
     ]),
   ],
   controllers: [LaboratoryController, LabCatalogController],
-  providers: [LaboratoryService, LabCatalogService],
+  providers: [LaboratoryService, LabCatalogService, BloodBankService],
   exports: [LabCatalogService],
 })
 export class LaboratoryModule {}

@@ -31,6 +31,7 @@ import {
   CreateTriageDto,
   UpdateConsultationDto,
 } from './opd.dto';
+import { destinationsForCheckIn, queueTypesForDestinations } from './visit-routing';
 
 const TRIAGE_PRIORITY: Record<string, number> = {
   red: 1,
@@ -169,16 +170,8 @@ export class OpdService {
       presentingComplaint: dto.presentingComplaint?.trim() || 'Awaiting triage assessment',
       visitType: dto.visitType ?? 'new',
       referralSource: dto.referralSource ?? null,
-      referralReason: dto.referralReason ?? null,
-      destination:
-        dto.destination ??
-        (dto.visitType === 'laboratory_only'
-          ? 'laboratory'
-          : dto.visitType === 'radiology_only'
-            ? 'radiology'
-            : dto.visitType === 'diagnostic'
-              ? 'laboratory'
-              : 'doctor'),
+      referralReason: dto.referralReason?.trim() || null,
+      destination: destinationsForCheckIn(dto.visitType, dto.destination)[0],
       departmentName: dto.clinicName?.trim() || dto.departmentName?.trim() || null,
       paymentMethod: dto.paymentMethod ?? null,
       receiptNumber: dto.receiptNumber ?? null,
@@ -190,20 +183,26 @@ export class OpdService {
       where: { id: saved.id },
       relations: { patient: true, attendingDoctor: true },
     });
-    const queueType =
-      loaded.destination === 'laboratory'
-        ? 'LAB'
-        : loaded.destination === 'radiology'
-          ? 'RAD'
-          : 'OPD';
-    const queueItem = await this.visitQueue.issue({
-      patientId: patient.id,
-      encounterId: loaded.id,
-      queueType,
-      request,
-    });
+    const queueTypes = queueTypesForDestinations(destinationsForCheckIn(dto.visitType, dto.destination));
+    const queueItems = [];
+    for (const queueType of queueTypes) {
+      queueItems.push(
+        await this.visitQueue.issue({
+          patientId: patient.id,
+          encounterId: loaded.id,
+          queueType,
+          request,
+        }),
+      );
+    }
+    const queueItem = queueItems[0];
     this.publishEncounterUpdated(request, loaded.id, { status: loaded.status });
-    return { ...loaded, queueToken: queueItem.token, queueItem };
+    return {
+      ...loaded,
+      queueToken: queueItem.token,
+      queueItem,
+      queueTokens: queueItems.map((item) => ({ type: item.queueType, token: item.token })),
+    };
   }
 
   async listEncounters(params: {

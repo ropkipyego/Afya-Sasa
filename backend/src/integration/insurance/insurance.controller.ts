@@ -12,7 +12,7 @@ export class InsuranceController {
   constructor(private readonly insurance: InsuranceService) {}
 
   @Get('workspace')
-  @RequirePermissions('patients:read', 'payments:read', 'payments:initiate')
+  @RequirePermissions('payments:read')
   workspace(@Req() request: RequestContext) {
     return this.insurance.workspace(request);
   }
@@ -28,7 +28,7 @@ export class InsuranceController {
   }
 
   @Post('claims')
-  @RequirePermissions('payments:initiate', 'payments:manage')
+  @RequirePermissions('payments:read', 'payments:initiate', 'payments:manage')
   prepare(
     @Body() body: { patientId: string; payerId: string; chargeIds: string[] },
     @Req() request: RequestContext,
@@ -37,11 +37,16 @@ export class InsuranceController {
   }
 
   @Patch('claims/:id')
-  @RequirePermissions('payments:manage')
+  @RequirePermissions('payments:read', 'payments:initiate', 'payments:manage')
   transition(
     @Param('id') id: string,
     @Body()
-    body: { status: InsuranceClaimStatus; externalReference?: string; approvedAmount?: number | null },
+    body: {
+      status: InsuranceClaimStatus;
+      externalReference?: string;
+      approvedAmount?: number | null;
+      reason?: string;
+    },
     @Req() request: RequestContext,
   ) {
     return this.insurance.transitionClaim(id, body, request);

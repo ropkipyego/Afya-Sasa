@@ -15,6 +15,13 @@ describe('role templates', () => {
     }
   });
 
+  it('gives insurance officers payments:read for drafts without cashier initiate', () => {
+    const template = ROLE_TEMPLATES.find((row) => row.name === 'insurance_officer');
+    expect(template?.permissionKeys).toEqual(['patients:read', 'payments:read', 'encounters:read']);
+    expect(template?.permissionKeys).not.toContain('payments:initiate');
+    expect(template?.permissionKeys).not.toContain('payments:manage');
+  });
+
   it('drops keys that are not in the live permission catalogue', () => {
     expect(filterTemplateKeys(new Set(['patients:read']), ['patients:read', 'made_up:key'])).toEqual([
       'patients:read',

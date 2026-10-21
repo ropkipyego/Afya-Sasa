@@ -5,6 +5,7 @@ import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import {
   CreateInventoryItemDto,
+  UpdateInventoryItemDto,
   CreateRequisitionDto,
   CreateTransferDto,
   DispenseOtcDto,
@@ -56,8 +57,16 @@ export class InventoryController {
     'consultations:create',
     'payments:initiate',
   )
-  listItems(@Query('category') category?: InventoryItem['category'], @Req() request?: RequestContext) {
-    return this.inventoryService.listItems({ category, request });
+  listItems(
+    @Query('category') category?: InventoryItem['category'],
+    @Query('includeInactive') includeInactive?: string,
+    @Req() request?: RequestContext,
+  ) {
+    return this.inventoryService.listItems({
+      category,
+      includeInactive: includeInactive === 'true' || includeInactive === '1',
+      request,
+    });
   }
 
   @Get('barcode/:code')
@@ -119,6 +128,16 @@ export class InventoryController {
   @RequirePermissions('inventory:manage')
   applyBulkPricing(@Body() dto: BulkPricingDto, @Req() request: RequestContext) {
     return this.inventoryService.applyBulkPricing(dto, request);
+  }
+
+  @Patch('items/:id')
+  @RequirePermissions('inventory:manage')
+  updateItem(
+    @Param('id') id: string,
+    @Body() dto: UpdateInventoryItemDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.inventoryService.updateItem(id, dto, request);
   }
 
   @Patch('items/:id/pricing')

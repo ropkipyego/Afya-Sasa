@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, FileUp, FlaskConical, Inbox, LayoutDashboard, UserRound } from 'lucide-react'
+import { AlertTriangle, Droplets, FileUp, FlaskConical, Inbox, LayoutDashboard, UserRound } from 'lucide-react'
 import { LabDashboard } from './LabDashboard'
 import { LabWorklist } from './LabWorklist'
 import { LabWalkInDesk } from './LabWalkInDesk'
@@ -10,8 +10,10 @@ import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { LabHero } from './lab-ui'
 import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
 import { apiRequest } from '../../lib/api'
+import { DiagnosticCheckInArrivals } from './DiagnosticCheckInArrivals'
+import { BloodBankDesk } from './BloodBankDesk'
 
-type LabTab = 'overview' | 'walkin' | 'worklist' | 'results' | 'upload'
+type LabTab = 'overview' | 'walkin' | 'worklist' | 'results' | 'upload' | 'bloodbank'
 
 async function fetchLabSummary() {
   const [requests, critical] = await Promise.all([
@@ -65,24 +67,63 @@ export function LabModule({ initialTab = 'worklist' }: { initialTab?: LabTab }) 
           { id: 'worklist', label: 'Worklist', icon: <FlaskConical className="h-4 w-4" /> },
           { id: 'upload', label: 'Result entry', icon: <FileUp className="h-4 w-4" /> },
           { id: 'results', label: 'Results inbox', icon: <Inbox className="h-4 w-4" /> },
+          { id: 'bloodbank', label: 'Blood bank', icon: <Droplets className="h-4 w-4" /> },
         ]}
       />
 
       <div className="lab-tab-panel">
         {tab === 'overview' ? (
-          <LabDashboard
-            embedded
-            onOpenRequest={(id) => {
-              setWorklistRequestId(id)
-              setTab('worklist')
-            }}
-          />
+          <div className="space-y-4">
+            <DiagnosticCheckInArrivals queueType="LAB" title="Reception check-ins for laboratory" />
+            <LabTemplateGaps />
+            <LabDashboard
+              embedded
+              onOpenRequest={(id) => {
+                setWorklistRequestId(id)
+                setTab('worklist')
+              }}
+            />
+          </div>
         ) : null}
         {tab === 'walkin' ? <LabWalkInDesk /> : null}
-        {tab === 'worklist' ? <LabWorklist initialRequestId={worklistRequestId} /> : null}
+        {tab === 'worklist' ? (
+          <div className="space-y-4">
+            <DiagnosticCheckInArrivals queueType="LAB" title="Reception check-ins for laboratory" />
+            <LabWorklist initialRequestId={worklistRequestId} />
+          </div>
+        ) : null}
         {tab === 'upload' ? <LabResultsEntry /> : null}
         {tab === 'results' ? <ResultsInbox /> : null}
+        {tab === 'bloodbank' ? <BloodBankDesk /> : null}
       </div>
+    </div>
+  )
+}
+
+function LabTemplateGaps() {
+  const { data = [] } = useQuery({
+    queryKey: ['lab-catalog-gaps'],
+    queryFn: () =>
+      apiRequest<
+        Array<{ testCode: string; testName: string; parameterCode: string; parameterName: string; unit?: string | null }>
+      >('/laboratory/catalog/gaps').catch(() => []),
+  })
+  if (!data.length) return null
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-sm font-semibold text-amber-950">Catalogue gaps for laboratory review</p>
+      <p className="mt-1 text-xs text-amber-900">
+        These analytes have no reference interval in the hospital catalogue. Missing values are not filled with
+        invented normals.
+      </p>
+      <ul className="mt-2 max-h-40 overflow-y-auto text-xs text-amber-950">
+        {data.slice(0, 20).map((row) => (
+          <li key={`${row.testCode}-${row.parameterCode}`}>
+            {row.testName} · {row.parameterName}
+            {row.unit ? ` (${row.unit})` : ''}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

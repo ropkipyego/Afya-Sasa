@@ -7,6 +7,7 @@ import { Admission, Bed } from '../inpatient/inpatient.entities';
 import { LabRequest } from '../laboratory/laboratory.entities';
 import { Pregnancy } from '../maternity/maternity.entities';
 import { Encounter, EncounterDiagnosis } from '../opd/opd.entities';
+import { referringFacilityLabel } from '../opd/referral-details';
 import { Patient } from '../patients/patient.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { Referral } from '../referrals/referral.entities';
@@ -17,6 +18,12 @@ import { ShaEligibilityCheck } from '../integration/sha/sha.entities';
 import { InventoryBatch } from '../inventory/inventory.entities';
 import { payerMixFromMethods } from '../payments/payment-integrity';
 import { canViewDirectorFinance } from '../common/errors/director-access';
+import {
+  canViewRevenueSummary,
+  REVENUE_SUMMARY_DEFINITIONS,
+  summariseCharges,
+  summariseCollections,
+} from './revenue-summary';
 import { pickServiceLineTotals, visibleServiceLines } from './department-revenue';
 import type { AuthenticatedUserContext } from '../common/request-context';
 import { compareAgainstBaseline } from './analytics-intelligence';
@@ -301,6 +308,8 @@ export class ReportingService {
       admissionsByWard,
       emergencyByTriage,
       emergencyByDisposition,
+      opdByReferralSource,
+      opdByReferringFacility,
     ] = await Promise.all([
       this.dailySeries(this.encounters, 'startedAt', start, end, { type: 'opd' }),
       this.dailySeries(this.patients, 'createdAt', start, end),
@@ -337,6 +346,8 @@ export class ReportingService {
       ),
       this.groupedCount(this.emergencyEncounters, 'triageCategory', 'createdAt', start, end),
       this.groupedCount(this.emergencyEncounters, 'disposition', 'createdAt', start, end),
+      this.groupedCount(this.encounters, 'referralSource', 'startedAt', start, end, { type: 'opd' }),
+      this.groupedCount(this.encounters, 'referralReason', 'startedAt', start, end, { type: 'opd' }),
     ]);
 
     const totalOpd = this.sumSeries(opdSeries);
@@ -479,6 +490,15 @@ export class ReportingService {
         admissionsByWard,
         emergencyByTriage,
         emergencyByDisposition,
+        opdByReferralSource,
+        referringFacilities: Object.entries(opdByReferringFacility).reduce(
+          (acc, [key, count]) => {
+            const label = referringFacilityLabel(key)
+            acc[label] = (acc[label] ?? 0) + Number(count)
+            return acc
+          },
+          {} as Record<string, number>,
+        ),
         chargesByServiceLine: includeFinance ? finance.chargesByServiceLine : {},
         collectionsByServiceLine: includeFinance ? finance.collectionsByServiceLine : {},
         collectionsByMethod: includeFinance ? finance.collectionsByMethod : {},
@@ -550,8 +570,79 @@ export class ReportingService {
     };
   }
 
+  async compactRevenueSummary(from: string, to: string, actor?: AuthenticatedUserContext) {
+    const { start, end } = parseIsoDateRange(from, to);
+    if (!canViewRevenueSummary(actor)) {
+      return {
+        available: false as const,
+        generatedAt: new Date().toISOString(),
+        range: { from, to },
+        reason: 'Revenue summary is limited to cashier, finance and director roles.',
+        definitions: REVENUE_SUMMARY_DEFINITIONS,
+      };
+    }
+    const [chargeRows, paymentRows, outstanding] = await Promise.all([
+      this.charges.find({
+        where: { createdAt: Between(start, end) as never },
+        take: 20_000,
+      }),
+      this.paymentTransactions.find({
+        where: { createdAt: Between(start, end) as never },
+        take: 20_000,
+      }),
+      this.sumOutstandingCharges(),
+    ]);
+    const charges = summariseCharges(
+      chargeRows.map((row) => ({
+        amountOwed: Number(row.amountOwed),
+        amountPaid: Number(row.amountPaid),
+        amountWaived: Number(row.amountWaived),
+        status: row.status,
+        serviceLine: row.serviceLine,
+      })),
+    );
+    const payments = summariseCollections(
+      paymentRows.map((row) => ({
+        amount: Number(row.amount ?? 0),
+        status: row.status,
+        method: row.method,
+        kind: typeof row.metadata?.kind === 'string' ? row.metadata.kind : undefined,
+        serviceLine: row.serviceLine,
+      })),
+    );
+    return {
+      available: true as const,
+      generatedAt: new Date().toISOString(),
+      range: { from, to },
+      currency: 'KES',
+      source:
+        'demo.charges and demo.payment_transactions. Not QuickBooks. Not profit. Internal stock transfers are not included.',
+      definitions: REVENUE_SUMMARY_DEFINITIONS,
+      charges: charges.charges,
+      collections: payments.collections,
+      refunds: payments.refunds,
+      waivers: charges.waived,
+      outstanding,
+      chargesByServiceLine: charges.byServiceLine,
+      collectionsByServiceLine: payments.byServiceLine,
+    };
+  }
+
   async departmentRevenue(from: string, to: string, actor?: AuthenticatedUserContext) {
     const { start, end } = parseIsoDateRange(from, to);
+    if (!canViewRevenueSummary(actor)) {
+      return {
+        available: false as const,
+        generatedAt: new Date().toISOString(),
+        range: { from, to },
+        source: 'Revenue totals are limited to cashier, finance and director roles.',
+        visibleLines: [],
+        chargesByServiceLine: {},
+        collectionsByServiceLine: {},
+        charges: null,
+        collections: null,
+      };
+    }
     const finance = await this.financeAnalytics(start, end);
     const visible = visibleServiceLines(actor);
     const chargesByServiceLine = pickServiceLineTotals(finance.chargesByServiceLine, visible);
@@ -562,15 +653,18 @@ export class ReportingService {
     const sum = (rows: Record<string, number>) =>
       Object.values(rows).reduce((total, value) => total + Number(value || 0), 0);
     return {
+      available: true as const,
       generatedAt: new Date().toISOString(),
       range: { from, to },
       source:
-        'Operational charges and completed collections on the EMR cashier ledger. Refunds are excluded. This is not the QuickBooks general ledger.',
+        'Operational charges and completed collections on the EMR cashier ledger. Refunds are excluded from collections. This is not the QuickBooks general ledger.',
       visibleLines: visible === 'all' ? 'all' : visible,
       chargesByServiceLine,
       collectionsByServiceLine,
       charges: sum(chargesByServiceLine),
       collections: sum(collectionsByServiceLine),
+      refunds: finance.refunds,
+      outstanding: finance.outstanding,
     };
   }
 

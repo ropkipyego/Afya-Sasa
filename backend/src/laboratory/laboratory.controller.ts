@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import {
@@ -17,13 +17,132 @@ import {
   ScanLabSampleDto,
 } from './laboratory.dto';
 import { LaboratoryService } from './laboratory.service';
+import { BloodBankService } from './blood-bank.service';
 import { LAB_REPORT_LAYOUTS } from './lab-report-layouts';
+import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class CreateBloodBankRequestDto {
+  @ApiProperty()
+  @IsString()
+  patientId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  encounterId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  admissionId?: string;
+
+  @ApiProperty({ enum: ['packed_red_cells', 'whole_blood', 'ffp', 'platelets', 'cryoprecipitate'] })
+  @IsIn(['packed_red_cells', 'whole_blood', 'ffp', 'platelets', 'cryoprecipitate'])
+  product!: 'packed_red_cells' | 'whole_blood' | 'ffp' | 'platelets' | 'cryoprecipitate';
+
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.0001)
+  units!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  patientBloodGroup?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  indication?: string;
+}
+
+class UpdateBloodBankStatusDto {
+  @ApiProperty({ enum: ['requested', 'grouped', 'crossmatched', 'issued', 'cancelled'] })
+  @IsIn(['requested', 'grouped', 'crossmatched', 'issued', 'cancelled'])
+  status!: 'requested' | 'grouped' | 'crossmatched' | 'issued' | 'cancelled';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  groupingResult?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  crossmatchResult?: string;
+}
 
 @ApiBearerAuth()
 @ApiTags('Laboratory')
 @Controller('laboratory')
 export class LaboratoryController {
-  constructor(private readonly laboratoryService: LaboratoryService) {}
+  constructor(
+    private readonly laboratoryService: LaboratoryService,
+    private readonly bloodBank: BloodBankService,
+  ) {}
+
+  @Get('blood-bank')
+  @RequirePermissions('lab_requests:read')
+  listBloodBank() {
+    return this.bloodBank.list();
+  }
+
+  @Get('blood-bank/stock')
+  @RequirePermissions('lab_requests:read')
+  bloodBankStock(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.bloodBank.stock(from, to);
+  }
+
+  @Post('blood-bank')
+  @RequirePermissions('lab_requests:create')
+  createBloodBank(@Body() dto: CreateBloodBankRequestDto, @Req() request: RequestContext) {
+    return this.bloodBank.create(dto, request);
+  }
+
+  @Post('blood-bank/:id/status')
+  @RequirePermissions('lab_results:enter', 'lab_results:verify')
+  updateBloodBank(
+    @Param('id') id: string,
+    @Body() dto: UpdateBloodBankStatusDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.bloodBank.updateStatus(id, dto, request);
+  }
+
+  @Post('blood-bank/units')
+  @RequirePermissions('lab_requests:create', 'lab_results:enter')
+  registerBloodUnit(
+    @Body()
+    dto: {
+      unitNo: string
+      product: 'packed_red_cells' | 'whole_blood' | 'ffp' | 'platelets' | 'cryoprecipitate'
+      bloodGroup: string
+      expiresAt: string
+      collectedAt?: string
+      location?: string
+    },
+    @Req() request: RequestContext,
+  ) {
+    return this.bloodBank.registerUnit(dto, request);
+  }
+
+  @Post('blood-bank/units/:id/status')
+  @RequirePermissions('lab_results:enter', 'lab_results:verify')
+  transitionBloodUnit(
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      status: 'received' | 'available' | 'reserved' | 'issued' | 'expired' | 'quarantined' | 'discarded'
+      screeningStatus?: 'awaiting_screening' | 'reactive' | 'released' | 'quarantine'
+      reservedRequestId?: string | null
+      reason?: string
+    },
+    @Req() request: RequestContext,
+  ) {
+    return this.bloodBank.transitionUnit(id, dto, request);
+  }
 
   @Get('report-layouts')
   @RequirePermissions('lab_requests:read', 'lab_catalogue:read')

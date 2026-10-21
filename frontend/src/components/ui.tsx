@@ -774,7 +774,16 @@ export function NavGroup({
           aria-hidden
         />
       </button>
-      {open ? <div className="space-y-0.5">{children}</div> : null}
+      <div
+        className={clsx(
+          'grid transition-[grid-template-rows] duration-200 ease-out',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="space-y-0.5">{children}</div>
+        </div>
+      </div>
     </div>
   )
 }

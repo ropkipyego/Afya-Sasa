@@ -44,6 +44,12 @@ export class InventoryItem extends SoftDeleteClinicalEntity {
   @Column({ type: 'varchar' })
   unit!: string;
 
+  @Column({ type: 'varchar', nullable: true, select: false })
+  strength!: string | null;
+
+  @Column({ type: 'varchar', name: 'dosage_form', nullable: true, select: false })
+  dosageForm!: string | null;
+
   @Column({ type: 'boolean', name: 'track_batch', default: false })
   trackBatch!: boolean;
 

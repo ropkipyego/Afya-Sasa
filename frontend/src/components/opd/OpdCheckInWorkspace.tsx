@@ -26,6 +26,7 @@ import {
 import { formDataFromElement, submitClinicalForm } from '../../lib/form-utils'
 import { apiRequest, getApiErrorStatus } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { packReferringDetails } from '../../lib/referring-details'
 import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 
 export type CheckInPatient = {
@@ -67,9 +68,18 @@ export function OpdCheckInWorkspace({
     clinicName: '',
     visitType: 'new',
     referralSource: '',
+    referringFacility: '',
+    referringDoctorName: '',
+    referringDoctorPhone: '',
+    referringDoctorNumber: '',
+    imagingService: '',
     preferredDoctorId: '',
     preferredDoctorName: '',
   })
+  const isDiagnosticVisit = ['laboratory_only', 'radiology_only', 'diagnostic'].includes(
+    visitDraft.visitType,
+  )
+  const needsImaging = ['radiology_only', 'diagnostic'].includes(visitDraft.visitType)
   const doctorOptions = doctorSelectOptionsForClinic(catalogData, visitDraft.clinicName)
   const consultationFee = clinicConsultationFee(catalogData, visitDraft.clinicName)
 
@@ -96,10 +106,17 @@ export function OpdCheckInWorkspace({
         body: JSON.stringify({
           patientId: selected.id,
           visitType: form.get('visitType'),
-          destination: 'doctor',
           clinicName: form.get('clinicName') || undefined,
           departmentName: form.get('clinicName') || undefined,
           referralSource: form.get('referralSource') || undefined,
+          referralReason:
+            packReferringDetails({
+              facility: String(form.get('referringFacility') ?? ''),
+              doctorName: String(form.get('referringDoctorName') ?? ''),
+              doctorPhone: String(form.get('referringDoctorPhone') ?? ''),
+              doctorNumber: String(form.get('referringDoctorNumber') ?? ''),
+            }) || undefined,
+          presentingComplaint: form.get('imagingService') || undefined,
           paymentMethod: form.get('paymentMethod') || undefined,
           receiptNumber: form.get('receiptNumber') || undefined,
           attendingDoctorId: form.get('attendingDoctorId') || undefined,
@@ -118,8 +135,8 @@ export function OpdCheckInWorkspace({
       notify(
         'Check-in complete',
         encounter.queueToken
-          ? `Queue ${encounter.queueToken}. Patient sent to triage.`
-          : 'Patient checked in and sent to triage queue.',
+          ? `Queue ${encounter.queueToken}. Lab/CT check-ins appear on Lab Queue and Imaging Queue, not on the doctor queue.`
+          : 'Patient checked in.',
         'success',
       )
       setSelected(null)
@@ -227,6 +244,11 @@ export function OpdCheckInWorkspace({
                 clinicName: String(form.get('clinicName') ?? ''),
                 visitType: String(form.get('visitType') ?? 'new'),
                 referralSource: String(form.get('referralSource') ?? ''),
+                referringFacility: String(form.get('referringFacility') ?? ''),
+                referringDoctorName: String(form.get('referringDoctorName') ?? ''),
+                referringDoctorPhone: String(form.get('referringDoctorPhone') ?? ''),
+                referringDoctorNumber: String(form.get('referringDoctorNumber') ?? ''),
+                imagingService: String(form.get('imagingService') ?? ''),
                 preferredDoctorId: doctorId,
                 preferredDoctorName: doctorName,
               })
@@ -258,8 +280,7 @@ export function OpdCheckInWorkspace({
                   </option>
                 ))}
               </SelectField>
-              {visitDraft.clinicName &&
-              !['laboratory_only', 'radiology_only', 'diagnostic'].includes(visitDraft.visitType) ? (
+              {visitDraft.clinicName && !isDiagnosticVisit ? (
                 <p className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-950">
                   Consultation fee for <strong>{visitDraft.clinicName}</strong> is{' '}
                   <strong>{formatConfiguredPrice(consultationFee) ?? 'Unpriced'}</strong>
@@ -268,10 +289,10 @@ export function OpdCheckInWorkspace({
                     : '. No hospital tariff is configured for this clinic. Do not collect KSh 0.'}
                 </p>
               ) : null}
-              {['laboratory_only', 'radiology_only', 'diagnostic'].includes(visitDraft.visitType) ? (
+              {isDiagnosticVisit ? (
                 <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-                  Diagnostic-only visits do not add an OPD consultation charge. Laboratory or radiology
-                  charges follow the existing request/cashier path. The patient is not placed on the doctor queue.
+                  Diagnostic-only visits do not add an OPD consultation charge. The patient is sent to the
+                  laboratory and/or imaging queue, not the doctor queue.
                 </p>
               ) : null}
               <SelectField
@@ -287,7 +308,13 @@ export function OpdCheckInWorkspace({
                   </option>
                 ))}
               </SelectField>
-              <SelectField name="referralSource" label="Referral source" hint="Optional">
+              <SelectField
+                name="referralSource"
+                label="Referral source"
+                hint="Optional"
+                value={visitDraft.referralSource}
+                onChange={(e) => setVisitDraft((current) => ({ ...current, referralSource: e.target.value }))}
+              >
                 <option value="">Not specified</option>
                 {(catalogData?.referralSources ?? []).map((item: { value: string; label: string }) => (
                   <option key={item.value} value={item.value}>
@@ -295,6 +322,66 @@ export function OpdCheckInWorkspace({
                   </option>
                 ))}
               </SelectField>
+              {visitDraft.referralSource === 'facility' || visitDraft.visitType === 'referral' || isDiagnosticVisit ? (
+                <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                  <Field
+                    name="referringFacility"
+                    label="Referring facility"
+                    hint="Hospital or clinic that sent this patient."
+                    value={visitDraft.referringFacility}
+                    onChange={(e) =>
+                      setVisitDraft((current) => ({ ...current, referringFacility: e.target.value }))
+                    }
+                    placeholder="e.g. Kitale County Hospital"
+                  />
+                  <Field
+                    name="referringDoctorName"
+                    label="Referring doctor"
+                    value={visitDraft.referringDoctorName}
+                    onChange={(e) =>
+                      setVisitDraft((current) => ({ ...current, referringDoctorName: e.target.value }))
+                    }
+                    placeholder="Full name"
+                  />
+                  <Field
+                    name="referringDoctorPhone"
+                    label="Referring doctor phone"
+                    value={visitDraft.referringDoctorPhone}
+                    onChange={(e) =>
+                      setVisitDraft((current) => ({ ...current, referringDoctorPhone: e.target.value }))
+                    }
+                    placeholder="e.g. 0712 345 678"
+                  />
+                  <Field
+                    name="referringDoctorNumber"
+                    label="Referring doctor number"
+                    hint="KMPDC / licence / registration number."
+                    value={visitDraft.referringDoctorNumber}
+                    onChange={(e) =>
+                      setVisitDraft((current) => ({ ...current, referringDoctorNumber: e.target.value }))
+                    }
+                    placeholder="e.g. KMPDC/12345"
+                  />
+                </div>
+              ) : null}
+              {needsImaging ? (
+                <SelectField
+                  name="imagingService"
+                  label="Imaging requested"
+                  hint="Shown on the imaging arrivals list. Staff still create the formal CT/X-ray request."
+                  value={visitDraft.imagingService}
+                  onChange={(e) =>
+                    setVisitDraft((current) => ({ ...current, imagingService: e.target.value }))
+                  }
+                >
+                  <option value="">Select imaging…</option>
+                  <option value="CT Scan">CT Scan</option>
+                  <option value="X-Ray">X-Ray</option>
+                  <option value="Ultrasound">Ultrasound</option>
+                  <option value="MRI">MRI</option>
+                  <option value="Other imaging">Other imaging</option>
+                </SelectField>
+              ) : null}
               {visitDraft.clinicName && !doctorOptions.length ? (
                 <p className="text-sm text-amber-800">
                   No doctors are assigned to this clinic yet. Assign them under Hospital Control Center →
@@ -348,7 +435,7 @@ export function OpdCheckInWorkspace({
                 {
                   icon: CalendarCheck,
                   label: 'Consultation fee',
-                  value: ['laboratory_only', 'radiology_only', 'diagnostic'].includes(visitDraft.visitType)
+                  value: isDiagnosticVisit
                     ? 'Not charged for diagnostic-only visits'
                     : visitDraft.clinicName
                       ? formatConfiguredPrice(consultationFee) ?? 'Unpriced'
@@ -357,7 +444,30 @@ export function OpdCheckInWorkspace({
                 {
                   icon: User,
                   label: 'Doctor',
-                  value: visitDraft.preferredDoctorName || 'Any available',
+                  value: isDiagnosticVisit
+                    ? 'Not sent to doctor queue'
+                    : visitDraft.preferredDoctorName || 'Any available',
+                },
+                {
+                  icon: User,
+                  label: 'Referring facility',
+                  value: visitDraft.referringFacility || visitDraft.referralSource || '—',
+                },
+                {
+                  icon: User,
+                  label: 'Referring doctor',
+                  value: [
+                    visitDraft.referringDoctorName,
+                    visitDraft.referringDoctorPhone,
+                    visitDraft.referringDoctorNumber,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || '—',
+                },
+                {
+                  icon: Stethoscope,
+                  label: 'Imaging',
+                  value: visitDraft.imagingService || (isDiagnosticVisit ? 'See visit type' : '—'),
                 },
               ].map((item) => (
                 <div
@@ -389,6 +499,11 @@ export function OpdCheckInWorkspace({
               <input type="hidden" name="clinicName" value={visitDraft.clinicName} />
               <input type="hidden" name="visitType" value={visitDraft.visitType} />
               <input type="hidden" name="referralSource" value={visitDraft.referralSource} />
+              <input type="hidden" name="referringFacility" value={visitDraft.referringFacility} />
+              <input type="hidden" name="referringDoctorName" value={visitDraft.referringDoctorName} />
+              <input type="hidden" name="referringDoctorPhone" value={visitDraft.referringDoctorPhone} />
+              <input type="hidden" name="referringDoctorNumber" value={visitDraft.referringDoctorNumber} />
+              <input type="hidden" name="imagingService" value={visitDraft.imagingService} />
               <input type="hidden" name="attendingDoctorId" value={visitDraft.preferredDoctorId} />
               {formError ? <Alert tone="error">{formError}</Alert> : null}
               {createEncounter.isSuccess ? (

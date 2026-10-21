@@ -59,7 +59,13 @@ export class VisitQueueController {
   constructor(private readonly queue: VisitQueueService) {}
 
   @Get()
-  @RequirePermissions('encounters:read', 'emergency:read', 'pharmacy:read', 'lab_requests:read')
+  @RequirePermissions(
+    'encounters:read',
+    'emergency:read',
+    'pharmacy:read',
+    'lab_requests:read',
+    'radiology_requests:read',
+  )
   list(
     @Query('type') queueType?: VisitQueueType,
     @Query('date') date?: string,

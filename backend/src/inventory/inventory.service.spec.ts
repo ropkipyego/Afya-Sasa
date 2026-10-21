@@ -56,6 +56,162 @@ describe('pharmacy dispense confirmation', () => {
   });
 });
 
+describe('pharmacy catalogue product matching', () => {
+  const para = {
+    id: 'item-para',
+    name: 'Paracetamol 500mg',
+    sku: 'PARA500',
+    category: 'pharmaceutical',
+    active: true,
+  };
+  const ibuprofen = {
+    id: 'item-ibu',
+    name: 'Ibuprofen 400mg',
+    sku: 'IBU400',
+    category: 'pharmaceutical',
+    active: true,
+  };
+  const gauze = {
+    id: 'item-gauze',
+    name: 'Gauze',
+    sku: 'GAUZE',
+    category: 'medical_consumable',
+    active: true,
+  };
+
+  const resolve = (
+    InventoryService.prototype as unknown as {
+      resolvePharmacyItem: (
+        items: { findOne: jest.Mock; find: jest.Mock },
+        order: { metadata?: Record<string, unknown> },
+        itemId?: string,
+      ) => Promise<{ id: string }>;
+    }
+  ).resolvePharmacyItem;
+
+  function itemsRepo(rows: Array<{ id: string; category: string; active: boolean }>) {
+    return {
+      findOne: jest.fn(async ({ where }: { where: { id: string; active?: boolean } }) =>
+        rows.find((row) => row.id === where.id && row.active !== false) ?? null,
+      ),
+      find: jest.fn(),
+    };
+  }
+
+  it('rejects a missing catalogue product id and does not search by name', async () => {
+    const items = itemsRepo([para]);
+    await expect(
+      resolve.call(
+        Object.create(InventoryService.prototype),
+        items,
+        { metadata: { medication: 'Paracetamol 500mg', itemId: null } },
+        undefined,
+      ),
+    ).rejects.toThrow(/exact catalogue product/);
+    expect(items.find).not.toHaveBeenCalled();
+    expect(items.findOne).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid catalogue product id', async () => {
+    const items = itemsRepo([para]);
+    await expect(
+      resolve.call(
+        Object.create(InventoryService.prototype),
+        items,
+        { metadata: { medication: 'Paracetamol 500mg', itemId: para.id } },
+        'not-a-real-item',
+      ),
+    ).rejects.toThrow(/not found or is inactive/);
+    expect(items.find).not.toHaveBeenCalled();
+  });
+
+  it('rejects a product that does not match the prescribed catalogue id', async () => {
+    const items = itemsRepo([para, ibuprofen]);
+    await expect(
+      resolve.call(
+        Object.create(InventoryService.prototype),
+        items,
+        { metadata: { medication: para.name, itemId: para.id } },
+        ibuprofen.id,
+      ),
+    ).rejects.toThrow(/does not match the prescribed catalogue product/);
+    expect(items.find).not.toHaveBeenCalled();
+  });
+
+  it('issues the prescribed product when the request id matches exactly', async () => {
+    const items = itemsRepo([para, ibuprofen]);
+    await expect(
+      resolve.call(
+        Object.create(InventoryService.prototype),
+        items,
+        { metadata: { medication: para.name, itemId: para.id } },
+        para.id,
+      ),
+    ).resolves.toMatchObject({ id: para.id, sku: para.sku });
+    expect(items.find).not.toHaveBeenCalled();
+  });
+
+  it('accepts an explicit catalogue id on a legacy line that has no prescribed product id', async () => {
+    const items = itemsRepo([para]);
+    await expect(
+      resolve.call(
+        Object.create(InventoryService.prototype),
+        items,
+        { metadata: { medication: 'Paracetamol 500mg' } },
+        para.id,
+      ),
+    ).resolves.toMatchObject({ id: para.id });
+    expect(items.find).not.toHaveBeenCalled();
+  });
+
+  it('skips expired lots and refuses when only expired stock remains', async () => {
+    const allocate = (
+      InventoryService.prototype as unknown as {
+        allocateFromBatches: (
+          batches: Array<{ expiryDate?: string | null; qtyOnHand: string }>,
+          quantity: number,
+          message?: string,
+        ) => Array<{ quantity: number }>;
+      }
+    ).allocateFromBatches;
+    const now = new Date('2026-10-20T10:00:00.000Z');
+    jest.useFakeTimers().setSystemTime(now);
+    try {
+      expect(() =>
+        allocate.call(
+          Object.create(InventoryService.prototype),
+          [{ expiryDate: '2026-10-01', qtyOnHand: '20' }],
+          5,
+          'Insufficient usable (non-expired) pharmacy stock',
+        ),
+      ).toThrow(/Insufficient usable/);
+      const allocations = allocate.call(
+        Object.create(InventoryService.prototype),
+        [
+          { id: 'later', expiryDate: '2027-01-01', qtyOnHand: '4' },
+          { id: 'sooner', expiryDate: '2026-12-01', qtyOnHand: '4' },
+        ],
+        3,
+      );
+      expect(allocations).toMatchObject([{ quantity: 3, batch: { id: 'sooner' } }]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('rejects a non-pharmaceutical catalogue id', async () => {
+    const items = itemsRepo([gauze]);
+    await expect(
+      resolve.call(
+        Object.create(InventoryService.prototype),
+        items,
+        { metadata: { itemId: gauze.id } },
+        gauze.id,
+      ),
+    ).rejects.toThrow(/pharmaceutical/);
+  });
+});
+
 describe('stock-take import policy', () => {
   it('maps counted and system quantity columns separately', () => {
     const rows = parseInventoryCsv(

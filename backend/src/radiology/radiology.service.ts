@@ -38,6 +38,7 @@ import {
   ImportRadiologyCatalogDto,
   UpdateRadiologyStatusDto,
 } from './radiology.dto';
+import { requireRadwebImageUrl } from './radweb-image-url';
 
 @Injectable()
 export class RadiologyService {
@@ -392,6 +393,7 @@ export class RadiologyService {
       },
     });
     if (!radiologyRequest) throw new NotFoundException('Radiology request not found');
+    const imageUrl = requireRadwebImageUrl(dto.imageUrl);
     const report = await this.reports.save(
       this.reports.create({
         request: radiologyRequest,
@@ -406,7 +408,24 @@ export class RadiologyService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
-    await this.requests.update(id, { status: 'reported' });
+    radiologyRequest.status = 'reported';
+    radiologyRequest.requestFormData = {
+      ...(radiologyRequest.requestFormData ?? {}),
+      radwebImageUrl: imageUrl,
+      ...(request.user?.sub ? { reportedBy: request.user.sub } : {}),
+    };
+    radiologyRequest.updatedBy = request.user?.sub ?? radiologyRequest.updatedBy;
+    await this.requests.save(radiologyRequest);
+    await this.attachments.save(
+      this.attachments.create({
+        request: radiologyRequest,
+        filename: 'RadWeb image link',
+        mimeType: 'text/uri-list',
+        storagePath: imageUrl,
+        createdBy: request.user?.sub ?? null,
+        updatedBy: request.user?.sub ?? null,
+      }),
+    );
 
     await this.notifications.notifyInvestigationStakeholders(
       this.notifications.investigationRecipients({
@@ -511,9 +530,7 @@ export class RadiologyService {
       }),
     );
 
-    if (radiologyRequest.status !== 'verified') {
-      await this.requests.update(id, { status: 'reported', updatedBy: request.user?.sub ?? null });
-    }
+    // PDF is supporting evidence only. Status becomes reported after createReport with a RadWeb URL.
 
     await this.notifications.notifyInvestigationStakeholders(
       this.notifications.investigationRecipients({

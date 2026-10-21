@@ -294,6 +294,19 @@ describe('dispense and charge in one transaction', () => {
     expect(world.charges.get('rx-group')?.amountOwed).toBe(50);
   });
 
+  it('serializes concurrent dispenses so a second request cannot double-issue', async () => {
+    const world = new MemoryInventoryWorld();
+    world.seedBatch({ ...lot1, qtyOnHand: 10 });
+    world.orders.set('rx-1', { id: 'rx-1', remaining: 2, status: 'requested', billingStatus: 'uncharged' });
+    const first = dispenseOnce({ world, key: lot1, quantity: 2, orderId: 'rx-1', charge });
+    const second = dispenseOnce({ world, key: lot1, quantity: 2, orderId: 'rx-1', charge });
+    const results = await Promise.allSettled([first, second]);
+    expect(results.filter((row) => row.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((row) => row.status === 'rejected')).toHaveLength(1);
+    expect(world.qty(lot1)).toBe(8);
+    expect(world.charges.get('rx-group')?.amountOwed).toBe(50);
+  });
+
   it('rejects a duplicate dispense of an already issued line', async () => {
     const world = new MemoryInventoryWorld();
     world.seedBatch({ ...lot1, qtyOnHand: 10 });

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import {
@@ -307,7 +308,9 @@ function App() {
                 key={group}
                 title={group}
                 open={open}
-                onToggle={() => setOpenGroups((current) => ({ ...current, [group]: !open }))}
+                onToggle={() =>
+                  setOpenGroups(() => (open ? {} : { [group]: true }))
+                }
               >
                 {items.map((item) => {
                   const Icon = item.icon
@@ -411,24 +414,27 @@ function App() {
           </div>
         </header>
 
-        {inactivityWarning ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-              <p className="text-lg font-semibold text-slate-900">You have been inactive.</p>
-              <p className="mt-2 text-sm text-slate-700">{inactivityWarning}</p>
-              <button
-                type="button"
-                className="mt-5 w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white"
-                onClick={() => {
-                  markUserActivity()
-                  useAuthStore.getState().setInactivityWarning(null)
-                }}
-              >
-                Continue Session
-              </button>
-            </div>
-          </div>
-        ) : null}
+        {inactivityWarning && typeof document !== 'undefined'
+          ? createPortal(
+              <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/50 p-4">
+                <div className="relative z-[201] w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                  <p className="text-lg font-semibold text-slate-900">You have been inactive.</p>
+                  <p className="mt-2 text-sm text-slate-700">{inactivityWarning}</p>
+                  <button
+                    type="button"
+                    className="mt-5 w-full rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white"
+                    onClick={() => {
+                      markUserActivity()
+                      useAuthStore.getState().setInactivityWarning(null)
+                    }}
+                  >
+                    Continue Session
+                  </button>
+                </div>
+              </div>,
+              document.body,
+            )
+          : null}
 
         <section className="min-h-[calc(100dvh-4.5rem)] w-full min-w-0 max-w-full overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24 md:p-6 md:pb-24">
           {activePatient ? (
@@ -526,8 +532,13 @@ function App() {
               onOpenSickSheets={() => goToScreen('Sick Sheets')}
             />
           ) : null}
-          {activeScreen === 'Laboratory' || activeScreen === 'Lab Queue' ? (
-            <LabModule key={activeScreen} initialTab={activeScreen === 'Lab Queue' ? 'worklist' : 'overview'} />
+          {activeScreen === 'Laboratory' || activeScreen === 'Lab Queue' || activeScreen === 'Blood Bank' ? (
+            <LabModule
+              key={activeScreen}
+              initialTab={
+                activeScreen === 'Lab Queue' ? 'worklist' : activeScreen === 'Blood Bank' ? 'bloodbank' : 'overview'
+              }
+            />
           ) : null}
           {activeScreen === 'Radiology' || activeScreen === 'Imaging Queue' ? (
             <ImagingModule key={activeScreen} initialTab="worklist" />

@@ -104,6 +104,11 @@ export class MemoryInventoryTxn {
 
   constructor(private readonly world: MemoryInventoryWorld) {}
 
+  async lockOrder(orderId: string) {
+    const release = await this.world.mutex(`order:${orderId}`).acquire();
+    this.held.push(release);
+  }
+
   async lock(key: StockLockKey) {
     const release = await this.world.mutex(`batch:${stockLockKey(key)}`).acquire();
     this.held.push(release);
@@ -266,6 +271,7 @@ export async function dispenseOnce(input: {
   charge?: { serviceEntityId: string; amount: number; fail?: boolean; opId: string };
 }) {
   return input.world.transaction(async (txn) => {
+    await txn.lockOrder(input.orderId);
     await txn.lock(input.key);
     const order = input.world.orders.get(input.orderId);
     if (order) {

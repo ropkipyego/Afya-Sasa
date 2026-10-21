@@ -51,8 +51,12 @@ const TRANSITIONS: Record<InsuranceClaimStatus, InsuranceClaimStatus[]> = {
   cancelled: [],
 };
 
+export function allowedClaimTransitions(from: InsuranceClaimStatus): InsuranceClaimStatus[] {
+  return TRANSITIONS[from] ?? [];
+}
+
 export function canTransitionClaim(from: InsuranceClaimStatus, to: InsuranceClaimStatus) {
-  return TRANSITIONS[from]?.includes(to) ?? false;
+  return allowedClaimTransitions(from).includes(to);
 }
 
 export function assertClaimTransition(from: InsuranceClaimStatus, to: InsuranceClaimStatus) {
@@ -63,6 +67,32 @@ export function assertClaimTransition(from: InsuranceClaimStatus, to: InsuranceC
 
 export function claimIsCashEquivalent(status: InsuranceClaimStatus) {
   return status === 'partially_paid' || status === 'settled';
+}
+
+/** Remittance recording is cash-adjacent. Cashier/finance manage only — not claims-officer drafts. */
+export function claimIsRemittanceStatus(status: InsuranceClaimStatus) {
+  return status === 'partially_paid' || status === 'settled';
+}
+
+const MATERIAL_STATUSES = new Set<InsuranceClaimStatus>([
+  'submitted_manual',
+  'queried',
+  'rejected',
+  'cancelled',
+  'preauth_rejected',
+  'eligibility_failed',
+  'partially_paid',
+  'settled',
+]);
+
+export function claimTransitionRequiresReason(to: InsuranceClaimStatus) {
+  return MATERIAL_STATUSES.has(to);
+}
+
+export function eligibilityVerificationKind(source: string) {
+  if (source === 'live') return 'verified_insurer_response' as const;
+  if (source === 'stub') return 'practice_mode_not_live' as const;
+  return 'recorded_without_insurer_response' as const;
 }
 
 export function splitResponsibility(input: {

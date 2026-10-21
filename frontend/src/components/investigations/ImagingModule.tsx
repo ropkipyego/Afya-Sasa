@@ -5,6 +5,8 @@ import { RadiologyWorklist } from './RadiologyWorklist'
 import { ImagingResultsEntry } from './ImagingResultsEntry'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
+import { DiagnosticCheckInArrivals } from './DiagnosticCheckInArrivals'
+import { ImagingShiftHandover } from './ImagingShiftHandover'
 
 type ImagingTab = 'overview' | 'worklist' | 'upload'
 
@@ -25,16 +27,31 @@ export function ImagingModule({ initialTab = 'worklist' }: { initialTab?: Imagin
         ]}
       />
       {tab === 'overview' ? (
-        <ImagingDashboard
-          embedded
-          onOpenRequest={(id) => {
-            setWorklistRequestId(id)
-            setTab('worklist')
-          }}
-        />
+        <div className="space-y-4">
+          <DiagnosticCheckInArrivals queueType="RAD" title="Reception check-ins for imaging (including CT)" />
+          <ImagingShiftHandover />
+          <ImagingDashboard
+            embedded
+            onOpenRequest={(id) => {
+              setWorklistRequestId(id)
+              setTab('worklist')
+            }}
+          />
+        </div>
       ) : null}
-      {tab === 'worklist' ? <RadiologyWorklist initialRequestId={worklistRequestId} /> : null}
-      {tab === 'upload' ? <ImagingResultsEntry /> : null}
+      {tab === 'worklist' ? (
+        <div className="space-y-4">
+          <DiagnosticCheckInArrivals queueType="RAD" title="Reception check-ins for imaging (including CT)" />
+          <ImagingShiftHandover />
+          <RadiologyWorklist initialRequestId={worklistRequestId} />
+        </div>
+      ) : null}
+      {tab === 'upload' ? (
+        <div className="space-y-4">
+          <ImagingShiftHandover />
+          <ImagingResultsEntry />
+        </div>
+      ) : null}
     </div>
   )
 }

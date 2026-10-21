@@ -24,6 +24,12 @@ export class LabCatalogController {
     return this.catalogService.listSpecimens();
   }
 
+  @Get('gaps')
+  @RequirePermissions('lab_catalogue:read', 'lab_requests:read')
+  listGaps() {
+    return this.catalogService.listTemplateGaps();
+  }
+
   @Get('tests')
   @RequirePermissions('lab_catalogue:read', 'payments:initiate', 'lab_requests:create')
   listTests(@Query('includeParameters') includeParameters?: string, @Req() request?: RequestContext) {

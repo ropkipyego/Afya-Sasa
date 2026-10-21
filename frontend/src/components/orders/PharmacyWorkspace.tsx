@@ -71,15 +71,16 @@ function remainingQty(order: PharmacyOrder) {
   return Math.max(0, prescribed - dispensedQty(order))
 }
 
+function prescribedCatalogItemId(order: PharmacyOrder) {
+  const id = order.metadata?.itemId
+  return typeof id === 'string' ? id.trim() : ''
+}
+
+/** Exact catalogue id only. Never guess a drug by name. */
 function matchCatalogItem(items: CatalogItem[], order: PharmacyOrder) {
-  const prescribed = order.metadata?.itemId
+  const prescribed = prescribedCatalogItemId(order)
   if (prescribed && items.some((item) => item.id === prescribed)) return prescribed
-  const name = (order.metadata?.medication ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-  if (!name) return ''
-  const exact = items.find(
-    (item) => item.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === name,
-  )
-  return exact?.id ?? ''
+  return ''
 }
 
 function scriptLine(order: PharmacyOrder) {
@@ -211,7 +212,11 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
       if (!confirmOpen) throw new Error('Review the confirmation before committing.')
       const lines = selectedLines.map((draft) => {
         const qty = Number(draft.quantity)
-        if (!draft.itemId) throw new Error('Select a stock item for every line you will issue.')
+        if (!draft.itemId) {
+          throw new Error(
+            'Select the exact catalogue product for every line you will issue. The system will not pick a drug by name.',
+          )
+        }
         if (!Number.isFinite(qty) || qty <= 0) throw new Error('Enter a quantity for every issued line.')
         return { clinicalOrderId: draft.clinicalOrderId, itemId: draft.itemId, quantity: qty }
       })
@@ -358,8 +363,16 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
                         <SelectField
                           name={`item-${line.id}`}
                           label="Stock item / FEFO batch"
+                          hint={
+                            prescribedCatalogItemId(line)
+                              ? draft.itemId
+                                ? 'Locked to the prescribed catalogue product.'
+                                : 'The prescribed product is not in the active catalogue. Ask the prescriber to correct the prescription.'
+                              : 'This line has no catalogue product. Choose the exact stock item — the system will not guess by name.'
+                          }
                           required
                           value={draft.itemId}
+                          disabled={Boolean(prescribedCatalogItemId(line) && draft.itemId)}
                           onChange={(e) =>
                             setDrafts((current) =>
                               current.map((row) =>
@@ -368,7 +381,7 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
                             )
                           }
                         >
-                          <option value="">Select stock item…</option>
+                          <option value="">Select exact catalogue product…</option>
                           {items.map((row) => (
                             <option key={row.id} value={row.id}>
                               {row.name} ({row.sku}) · {stockByItem.get(row.id)?.qty ?? 0} {row.unit} · FEFO{' '}
