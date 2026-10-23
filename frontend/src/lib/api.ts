@@ -18,6 +18,9 @@ export class ApiRequestError extends Error {
   details?: string
   timedOut?: boolean
   networkFailure?: boolean
+  retryable?: boolean
+  nextAction?: string
+  fields?: Record<string, string>
 
   constructor(
     message: string,
@@ -28,6 +31,9 @@ export class ApiRequestError extends Error {
       details?: string
       timedOut?: boolean
       networkFailure?: boolean
+      retryable?: boolean
+      nextAction?: string
+      fields?: Record<string, string>
     },
   ) {
     super(message)
@@ -38,6 +44,9 @@ export class ApiRequestError extends Error {
     this.details = extras?.details
     this.timedOut = extras?.timedOut
     this.networkFailure = extras?.networkFailure
+    this.retryable = extras?.retryable
+    this.nextAction = extras?.nextAction
+    this.fields = extras?.fields
   }
 }
 
@@ -46,26 +55,43 @@ export function getApiErrorStatus(error: unknown): number | undefined {
   return undefined
 }
 
+function withReference(text: string, requestId?: string | null) {
+  const id = requestId?.trim()
+  return id ? `${text} Reference: ${id}.` : text
+}
+
 export function formatApiError(error: unknown, fallback: string): string {
+  const requestId = error instanceof ApiRequestError ? error.requestId : null
   if (error instanceof ApiRequestError && error.timedOut) {
-    return 'The request is taking too long and could not be completed.'
+    return withReference('The request timed out. Check your connection and retry.', requestId)
   }
   if (error instanceof ApiRequestError && error.networkFailure) {
-    return 'Unable to reach the hospital server. Check the connection and try again.'
+    return withReference('Unable to reach the hospital server. Check the connection and try again.', requestId)
   }
   const status = getApiErrorStatus(error)
   const message = error instanceof Error ? error.message : fallback
+  const next = error instanceof ApiRequestError ? error.nextAction : undefined
+  const fieldText =
+    error instanceof ApiRequestError && error.fields
+      ? Object.entries(error.fields)
+          .map(([field, text]) => `${field}: ${text}`)
+          .join(' ')
+      : ''
+  const body = [message, next, fieldText].filter(Boolean).join(' ')
   if (status === 401) return 'Your session expired. Sign in again.'
-  if (status === 403) return 'You do not have permission to perform this action.'
-  if (status === 404) return 'The requested record could not be found.'
-  if (status === 409) return message || 'This action conflicts with the current record.'
-  if (status === 422) return message || 'The submitted information is not valid.'
-  if (status === 429) return 'Too many requests. Please wait and try again.'
-  if (status === 502 || status === 503) {
-    return 'The service is temporarily unavailable. Please retry.'
+  if (status === 403) return body || 'You do not have permission to perform this action.'
+  if (status === 404) return body || 'The requested record could not be found.'
+  if (status === 409 || status === 422 || status === 400) {
+    return body || 'This action could not be completed.'
   }
-  if (status && status >= 500) return fallback || 'The server could not complete this request.'
-  return message
+  if (status === 429) return withReference('Too many requests. Please wait and try again.', requestId)
+  if (status === 502 || status === 503) {
+    return withReference('The service is temporarily unavailable. Please retry.', requestId)
+  }
+  if (status && status >= 500) {
+    return withReference(fallback || 'The server could not complete this request.', requestId)
+  }
+  return body
 }
 
 const OFFLINE_GET_MAP: Array<{ match: RegExp; key: OfflineCacheKey }> = [
@@ -196,6 +222,12 @@ export async function apiRequest<T>(
       code: typeof error?.error?.code === 'string' ? error.error.code : undefined,
       details: typeof error?.error?.details === 'string' ? error.error.details : undefined,
       requestId: typeof error?.requestId === 'string' ? error.requestId : requestId,
+      retryable: Boolean(error?.error?.retryable),
+      nextAction: typeof error?.error?.nextAction === 'string' ? error.error.nextAction : undefined,
+      fields:
+        error?.error?.fields && typeof error.error.fields === 'object'
+          ? (error.error.fields as Record<string, string>)
+          : undefined,
     })
   }
 

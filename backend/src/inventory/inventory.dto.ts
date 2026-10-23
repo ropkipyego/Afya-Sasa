@@ -60,7 +60,17 @@ export class CreateInventoryItemDto {
   dosageForm?: string;
 }
 
-export class UpdateInventoryItemDto {
+  export class UpdateInventoryItemDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  unit?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -75,6 +85,20 @@ export class UpdateInventoryItemDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minLevel?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  maxLevel?: number;
 }
 
 export class ReceiveStockDto {
@@ -165,15 +189,43 @@ export class DispensePrescriptionDto {
   lines!: DispensePrescriptionLineDto[];
 }
 
-export class DispenseOtcDto {
+export class PreparePrescriptionDto {
+  @ApiProperty({ type: [DispensePrescriptionLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DispensePrescriptionLineDto)
+  lines!: DispensePrescriptionLineDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  prescriptionGroupId?: string;
+}
+
+export class CancelPharmacySaleDto {
   @ApiProperty()
   @IsString()
-  itemId!: string;
+  @IsNotEmpty()
+  saleId!: string;
 
-  @ApiProperty({ example: 1 })
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class DispenseOtcDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  itemId?: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0.0001)
-  quantity!: number;
+  quantity?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -189,6 +241,62 @@ export class DispenseOtcDto {
   @IsOptional()
   @IsString()
   saleId?: string;
+}
+
+export class PrepareOtcLineDto {
+  @ApiProperty()
+  @IsString()
+  itemId!: string;
+
+  @ApiProperty({ example: 1 })
+  @IsNumber()
+  @Min(0.0001)
+  quantity!: number;
+}
+
+export class PrepareOtcCartDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  saleId!: string;
+
+  @ApiPropertyOptional({ type: [PrepareOtcLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PrepareOtcLineDto)
+  lines?: PrepareOtcLineDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  itemId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0.0001)
+  quantity?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  patientId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  walkInName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  walkInPhone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class CreateRequisitionLineDto {
@@ -342,4 +450,40 @@ export class CreateTransferDto {
   @ValidateNested({ each: true })
   @Type(() => CreateRequisitionLineDto)
   lines!: CreateRequisitionLineDto[];
+}
+
+export class CreateStockTakeSessionDto {
+  @ApiProperty()
+  @IsString()
+  locationId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class CountStockTakeLineDto {
+  @ApiProperty()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  countedQty!: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class RejectStockTakeDto {
+  @ApiProperty()
+  @IsString()
+  reason!: string;
+}
+
+export class ImportStockTakeCountsDto {
+  @ApiProperty()
+  @IsString()
+  csv!: string;
 }

@@ -4,16 +4,23 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
 import {
+  CountStockTakeLineDto,
   CreateInventoryItemDto,
+  CreateStockTakeSessionDto,
   UpdateInventoryItemDto,
   CreateRequisitionDto,
   CreateTransferDto,
+  CancelPharmacySaleDto,
   DispenseOtcDto,
+  PrepareOtcCartDto,
   DispensePharmacyDto,
   DispensePrescriptionDto,
+  PreparePrescriptionDto,
   BulkPricingDto,
   ImportInventoryCsvDto,
+  ImportStockTakeCountsDto,
   ReceiveStockDto,
+  RejectStockTakeDto,
   UpdateItemPricingDto,
 } from './inventory.dto';
 import { InventoryItem, InventoryRequisition, InventoryTransfer } from './inventory.entities';
@@ -118,6 +125,102 @@ export class InventoryController {
     return this.inventoryService.listStockTakeHistory();
   }
 
+  @Get('oversight-summary')
+  @RequirePermissions('inventory:read', 'pharmacy:read')
+  oversightSummary() {
+    return this.inventoryService.oversightSummary();
+  }
+
+  @Get('pharmacy-dashboard')
+  @RequirePermissions('pharmacy:read', 'inventory:read')
+  pharmacyDashboard(@Req() request: RequestContext) {
+    return this.inventoryService.pharmacyDashboard(request);
+  }
+
+  @Get('pharmacy-stock-table')
+  @RequirePermissions('pharmacy:read', 'inventory:read')
+  pharmacyStockTable(
+    @Query('locationId') locationId?: string,
+    @Query('includeInactive') includeInactive?: string,
+    @Req() request?: RequestContext,
+  ) {
+    return this.inventoryService.pharmacyStockTable({
+      locationId,
+      includeInactive: includeInactive === 'true' || includeInactive === '1',
+      request,
+    });
+  }
+
+  @Get('stock-take-sessions')
+  @RequirePermissions('inventory:read', 'inventory:manage')
+  listStockTakeSessions() {
+    return this.inventoryService.listStockTakeSessions();
+  }
+
+  @Get('stock-take-sessions/:id')
+  @RequirePermissions('inventory:read', 'inventory:manage')
+  getStockTakeSession(@Param('id') id: string) {
+    return this.inventoryService.getStockTakeSession(id);
+  }
+
+  @Post('stock-take-sessions')
+  @RequirePermissions('inventory:manage')
+  createStockTakeSession(@Body() dto: CreateStockTakeSessionDto, @Req() request: RequestContext) {
+    return this.inventoryService.createStockTakeSession(dto, request);
+  }
+
+  @Get('stock-take-sessions/:id/sheet')
+  @RequirePermissions('inventory:read', 'inventory:manage')
+  async physicalCountSheet(@Param('id') id: string, @Res() response: Response) {
+    const csv = await this.inventoryService.exportPhysicalCountSheet(id);
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader('Content-Disposition', `attachment; filename="physical-count-${id.slice(0, 8)}.csv"`);
+    return response.send(csv);
+  }
+
+  @Post('stock-take-sessions/:id/import-counts')
+  @RequirePermissions('inventory:manage')
+  importStockTakeCounts(
+    @Param('id') id: string,
+    @Body() dto: ImportStockTakeCountsDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.inventoryService.importCountsIntoSession(id, dto, request);
+  }
+
+  @Post('stock-take-sessions/:id/lines/:lineId')
+  @RequirePermissions('inventory:manage')
+  countStockTakeLine(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() dto: CountStockTakeLineDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.inventoryService.countStockTakeLine(id, lineId, dto, request);
+  }
+
+  @Post('stock-take-sessions/:id/submit')
+  @RequirePermissions('inventory:manage')
+  submitStockTakeSession(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.inventoryService.submitStockTakeSession(id, request);
+  }
+
+  @Post('stock-take-sessions/:id/reject')
+  @RequirePermissions('inventory:manage')
+  rejectStockTakeSession(
+    @Param('id') id: string,
+    @Body() dto: RejectStockTakeDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.inventoryService.rejectStockTakeSession(id, dto, request);
+  }
+
+  @Post('stock-take-sessions/:id/approve')
+  @RequirePermissions('inventory:manage', 'settings:manage')
+  approveStockTakeSession(@Param('id') id: string, @Req() request: RequestContext) {
+    return this.inventoryService.approveAndPostStockTakeSession(id, request);
+  }
+
   @Post('pricing/bulk/preview')
   @RequirePermissions('inventory:manage')
   previewBulkPricing(@Body() dto: BulkPricingDto, @Req() request: RequestContext) {
@@ -162,28 +265,52 @@ export class InventoryController {
     return this.inventoryService.receiveStock(dto, request);
   }
 
+  @Post('sales/prepare')
+  @RequirePermissions('pharmacy:dispense')
+  preparePrescription(@Body() dto: PreparePrescriptionDto, @Req() request: RequestContext) {
+    return this.inventoryService.preparePrescriptionSale(dto, request);
+  }
+
+  @Post('sales/otc/prepare')
+  @RequirePermissions('pharmacy:dispense')
+  prepareOtc(@Body() dto: PrepareOtcCartDto, @Req() request: RequestContext) {
+    return this.inventoryService.prepareOtcSale(dto, request);
+  }
+
+  @Get('sales/:saleId')
+  @RequirePermissions('pharmacy:dispense', 'pharmacy:read')
+  saleStatus(@Param('saleId') saleId: string, @Req() request: RequestContext) {
+    return this.inventoryService.pharmacySaleStatus(saleId, request);
+  }
+
+  @Post('sales/cancel')
+  @RequirePermissions('pharmacy:dispense', 'payments:manage')
+  cancelSale(@Body() dto: CancelPharmacySaleDto, @Req() request: RequestContext) {
+    return this.inventoryService.cancelPharmacySale(dto, request);
+  }
+
   @Post('dispense/pharmacy')
-  @RequirePermissions('pharmacy:dispense', 'inventory:manage')
+  @RequirePermissions('pharmacy:dispense')
   dispensePharmacy(@Body() dto: DispensePharmacyDto, @Req() request: RequestContext) {
     return this.inventoryService.dispensePharmacyOrder(dto, request);
   }
 
   @Post('dispense/prescription')
-  @RequirePermissions('pharmacy:dispense', 'inventory:manage')
+  @RequirePermissions('pharmacy:dispense')
   dispensePrescription(@Body() dto: DispensePrescriptionDto, @Req() request: RequestContext) {
     return this.inventoryService.dispensePrescription(dto, request);
   }
 
   @Post('dispense/retry-billing/:orderId')
-  @RequirePermissions('pharmacy:dispense', 'payments:manage', 'inventory:manage')
+  @RequirePermissions('pharmacy:dispense', 'payments:manage')
   retryDispenseBilling(@Param('orderId') orderId: string, @Req() request: RequestContext) {
     return this.inventoryService.retryDispenseBilling(orderId, request);
   }
 
   @Post('dispense/otc')
-  @RequirePermissions('pharmacy:dispense', 'inventory:manage')
+  @RequirePermissions('pharmacy:dispense')
   dispenseOtc(@Body() dto: DispenseOtcDto, @Req() request: RequestContext) {
-    return this.inventoryService.dispenseOtcSale(dto, request);
+    return this.inventoryService.issueOtcSale(dto, request);
   }
 
   @Get('requisitions')

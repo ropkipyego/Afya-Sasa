@@ -35,6 +35,19 @@ export function canAccessControlCenterSection(
       permissions.includes('payments:manage')
     )
   }
+  if (
+    section === 'pharmacy' ||
+    section === 'stock-overview' ||
+    section === 'stock-stores' ||
+    section === 'stock-control' ||
+    section === 'stock-reports'
+  ) {
+    return (
+      permissions.includes('inventory:read') ||
+      permissions.includes('pharmacy:read') ||
+      permissions.includes('settings:manage')
+    )
+  }
   const required = permissionForControlCenterSection(section)
   return permissions.includes(required)
 }

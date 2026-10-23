@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Field, SelectField } from '../ui'
-import { apiRequest } from '../../lib/api'
+import { apiRequest, formatApiError } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { formatPatientNoShort } from '../../lib/patient-utils'
 import { openPatientFile } from '../../lib/patient-file'
@@ -192,6 +192,18 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
     ])
   }
 
+  const { data: saleStatus } = useQuery({
+    queryKey: ['pharmacy-sale', active?.id],
+    queryFn: () =>
+      apiRequest<{
+        reservedQuantity: number
+        remaining: number | null
+        clearance: { cleared: boolean; reason: string; message: string }
+      }>(`/inventory/sales/${active!.id}`),
+    enabled: Boolean(active?.id),
+    refetchInterval: 8_000,
+  })
+
   const selectedLines = drafts.filter((draft) => !draft.rejected)
   const totals = selectedLines.reduce(
     (acc, draft) => {
@@ -206,43 +218,76 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
     { items: 0, qty: 0, amount: 0 },
   )
 
-  const dispense = useMutation({
+  const selectedPayload = () => {
+    if (!active) throw new Error('Select a prescription.')
+    const lines = selectedLines.map((draft) => {
+      const qty = Number(draft.quantity)
+      if (!draft.itemId) {
+        throw new Error(
+          'Select the exact catalogue product for every line you will issue. The system will not pick a drug by name.',
+        )
+      }
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error('Enter a quantity for every issued line.')
+      return { clinicalOrderId: draft.clinicalOrderId, itemId: draft.itemId, quantity: qty }
+    })
+    if (!lines.length) throw new Error('Select at least one line.')
+    return { prescriptionGroupId: active.id, lines }
+  }
+
+  const prepare = useMutation({
+    mutationFn: () =>
+      apiRequest('/inventory/sales/prepare', {
+        method: 'POST',
+        body: JSON.stringify(selectedPayload()),
+      }),
+    onSuccess: async () => {
+      notify('Sent to cashier', 'Stock is reserved. Medicine is not issued until the bill is cleared.', 'success')
+      await invalidate()
+      await queryClient.invalidateQueries({ queryKey: ['pharmacy-sale'] })
+    },
+    onError: (e: Error) => notify('Could not prepare sale', formatApiError(e, 'Reservation failed.'), 'critical'),
+  })
+
+  const cancelSale = useMutation({
     mutationFn: () => {
       if (!active) throw new Error('Select a prescription.')
-      if (!confirmOpen) throw new Error('Review the confirmation before committing.')
-      const lines = selectedLines.map((draft) => {
-        const qty = Number(draft.quantity)
-        if (!draft.itemId) {
-          throw new Error(
-            'Select the exact catalogue product for every line you will issue. The system will not pick a drug by name.',
-          )
-        }
-        if (!Number.isFinite(qty) || qty <= 0) throw new Error('Enter a quantity for every issued line.')
-        return { clinicalOrderId: draft.clinicalOrderId, itemId: draft.itemId, quantity: qty }
+      return apiRequest('/inventory/sales/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ saleId: active.id, reason: 'Pharmacy cancelled pending sale' }),
       })
-      if (!lines.length) throw new Error('Select at least one line to dispense.')
+    },
+    onSuccess: async () => {
+      notify('Reservation released', 'The hold was released. No stock movement or refund was posted.', 'success')
+      setActiveGroupId(null)
+      await invalidate()
+    },
+    onError: (e: Error) => notify('Could not cancel sale', formatApiError(e, 'Cancel failed.'), 'critical'),
+  })
+
+  const dispense = useMutation({
+    mutationFn: () => {
+      if (!confirmOpen) throw new Error('Review the confirmation before committing.')
       return apiRequest<{ billing?: { suggestedAmount?: number | null; description?: string } }>(
         '/inventory/dispense/prescription',
         {
           method: 'POST',
           body: JSON.stringify({
             confirm: true,
-            prescriptionGroupId: active.id,
-            lines,
+            ...selectedPayload(),
           }),
         },
       )
     },
     onSuccess: async (result) => {
       notify(
-        'Dispensed',
-        `${result.billing?.description ?? `${totals.items} line(s)`} issued FEFO. Collect payment on the cashier desk.`,
+        'Issued',
+        `${result.billing?.description ?? `${totals.items} line(s)`} deducted from pharmacy stock.`,
         'success',
       )
       setActiveGroupId(null)
       await invalidate()
     },
-    onError: (e: Error) => notify('Dispense failed', e.message, 'critical'),
+    onError: (e: Error) => notify('Issue failed', formatApiError(e, 'Medicine was not issued.'), 'critical'),
   })
 
   return (
@@ -461,8 +506,16 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
                 {totals.items} items · {totals.qty} units · estimated charge KES {totals.amount.toFixed(2)}
               </p>
               <p className="mt-1 text-teal-900">
-                Stock movements are written per batch. Expired lots cannot be issued.
+                Prepare the sale to reserve stock and bill cashier. Physical issue is blocked until payment or documented credit/exemption.
               </p>
+              {saleStatus ? (
+                <p className="mt-1 font-medium">
+                  {saleStatus.clearance.cleared
+                    ? 'Bill is cleared — you may issue.'
+                    : saleStatus.clearance.message}
+                  {saleStatus.reservedQuantity > 0 ? ` · reserved ${saleStatus.reservedQuantity}` : ''}
+                </p>
+              ) : null}
             </div>
 
             {confirmOpen ? (
@@ -489,15 +542,31 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
                   Estimated total {totals.amount > 0 ? `KES ${totals.amount.toFixed(2)}` : 'no catalogue prices'}
                 </p>
                 <p className="mt-1">
-                  This deducts stock and writes {selectedLines.length} ledger movement
-                  {selectedLines.length === 1 ? '' : 's'}. Expired lots cannot be issued.
+                  This deducts reserved stock and writes DISPENSE movements. It is blocked if the bill is unpaid.
                 </p>
               </div>
             ) : null}
 
             <div className="flex flex-wrap gap-3">
+              <Button
+                type="button"
+                loading={prepare.isPending}
+                disabled={!selectedLines.length || prepare.isPending}
+                onClick={() => prepare.mutate()}
+              >
+                Prepare / send to cashier
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={cancelSale.isPending}
+                disabled={cancelSale.isPending || !saleStatus?.reservedQuantity}
+                onClick={() => cancelSale.mutate()}
+              >
+                Cancel hold
+              </Button>
               <Button type="button" variant="secondary" onClick={() => setConfirmOpen(true)} disabled={!selectedLines.length}>
-                Review confirmation
+                Review issue
               </Button>
               <Button
                 type="button"
@@ -505,7 +574,7 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
                 disabled={!confirmOpen || dispense.isPending}
                 onClick={() => dispense.mutate()}
               >
-                Confirm dispensing
+                Issue after clearance
               </Button>
             </div>
           </div>

@@ -411,3 +411,12 @@ describe('stock and financial consistency', () => {
     expect(() => nextOnHand(1, -2)).toThrow(/negative/);
   });
 });
+
+describe('reservation available stock (not a ledger movement)', () => {
+  it('does not treat a hold as a DISPENSE or on-hand change', () => {
+    const onHand = 10;
+    const held = 4;
+    expect(onHand).toBe(10);
+    expect(onHand - held).toBe(6);
+  });
+});

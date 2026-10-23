@@ -82,13 +82,17 @@ export class TenancyService {
         logoUrl?: string;
         tagline?: string;
         facilityName?: string;
+        address?: string;
       };
     };
     const profile = catalog.hospitalProfile ?? {};
+    const rawAddress = profile.address?.trim() || tenant.address?.trim() || null;
+    const address =
+      rawAddress && /^demo\s+address$/i.test(rawAddress) ? null : rawAddress;
     return {
       code: tenant.code,
       name: profile.facilityName?.trim() || tenant.name,
-      address: tenant.address,
+      address,
       mohFacilityCode: tenant.mohFacilityCode,
       licenceNumber: tenant.licenceNumber,
       primaryColor: profile.primaryColor?.trim() || '#0d9488',

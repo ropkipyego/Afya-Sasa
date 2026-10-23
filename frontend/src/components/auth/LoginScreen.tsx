@@ -14,6 +14,10 @@ type LoginScreenProps = {
 
 function HospitalIdentityCard({ hospital }: { hospital: PublicHospital }) {
   const accent = hospital.primaryColor ?? '#0d9488'
+  const cleanAddress =
+    hospital.address && !/^demo\s+address$/i.test(hospital.address.trim())
+      ? hospital.address.trim()
+      : null
   return (
     <div
       className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5"
@@ -39,8 +43,8 @@ function HospitalIdentityCard({ hospital }: { hospital: PublicHospital }) {
           {hospital.tagline ? (
             <p className="mt-0.5 text-sm text-slate-600">{hospital.tagline}</p>
           ) : null}
-          {hospital.address ? (
-            <p className="mt-1 text-xs text-slate-500">{hospital.address}</p>
+          {cleanAddress ? (
+            <p className="mt-1 text-xs text-slate-500">{cleanAddress}</p>
           ) : null}
         </div>
       </div>
@@ -338,8 +342,7 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
           </p>
         ) : null}
         <p className="mt-6 text-center text-xs text-slate-400">
-          Authorised staff only. A single sign-in code is prepared for a later rollout and is not
-          required today.
+          Authorised staff only.
         </p>
       </div>
     </div>

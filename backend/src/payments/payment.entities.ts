@@ -15,9 +15,9 @@ export type PaymentServiceLine =
 @Entity({ name: 'payment_transactions', schema: 'demo' })
 @Index(['status', 'method'])
 export class PaymentTransaction extends SoftDeleteClinicalEntity {
-  @ManyToOne(() => Patient)
+  @ManyToOne(() => Patient, { nullable: true })
   @JoinColumn({ name: 'patient_id' })
-  patient!: Patient;
+  patient!: Patient | null;
 
   @ManyToOne(() => Encounter, { nullable: true })
   @JoinColumn({ name: 'encounter_id' })

@@ -6,6 +6,7 @@ import { apiRequest } from '../../lib/api'
 import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { readSpreadsheetAsCsv, SPREADSHEET_UPLOAD_ACCEPT } from '../../lib/spreadsheet-import'
+import { StockTakeSessionPanel } from './StockTakeSessionPanel'
 
 type Location = { id: string; name: string; code: string }
 type Preview = {
@@ -141,10 +142,11 @@ export function StockTakeWorkspace() {
 
   return (
     <div className="space-y-6">
+      <StockTakeSessionPanel />
       <Card className="p-6">
         <PageHeader
-          title="Stock take"
-          description="New → Import → Validate → Preview → Confirm → Post. Counted quantity is not live stock until you confirm."
+          title="Sheet import (optional)"
+          description="Preview catalogue mapping only. Stock-take posting from CSV is disabled. Import physical_count into an open session; a different authorised user must approve."
         />
         <ol className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
           {['New', 'Import', 'Validate', preview ? 'Preview' : 'Awaiting file', preview ? 'Confirm' : 'Not posted'].map(
@@ -319,25 +321,11 @@ export function StockTakeWorkspace() {
             >
               Create new products only
             </Button>
-            <Button
-              type="button"
-              loading={importCsv.isPending}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Post this stock take as ledger adjustments (counted minus system quantity) for ${preview.heldOpeningQty} counted rows? Unresolved matches will not move stock. Repeat posts with the same session are rejected.`,
-                  )
-                ) {
-                  if (!locationId) {
-                    notify('Choose a location', 'Stock-take posting needs a count location.', 'critical')
-                    return
-                  }
-                  importCsv.mutate({ csv: pendingCsv, confirmStockTake: true })
-                }
-              }}
-            >
-              Confirm and post adjustments
-            </Button>
+            <Alert tone="info">
+              Confirm-and-post from this sheet is disabled. Use the session above: download the physical
+              count sheet, enter physical_count (not book_qty), import counts, then a different authorised
+              user approves.
+            </Alert>
           </div>
         </Card>
       ) : (

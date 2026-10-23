@@ -8,7 +8,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import type { RequestContext } from '../request-context';
-import { ERROR_CODES, inferErrorCode, safePublicMessage } from './error-codes';
+import { ERROR_CODES, inferErrorCode, isRetryableError, nextActionFor, safePublicMessage } from './error-codes';
+import { DomainHttpException } from './domain-exception';
 import { buildHospitalStatusHtml } from './hospital-status-page';
 
 type ErrorBody = {
@@ -17,6 +18,9 @@ type ErrorBody = {
     code: string;
     message: string;
     details?: string;
+    retryable: boolean;
+    nextAction?: string;
+    fields?: Record<string, string>;
   };
   requestId: string | null;
 };
@@ -59,16 +63,26 @@ export class ApiErrorFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
+    const rawResponse = exception instanceof HttpException ? exception.getResponse() : null;
+    const structured =
+      rawResponse && typeof rawResponse === 'object' && !Array.isArray(rawResponse)
+        ? (rawResponse as {
+            code?: string;
+            message?: unknown;
+            retryable?: boolean;
+            nextAction?: string;
+            fields?: Record<string, string>;
+          })
+        : null;
+
     const rawMessage =
-      exception instanceof HttpException
-        ? flattenMessage(exception.getResponse())
-        : exception instanceof Error
-          ? exception.message
-          : 'Unexpected error';
+      exception instanceof DomainHttpException
+        ? exception.message
+        : flattenMessage(rawResponse ?? (exception instanceof Error ? exception.message : 'Unexpected error'));
 
     const driverError =
-      exception && typeof exception === 'object' && 'code' in exception
-        ? String((exception as { code?: string }).code ?? '')
+      exception && typeof exception === 'object' && 'code' in exception && !(exception instanceof HttpException)
+        ? String((exception as { code?: unknown }).code ?? '')
         : '';
     const isDatabaseError =
       driverError.startsWith('23') ||
@@ -77,11 +91,29 @@ export class ApiErrorFilter implements ExceptionFilter {
         exception instanceof Error ? exception.name + exception.message : '',
       );
 
+    const explicitCode =
+      exception instanceof DomainHttpException
+        ? exception.errorCode
+        : typeof structured?.code === 'string'
+          ? structured.code
+          : null;
     const code = isDatabaseError
       ? ERROR_CODES.DATABASE_ERROR
-      : inferErrorCode(status, rawMessage);
+      : explicitCode || inferErrorCode(status, rawMessage);
     const publicDetails = rawMessage && !isSensitive(rawMessage) ? rawMessage : undefined;
     const message = safePublicMessage(status, publicDetails);
+    const retryable =
+      exception instanceof DomainHttpException
+        ? exception.retryable
+        : Boolean(structured?.retryable) || isRetryableError(status, code);
+    const nextAction =
+      exception instanceof DomainHttpException
+        ? exception.nextAction
+        : structured?.nextAction || nextActionFor(code, retryable);
+    const fields =
+      exception instanceof DomainHttpException
+        ? exception.fields
+        : structured?.fields;
 
     this.logger.error(
       JSON.stringify({
@@ -94,6 +126,7 @@ export class ApiErrorFilter implements ExceptionFilter {
         errorCode: code,
         status,
         technicalError: exception instanceof Error ? exception.name : 'unknown',
+        stack: status >= 500 && exception instanceof Error ? exception.stack : undefined,
       }),
     );
 
@@ -110,6 +143,9 @@ export class ApiErrorFilter implements ExceptionFilter {
         code,
         message,
         details: publicDetails && publicDetails !== message ? publicDetails : undefined,
+        retryable,
+        nextAction,
+        fields,
       },
       requestId,
     };

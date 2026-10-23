@@ -15,9 +15,11 @@ import { formatKes } from '../../lib/clinical-catalog'
 export function ControlCenterHome({
   permissions,
   onOpen,
+  stockFocus = false,
 }: {
   permissions: string[]
   onOpen: (section: Exclude<ControlCenterSection, 'home'>) => void
+  stockFocus?: boolean
 }) {
   const [query, setQuery] = useState('')
 
@@ -60,10 +62,10 @@ export function ControlCenterHome({
 
   const cards = useMemo(
     () =>
-      filterControlCenterCards(query).filter((card) =>
-        canAccessControlCenterSection(permissions, card.id),
-      ),
-    [permissions, query],
+      filterControlCenterCards(query)
+        .filter((card) => canAccessControlCenterSection(permissions, card.id))
+        .filter((card) => (stockFocus ? card.id === 'pharmacy' : true)),
+    [permissions, query, stockFocus],
   )
 
   return (

@@ -9,6 +9,7 @@ import {
   RecordManualPaymentDto,
   RefundPaymentDto,
   SaveHospitalChargeCatalogueDto,
+  PharmacyCreditApprovalDto,
 } from './payments.dto';
 import { AccommodationChargeService } from './accommodation-charge.service';
 import { BillingExceptionsService } from './billing-exceptions.service';
@@ -68,6 +69,20 @@ export class PaymentsController {
   listOutstanding(@Query('patientId') patientId?: string) {
     if (!patientId) return [];
     return this.payments.listOutstandingPharmacy(patientId);
+  }
+
+  @Get('payments/pharmacy-queue')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:read', 'payments:initiate', 'pharmacy:read')
+  pharmacyQueue() {
+    return this.payments.listOpenPharmacyQueue();
+  }
+
+  @Get('payments/pharmacy-sale/:saleId')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:read', 'payments:initiate', 'pharmacy:read', 'pharmacy:dispense')
+  pharmacySale(@Param('saleId') saleId: string) {
+    return this.payments.findPharmacyChargeBySale(saleId);
   }
 
   @Get('payments/charges')
@@ -200,6 +215,17 @@ export class PaymentsController {
   @RequirePermissions('admissions:read', 'payments:read')
   ipdCensus() {
     return this.accommodation.ipdCensus();
+  }
+
+  @Post('payments/charges/:id/credit')
+  @ApiBearerAuth()
+  @RequirePermissions('payments:manage')
+  approvePharmacyCredit(
+    @Param('id') id: string,
+    @Body() body: PharmacyCreditApprovalDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.payments.approvePharmacyCredit(id, body, request);
   }
 
   @Post('payments/charges/:id/adjust')

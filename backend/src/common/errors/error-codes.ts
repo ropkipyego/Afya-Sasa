@@ -16,7 +16,18 @@ export const ERROR_CODES = {
   PAYMENT_FAILED: 'PAYMENT_FAILED',
   PAYMENT_DUPLICATE: 'PAYMENT_DUPLICATE',
   INSUFFICIENT_STOCK: 'INSUFFICIENT_STOCK',
+  BATCH_INELIGIBLE: 'BATCH_INELIGIBLE',
+  SALE_NOT_PREPARED: 'SALE_NOT_PREPARED',
+  SALE_ALREADY_ISSUED: 'SALE_ALREADY_ISSUED',
+  SALE_CANCELLED: 'SALE_CANCELLED',
+  FINANCIAL_CLEARANCE_DENIED: 'FINANCIAL_CLEARANCE_DENIED',
+  INCONSISTENT_CHARGE: 'INCONSISTENT_CHARGE',
+  CREDIT_APPROVAL_INVALID: 'CREDIT_APPROVAL_INVALID',
+  IDEMPOTENT_REPLAY: 'IDEMPOTENT_REPLAY',
   INVENTORY_UPDATE_FAILED: 'INVENTORY_UPDATE_FAILED',
+  STOCK_TAKE_INVALID: 'STOCK_TAKE_INVALID',
+  STOCK_TAKE_INDEPENDENT_APPROVAL: 'STOCK_TAKE_INDEPENDENT_APPROVAL',
+  RESERVATIONS_UNAVAILABLE: 'RESERVATIONS_UNAVAILABLE',
   BIOMETRIC_DEVICE_UNAVAILABLE: 'BIOMETRIC_DEVICE_UNAVAILABLE',
   BIOMETRIC_SDK_UNAVAILABLE: 'BIOMETRIC_SDK_UNAVAILABLE',
   BIOMETRIC_VERIFICATION_FAILED: 'BIOMETRIC_VERIFICATION_FAILED',
@@ -52,7 +63,16 @@ const MESSAGE_CODE_HINTS: Array<{ match: RegExp; code: ErrorCode }> = [
   { match: /charge already|already posted/i, code: ERROR_CODES.CHARGE_ALREADY_CREATED },
   { match: /charges are disabled/i, code: ERROR_CODES.CHARGES_DISABLED },
   { match: /matching payment was just recorded/i, code: ERROR_CODES.PAYMENT_DUPLICATE },
-  { match: /insufficient stock/i, code: ERROR_CODES.INSUFFICIENT_STOCK },
+  { match: /insufficient available stock|insufficient stock/i, code: ERROR_CODES.INSUFFICIENT_STOCK },
+  { match: /expired|ineligible batch/i, code: ERROR_CODES.BATCH_INELIGIBLE },
+  { match: /bill is still outstanding|only partly paid|financial clearance/i, code: ERROR_CODES.FINANCIAL_CLEARANCE_DENIED },
+  { match: /credit approval/i, code: ERROR_CODES.CREDIT_APPROVAL_INVALID },
+  { match: /sale was cancelled|prescription was cancelled/i, code: ERROR_CODES.SALE_CANCELLED },
+  { match: /not been prepared|sale has no pharmacy bill/i, code: ERROR_CODES.SALE_NOT_PREPARED },
+  { match: /already fully dispensed/i, code: ERROR_CODES.SALE_ALREADY_ISSUED },
+  { match: /reservation table|reservations are unavailable/i, code: ERROR_CODES.RESERVATIONS_UNAVAILABLE },
+  { match: /cannot approve it|independent approval/i, code: ERROR_CODES.STOCK_TAKE_INDEPENDENT_APPROVAL },
+  { match: /stock-take|stock take/i, code: ERROR_CODES.STOCK_TAKE_INVALID },
   { match: /inventory/i, code: ERROR_CODES.INVENTORY_UPDATE_FAILED },
   { match: /already registered to another patient|already linked to another patient/i, code: ERROR_CODES.BIOMETRIC_CONFLICT },
   { match: /sdk_unavailable|sdk is not available|hid digitalpersona sdk/i, code: ERROR_CODES.BIOMETRIC_SDK_UNAVAILABLE },
@@ -78,6 +98,30 @@ export function inferErrorCode(status: number, message: string): ErrorCode {
   if (status === 400 || status === 422) return ERROR_CODES.VALIDATION_ERROR;
   if (status === 502 || status === 503) return ERROR_CODES.EXTERNAL_SERVICE_UNAVAILABLE;
   return ERROR_CODES.INTERNAL_ERROR;
+}
+
+export function isRetryableError(status: number, code: string): boolean {
+  return (
+    status === 429 ||
+    status === 502 ||
+    status === 503 ||
+    code === ERROR_CODES.EXTERNAL_SERVICE_UNAVAILABLE ||
+    code === ERROR_CODES.RATE_LIMITED
+  );
+}
+
+export function nextActionFor(code: string, retryable: boolean): string | undefined {
+  if (code === ERROR_CODES.FINANCIAL_CLEARANCE_DENIED) {
+    return 'Collect payment or a documented credit/exemption at the cashier desk, then issue.';
+  }
+  if (code === ERROR_CODES.INSUFFICIENT_STOCK) {
+    return 'Reduce the quantity or replenish pharmacy stock, then prepare the sale again.';
+  }
+  if (code === ERROR_CODES.SALE_NOT_PREPARED) {
+    return 'Prepare the sale first so stock is reserved and a bill exists.';
+  }
+  if (retryable) return 'Retry this request. It is safe to send again.';
+  return undefined;
 }
 
 export function safePublicMessage(status: number, fallback?: string): string {

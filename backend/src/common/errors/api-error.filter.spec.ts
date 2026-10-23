@@ -1,5 +1,6 @@
 import { ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ApiErrorFilter } from './api-error.filter';
+import { domainConflict } from './domain-exception';
 import { canViewDirectorFinance } from './director-access';
 import { inferErrorCode, ERROR_CODES } from './error-codes';
 
@@ -10,6 +11,9 @@ describe('error envelope', () => {
     expect(inferErrorCode(404, 'Patient not found')).toBe(ERROR_CODES.PATIENT_NOT_FOUND);
     expect(inferErrorCode(400, 'A matching payment was just recorded.')).toBe(
       ERROR_CODES.PAYMENT_DUPLICATE,
+    );
+    expect(inferErrorCode(403, 'The person who submitted this count cannot approve it.')).toBe(
+      ERROR_CODES.STOCK_TAKE_INDEPENDENT_APPROVAL,
     );
     expect(inferErrorCode(500, 'boom')).toBe(ERROR_CODES.INTERNAL_ERROR);
   });
@@ -36,7 +40,34 @@ describe('error envelope', () => {
     expect(body.success).toBe(false);
     expect(body.error.code).toBe(ERROR_CODES.AUTH_REQUIRED);
     expect(body.requestId).toBe('req-1');
+    expect(body.error.retryable).toBe(false);
     expect(JSON.stringify(body)).not.toMatch(/stack/i);
+  });
+
+  it('keeps pharmacy clearance denials specific and not retryable', () => {
+    const filter = new ApiErrorFilter();
+    const json = jest.fn();
+    const response = { status: jest.fn().mockReturnValue({ json }) };
+    filter.catch(
+      domainConflict(ERROR_CODES.FINANCIAL_CLEARANCE_DENIED, 'This sale cannot be issued because its bill is still outstanding.'),
+      {
+        switchToHttp: () => ({
+          getResponse: () => response,
+          getRequest: () => ({
+            header: () => 'req-pay',
+            headers: { 'x-request-id': 'req-pay' },
+            originalUrl: '/api/v1/inventory/dispense/prescription',
+            method: 'POST',
+            user: { sub: 'pharm' },
+          }),
+        }),
+      } as never,
+    );
+    const body = json.mock.calls[0][0];
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(body.error.code).toBe(ERROR_CODES.FINANCIAL_CLEARANCE_DENIED);
+    expect(body.error.message).toMatch(/outstanding/);
+    expect(body.error.retryable).toBe(false);
   });
 
   it('maps 403 and 404 through the same envelope', () => {

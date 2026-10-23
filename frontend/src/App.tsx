@@ -568,6 +568,9 @@ function App() {
           {activeScreen === 'ICU' ? <IcuModule /> : null}
           {activeScreen === 'HDU' ? <HduModule /> : null}
           {activeScreen === 'Hospital Control Center' ? <HospitalControlCenter /> : null}
+          {activeScreen === 'Pharmacy Configuration' || activeScreen === 'Stock Oversight' ? (
+            <HospitalControlCenter stockFocus initialSection="pharmacy" />
+          ) : null}
           {!KNOWN_SCREENS.has(activeScreen) ? <Placeholder screen={activeScreen} /> : null}
           {selectedPatientId ? (
             <PatientFileModal

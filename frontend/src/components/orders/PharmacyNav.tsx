@@ -23,6 +23,7 @@ export type PharmacyScreen =
   | 'prices'
   | 'import'
   | 'otc'
+  | 'pos'
   | 'reports'
 
 const GROUPS: Array<{ label: string; items: Array<{ id: PharmacyScreen; label: string }> }> = [

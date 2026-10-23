@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CreditCard, History, Printer } from 'lucide-react'
 import {
+  Alert,
   Button,
   Card,
   Field,
@@ -46,6 +47,18 @@ export function PaymentDesk() {
   const [labQuery, setLabQuery] = useState('')
   const [pharmacyOrderId, setPharmacyOrderId] = useState('')
   const [selectedChargeId, setSelectedChargeId] = useState('')
+  const [creditReason, setCreditReason] = useState('')
+  const [saleLookup, setSaleLookup] = useState('')
+  const [walkInCharge, setWalkInCharge] = useState<{
+    id: string
+    serviceDescription: string
+    amountOwed: string
+    amountPaid: string
+    amountWaived?: string
+    serviceEntityId?: string | null
+    patient?: { id: string; firstName: string; lastName: string; patientNo: string } | null
+    metadata?: { walkIn?: { name?: string; phone?: string | null } } | null
+  } | null>(null)
   const queryClient = useQueryClient()
   const canCloseCashier = useAuthStore((state) => (state.user?.permissions ?? []).includes('payments:manage'))
   const canRefund = canCloseCashier
@@ -115,6 +128,24 @@ export function PaymentDesk() {
     staleTime: 0,
   })
 
+  const { data: pharmacyQueue = [] } = useQuery({
+    queryKey: ['pharmacy-cashier-queue'],
+    queryFn: () =>
+      apiRequest<
+        Array<{
+          id: string
+          serviceDescription: string
+          amountOwed: string
+          amountPaid: string
+          amountWaived?: string
+          serviceEntityId?: string | null
+          status: string
+          patient?: { id: string; firstName: string; lastName: string; patientNo: string } | null
+          metadata?: { walkIn?: { name?: string; phone?: string | null } } | null
+        }>
+      >('/payments/pharmacy-queue'),
+  })
+
   const { data: patientCharges = [], refetch: refetchCharges } = useQuery({
     queryKey: ['patient-charges', patient?.id],
     queryFn: () => listPatientCharges(patient!.id),
@@ -130,6 +161,9 @@ export function PaymentDesk() {
   }, [patientCharges])
 
   const selectedCharge = patientCharges.find((row) => row.id === selectedChargeId)
+  const pharmacyChargeId =
+    selectedCharge?.id ??
+    outstandingPharmacy.find((row) => row.serviceEntityId === pharmacyOrderId)?.chargeId
 
   const closeCashier = useMutation({
     mutationFn: () =>
@@ -147,6 +181,25 @@ export function PaymentDesk() {
     },
     onError: (error: Error) =>
       notify('Could not close cash point', formatApiError(error, 'Cashier close failed.'), 'critical'),
+  })
+
+  const approveCredit = useMutation({
+    mutationFn: () =>
+      apiRequest(`/payments/charges/${pharmacyChargeId}/credit`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: Number(amount) || 0,
+          reason: creditReason.trim(),
+        }),
+      }),
+    onSuccess: async () => {
+      notify('Credit documented', 'Pharmacy may issue within this approved coverage after the backend clearance check.', 'success')
+      setCreditReason('')
+      await refetchCharges()
+      await refetchOutstanding()
+    },
+    onError: (error: Error) =>
+      notify('Credit not approved', formatApiError(error, 'Credit approval failed.'), 'critical'),
   })
 
   useEffect(() => {
@@ -239,6 +292,91 @@ export function PaymentDesk() {
         />
 
         <div className="mt-8 space-y-6">
+          <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4">
+            <p className="text-sm font-semibold text-teal-950">Pharmacy sale lookup (walk-in)</p>
+            <p className="mt-1 text-xs text-teal-900">
+              Paste the POS sale id if there is no patient. Do not create a dummy registration.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Field
+                name="saleLookup"
+                label="Sale id"
+                value={saleLookup}
+                onChange={(e) => setSaleLookup(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                className="self-end"
+                onClick={async () => {
+                  try {
+                    const row = await apiRequest<NonNullable<typeof walkInCharge>>(
+                      `/payments/pharmacy-sale/${encodeURIComponent(saleLookup.trim())}`,
+                    )
+                    if (!row) {
+                      notify('Sale not found', 'No open pharmacy bill matches that id.', 'warning')
+                      return
+                    }
+                    setWalkInCharge(row)
+                    setServiceLine('pharmacy')
+                    setSelectedChargeId(row.id)
+                    setPharmacyOrderId(row.serviceEntityId ?? '')
+                    const remaining = Math.max(
+                      0,
+                      Number(row.amountOwed) - Number(row.amountPaid) - Number(row.amountWaived ?? 0),
+                    )
+                    setAmount(String(remaining))
+                    setServiceDescription(row.serviceDescription)
+                    if (row.patient) {
+                      setPatient({
+                        id: row.patient.id,
+                        firstName: row.patient.firstName,
+                        lastName: row.patient.lastName,
+                        patientNo: row.patient.patientNo,
+                      } as PatientSearchItem)
+                    }
+                  } catch (error) {
+                    notify('Sale lookup failed', formatApiError(error, 'Could not load that pharmacy sale.'), 'critical')
+                  }
+                }}
+              >
+                Open sale
+              </Button>
+            </div>
+            {pharmacyQueue.length ? (
+              <ul className="mt-3 max-h-40 overflow-auto text-sm">
+                {pharmacyQueue.slice(0, 12).map((row) => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      className="text-left text-teal-800 underline"
+                      onClick={() => {
+                        setSaleLookup(row.serviceEntityId ?? row.id)
+                        setWalkInCharge(row)
+                        setServiceLine('pharmacy')
+                        setSelectedChargeId(row.id)
+                        setPharmacyOrderId(row.serviceEntityId ?? '')
+                        setAmount(
+                          String(
+                            Math.max(
+                              0,
+                              Number(row.amountOwed) - Number(row.amountPaid) - Number(row.amountWaived ?? 0),
+                            ),
+                          ),
+                        )
+                        setServiceDescription(row.serviceDescription)
+                      }}
+                    >
+                      {(row.patient
+                        ? `${row.patient.firstName} ${row.patient.lastName}`
+                        : row.metadata?.walkIn?.name ?? 'Walk-in')}{' '}
+                      · {row.serviceDescription} · {row.serviceEntityId?.slice(0, 8)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <PatientSearchAutocomplete selected={patient} onSelect={setPatient} />
           {patient ? (
             <>
@@ -477,7 +615,7 @@ export function PaymentDesk() {
               outstandingPharmacy.filter((row) => row.serviceLine === 'pharmacy').length ? (
                 <SelectField
                   name="pharmacyOrderId"
-                  label="Unpaid dispensed prescription"
+                  label="Open pharmacy bill"
                   value={pharmacyOrderId}
                   onChange={(e) => {
                     const selected = outstandingPharmacy
@@ -489,9 +627,9 @@ export function PaymentDesk() {
                       if (selected.remaining != null) setAmount(String(selected.remaining))
                     }
                   }}
-                  hint="Dispense already happened. Pay this prescription (full or partial) so cashier and pharmacy stay on the same bill."
+                  hint="Pay the prepared pharmacy bill. Medicine is issued only after this bill is cleared."
                 >
-                  <option value="">Select dispensed order…</option>
+                  <option value="">Select pharmacy bill…</option>
                   {outstandingPharmacy
                     .filter((row) => row.serviceLine === 'pharmacy')
                     .map((row) => (
@@ -661,11 +799,65 @@ export function PaymentDesk() {
                   setSelectedChargeId('')
                 }}
               />
+              {canCloseCashier && serviceLine === 'pharmacy' && pharmacyChargeId ? (
+                <div className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-950">Documented pharmacy credit</p>
+                  <p className="text-xs text-amber-900">
+                    Does not collect cash. Covers an unpaid remainder so pharmacy can issue. You cannot approve a bill you prepared.
+                  </p>
+                  <Field
+                    name="creditReason"
+                    label="Credit reason"
+                    value={creditReason}
+                    onChange={(e) => setCreditReason(e.target.value)}
+                    placeholder="Authorised deferred payment"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={approveCredit.isPending}
+                    disabled={!creditReason.trim() || approveCredit.isPending}
+                    onClick={() => approveCredit.mutate()}
+                  >
+                    Approve credit on this bill
+                  </Button>
+                </div>
+              ) : null}
             </>
+          ) : walkInCharge ? (
+            <div className="space-y-4">
+              <Alert tone="info">
+                Walk-in pharmacy bill {walkInCharge.serviceEntityId?.slice(0, 8)} ·{' '}
+                {walkInCharge.metadata?.walkIn?.name ?? 'Walk-in'} · no patient record.
+              </Alert>
+              <PaymentCheckoutPanel
+                patientId={undefined}
+                serviceLine="pharmacy"
+                serviceEntityId={walkInCharge.serviceEntityId ?? undefined}
+                chargeId={walkInCharge.id}
+                serviceDescription={walkInCharge.serviceDescription}
+                defaultAmount={String(
+                  Math.max(
+                    0,
+                    Number(walkInCharge.amountOwed) -
+                      Number(walkInCharge.amountPaid) -
+                      Number(walkInCharge.amountWaived ?? 0),
+                  ),
+                )}
+                submitLabel="Collect walk-in payment"
+                receiptPatient={{
+                  name: walkInCharge.metadata?.walkIn?.name ?? 'Walk-in',
+                  patientNo: walkInCharge.serviceEntityId?.slice(0, 8) ?? 'WALK-IN',
+                }}
+                onSuccess={async () => {
+                  setWalkInCharge(null)
+                  void queryClient.invalidateQueries({ queryKey: ['pharmacy-cashier-queue'] })
+                }}
+              />
+            </div>
           ) : (
             <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-              Search for a patient to collect payment. STK push works for consultation fees, pharmacy
-              sales, lab tests, radiology studies, and any other billable service.
+              Search for a patient, or open a pharmacy sale id for a walk-in OTC bill.
             </p>
           )}
         </div>

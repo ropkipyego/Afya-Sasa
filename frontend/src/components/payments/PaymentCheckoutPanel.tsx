@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Smartphone, Wallet } from 'lucide-react'
 import { Alert, Button, Field, SelectField } from '../ui'
@@ -11,7 +11,7 @@ import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { printPaymentReceipt } from '../../lib/print-payment-receipt'
 
 export type PaymentCheckoutPanelProps = {
-  patientId: string
+  patientId?: string
   patientPhone?: string | null
   serviceLine: PaymentServiceLine
   serviceEntityId?: string
@@ -51,6 +51,11 @@ export function PaymentCheckoutPanel({
   const [mpesaPhone, setMpesaPhone] = useState(patientPhone ?? '')
   const [paymentReference, setPaymentReference] = useState('')
   const [resultMessage, setResultMessage] = useState<string | null>(null)
+  const paymentAttemptKey = useRef(
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${chargeId ?? 'none'}:${Date.now()}`,
+  )
 
   const pay = useMutation({
     mutationFn: async () => {
@@ -67,6 +72,9 @@ export function PaymentCheckoutPanel({
       if (paymentMethod === 'mpesa' && !mpesaPhone.trim()) {
         throw new Error('Enter the M-Pesa phone number for STK push.')
       }
+      if (paymentMethod !== 'pharmacy' && !patientId && paymentMethod === 'insurance') {
+        throw new Error('Insurance collection still requires a patient record.')
+      }
       return collectPayment({
         patientId,
         serviceLine,
@@ -79,10 +87,7 @@ export function PaymentCheckoutPanel({
         payerScheme: payerScheme || undefined,
         mpesaPhone: mpesaPhone || undefined,
         paymentReference: paymentReference || undefined,
-        idempotencyKey:
-          typeof crypto !== 'undefined' && 'randomUUID' in crypto
-            ? crypto.randomUUID()
-            : `${patientId}:${chargeId ?? 'none'}:${parsedAmount}:${Date.now()}`,
+        idempotencyKey: paymentAttemptKey.current,
       })
     },
     onSuccess: (response) => {

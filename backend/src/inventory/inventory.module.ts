@@ -13,6 +13,9 @@ import {
   InventoryTransfer,
   InventoryTransferLine,
   InventoryTransaction,
+  InventoryReservation,
+  InventoryStockTakeLine,
+  InventoryStockTakeSession,
 } from './inventory.entities';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
@@ -30,6 +33,9 @@ import { InventoryService } from './inventory.service';
       InventoryRequisitionLine,
       InventoryTransfer,
       InventoryTransferLine,
+      InventoryReservation,
+      InventoryStockTakeSession,
+      InventoryStockTakeLine,
       ClinicalOrder,
       TenantSettings,
     ]),

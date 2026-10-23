@@ -136,7 +136,7 @@ export class InsuranceService {
       relations: { patient: true },
     });
     if (charges.length !== chargeIds.length) throw new BadRequestException('One or more charges were not found');
-    if (charges.some((charge) => charge.patient.id !== body.patientId)) {
+    if (charges.some((charge) => charge.patient?.id !== body.patientId)) {
       throw new BadRequestException('Charges must belong to the selected patient');
     }
     if (charges.some((charge) => charge.status === 'cancelled')) {

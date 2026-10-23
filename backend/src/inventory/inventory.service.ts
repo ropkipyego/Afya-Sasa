@@ -1,4 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { domainBadRequest, domainConflict, domainNotFound } from '../common/errors/domain-exception';
+import { ERROR_CODES } from '../common/errors/error-codes';
+import { chargesEnabled } from '../payments/charge.entities';
+import { evaluatePharmacyClearance } from '../payments/pharmacy-clearance';
+import { availableQuantity, assertEnoughAvailable } from './stock-available';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
@@ -17,16 +22,30 @@ import { PaymentsService } from '../payments/payments.service';
 import { lookupCatalogueTariff, readHospitalChargeCatalogue } from '../payments/hospital-charges';
 import {
   BulkPricingDto,
+  CountStockTakeLineDto,
   CreateInventoryItemDto,
   CreateRequisitionDto,
+  CreateStockTakeSessionDto,
   CreateTransferDto,
+  CancelPharmacySaleDto,
   DispenseOtcDto,
   DispensePharmacyDto,
   DispensePrescriptionDto,
+  PrepareOtcCartDto,
+  PreparePrescriptionDto,
   ImportInventoryCsvDto,
+  ImportStockTakeCountsDto,
   ReceiveStockDto,
+  RejectStockTakeDto,
   UpdateItemPricingDto,
 } from './inventory.dto';
+import {
+  assertCanCount,
+  assertCanReject,
+  assertCanSubmit,
+  assertIndependentApprover,
+  assertVarianceReason,
+} from './stock-take-session';
 import {
   csvEscape,
   ledgerNetQuantity,
@@ -61,6 +80,9 @@ import {
   InventoryRequisition,
   InventoryRequisitionLine,
   InventoryTransaction,
+  InventoryReservation,
+  InventoryStockTakeLine,
+  InventoryStockTakeSession,
   InventoryTransfer,
   InventoryTransferLine,
   type InventoryCategory,
@@ -90,6 +112,12 @@ export class InventoryService {
     private readonly transfers: Repository<InventoryTransfer>,
     @InjectRepository(InventoryTransferLine)
     private readonly transferLines: Repository<InventoryTransferLine>,
+    @InjectRepository(InventoryReservation)
+    private readonly reservations: Repository<InventoryReservation>,
+    @InjectRepository(InventoryStockTakeSession)
+    private readonly stockTakeSessions: Repository<InventoryStockTakeSession>,
+    @InjectRepository(InventoryStockTakeLine)
+    private readonly stockTakeLines: Repository<InventoryStockTakeLine>,
     @InjectRepository(ClinicalOrder)
     private readonly clinicalOrders: Repository<ClinicalOrder>,
     @InjectRepository(TenantSettings)
@@ -133,6 +161,9 @@ export class InventoryService {
     if (await this.hasStrengthColumns()) {
       qb.addSelect('item.strength').addSelect('item.dosageForm');
     }
+    if (await this.hasReorderColumns()) {
+      qb.addSelect('item.minLevel').addSelect('item.maxLevel');
+    }
     const rows = await qb.getMany();
     const pricing = await this.readPricingMap(params?.request);
     return rows.map((item) => {
@@ -144,6 +175,8 @@ export class InventoryService {
         drugClass,
         strength: item.strength ?? null,
         dosageForm: item.dosageForm ?? null,
+        minLevel: item.minLevel != null ? Number(item.minLevel) : null,
+        maxLevel: item.maxLevel != null ? Number(item.maxLevel) : null,
       };
     });
   }
@@ -225,15 +258,32 @@ export class InventoryService {
 
   async updateItem(
     itemId: string,
-    dto: { strength?: string; dosageForm?: string; active?: boolean },
+    dto: {
+      name?: string;
+      unit?: string;
+      strength?: string;
+      dosageForm?: string;
+      active?: boolean;
+      minLevel?: number;
+      maxLevel?: number;
+    },
     request: RequestContext,
   ) {
     const item = await this.items.findOne({ where: { id: itemId } });
     if (!item) throw new NotFoundException('Catalogue product not found');
+    if (dto.name != null && dto.name.trim()) {
+      item.name = dto.name.trim();
+      item.drugClass = classifyDrug(item.name, item.category);
+    }
+    if (dto.unit != null && dto.unit.trim()) item.unit = dto.unit.trim();
     if (dto.active != null) item.active = dto.active;
     if (await this.hasStrengthColumns()) {
       if (dto.strength !== undefined) item.strength = dto.strength.trim() || null;
       if (dto.dosageForm !== undefined) item.dosageForm = dto.dosageForm.trim() || null;
+    }
+    if (await this.hasReorderColumns()) {
+      if (dto.minLevel !== undefined) item.minLevel = dto.minLevel != null ? String(dto.minLevel) : null;
+      if (dto.maxLevel !== undefined) item.maxLevel = dto.maxLevel != null ? String(dto.maxLevel) : null;
     }
     item.updatedBy = request.user?.sub ?? null;
     return this.items.save(item);
@@ -276,9 +326,26 @@ export class InventoryService {
       relations: { item: true, location: true },
       order: { expiryDate: 'ASC' },
     });
+    const onHand = batches.filter((batch) => Number(batch.qtyOnHand) > 0);
+    const held = await this.reservations.find({
+      where: { location: { id: locationId }, status: 'held' },
+      relations: { batch: true, item: true },
+    });
+    const heldByBatch = new Map<string, number>();
+    for (const row of held) {
+      heldByBatch.set(row.batch.id, (heldByBatch.get(row.batch.id) ?? 0) + Number(row.quantity));
+    }
     return {
       location,
-      batches: batches.filter((batch) => Number(batch.qtyOnHand) > 0),
+      batches: onHand.map((batch) => {
+        const reserved = heldByBatch.get(batch.id) ?? 0;
+        const onHandQty = Number(batch.qtyOnHand);
+        return {
+          ...batch,
+          reservedQuantity: reserved,
+          availableQuantity: Math.max(0, onHandQty - reserved),
+        };
+      }),
     };
   }
 
@@ -389,10 +456,13 @@ export class InventoryService {
       const batchesRepo = manager.getRepository(InventoryBatch);
       const ledger = manager.getRepository(InventoryTransaction);
 
+      await orders.findOne({
+        where: { id: dto.clinicalOrderId, orderType: 'pharmacy' },
+        lock: { mode: 'pessimistic_write' },
+      });
       const order = await orders.findOne({
         where: { id: dto.clinicalOrderId, orderType: 'pharmacy' },
         relations: { patient: true, encounter: true, admission: true },
-        lock: { mode: 'pessimistic_write' },
       });
       if (!order) {
         throw new NotFoundException('Pharmacy order not found');
@@ -415,15 +485,18 @@ export class InventoryService {
 
       const item = await this.resolvePharmacyItem(items, order, dto.itemId);
       const quantity = this.resolveDispenseQuantity(dto.quantity, order, remaining);
-      const batches = await this.lockLocationBatches(manager, item.id, pharmacy.id);
-
-      const usable = batches.filter((batch) => !isExpiredBatch(batch.expiryDate));
-      const available = usable.reduce((sum, batch) => sum + Number(batch.qtyOnHand), 0);
-      const allocations = this.allocateFromBatches(
-        usable,
-        quantity,
-        `Insufficient usable (non-expired) pharmacy stock for ${item.name}. Need ${quantity} ${item.unit}, have ${available}.`,
-      );
+      await this.assertReservationsReady(manager);
+      const saleId = prescriptionGroupId(order);
+      await this.assertPharmacyClearance(saleId, manager);
+      await this.lockLocationBatches(manager, item.id, pharmacy.id);
+      const held = await this.heldReservations(manager, saleId, order.id);
+      if (!held.length) {
+        throw domainConflict(
+          ERROR_CODES.SALE_NOT_PREPARED,
+          'This prescription line has not been prepared. Reserve stock and send the bill to cashier first.',
+        );
+      }
+      const allocations = await this.consumeReservations(manager, held, quantity, request);
 
       const ledgerRows: InventoryTransaction[] = [];
       for (const { batch, quantity: take } of allocations) {
@@ -520,123 +593,82 @@ export class InventoryService {
       };
   }
 
-  async dispenseOtcSale(dto: DispenseOtcDto, request: RequestContext) {
+  /**
+   * Physical OTC issue. Stock leaves the shelf only after financial clearance.
+   * Prepare the sale first so a reservation and charge exist.
+   */
+  async issueOtcSale(dto: DispenseOtcDto, request: RequestContext) {
+    const clientSaleId = dto.saleId?.trim();
+    if (!clientSaleId) {
+      throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'OTC sales require a stable saleId so retries cannot become a second sale.');
+    }
     return this.items.manager.transaction(async (manager) => {
-    const locations = manager.getRepository(InventoryLocation);
-    const items = manager.getRepository(InventoryItem);
-    const batchesRepo = manager.getRepository(InventoryBatch);
-    const ledger = manager.getRepository(InventoryTransaction);
-    const pharmacy = await locations.findOne({ where: { code: 'PHARMACY', active: true } });
-    if (!pharmacy) {
-      throw new NotFoundException('Pharmacy location not configured');
-    }
-
-    const item = await items.findOne({ where: { id: dto.itemId, active: true } });
-    if (!item) {
-      throw new NotFoundException('Inventory item not found');
-    }
-    if (item.category !== 'pharmaceutical') {
-      throw new BadRequestException('OTC sales are limited to pharmaceutical items');
-    }
-
-    const clientSaleId = dto.saleId?.trim() || '';
-    const saleRef = otcSaleReferenceId(clientSaleId || null);
-    await this.acquireImportAdvisoryLock(manager, `otc_sale:${saleRef}`);
-    if (clientSaleId) {
+      await this.assertReservationsReady(manager);
+      const saleRef = otcSaleReferenceId(clientSaleId);
+      await this.acquireImportAdvisoryLock(manager, `otc_sale:${saleRef}`);
+      const ledger = manager.getRepository(InventoryTransaction);
       const duplicate = await ledger.findOne({
         where: { referenceType: 'otc_sale', referenceId: saleRef },
       });
       if (duplicate) {
-        throw new BadRequestException('This OTC sale was already posted. Stock was not deducted again.');
+        return { saleId: saleRef, replay: true, stockDeducted: false };
       }
-    }
-
-    const batches = await this.lockLocationBatches(manager, item.id, pharmacy.id);
-
-    const usable = batches.filter((batch) => !isExpiredBatch(batch.expiryDate));
-    const allocations = this.allocateFromBatches(
-      usable,
-      dto.quantity,
-      `Insufficient usable (non-expired) pharmacy stock for ${item.name}.`,
-    );
-    const ledgerRows: InventoryTransaction[] = [];
-
-    for (const { batch, quantity } of allocations) {
-      batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), -quantity).toString();
-      batch.updatedBy = request.user?.sub ?? null;
-      await batchesRepo.save(batch);
-      ledgerRows.push(
-        await ledger.save(
-          ledger.create({
-            item,
-            batch,
-            sourceLocation: pharmacy,
-            destinationLocation: null,
-            quantity: (-quantity).toString(),
-            unit: item.unit,
-            transactionType: 'DISPENSE',
-            referenceType: 'otc_sale',
-            referenceId: saleRef,
-            reason: dto.notes?.trim() || 'OTC sale',
-            createdBy: request.user?.sub ?? null,
-            updatedBy: request.user?.sub ?? null,
-          }),
-        ),
-      );
-    }
-
-    let billing: {
-      status: 'charged' | 'walk_in_unbilled' | 'not_required' | 'charges_disabled';
-      chargeId: string | null;
-    } = {
-      status: dto.patientId ? 'not_required' : 'walk_in_unbilled',
-      chargeId: null,
-    };
-    if (dto.patientId) {
-      const pricing = await this.readPricingMap(request);
-      const unitSell = Number(pricing[item.sku]?.sell ?? 0);
-      const suggested =
-        Number.isFinite(unitSell) && unitSell > 0
-          ? Math.round(unitSell * dto.quantity * 100) / 100
-          : null;
-      if (suggested && suggested > 0) {
-        if (this.failNextImportWrite === 'charge') {
-          this.failNextImportWrite = undefined;
-          throw new BadRequestException('Forced charge failure');
-        }
-        const opId = saleRef;
-        const charge = await this.payments.upsertPharmacyCharge(
-          {
-            patientId: dto.patientId,
-            encounterId: null,
-            serviceEntityId: opId,
-            description: `OTC ${item.name} × ${dto.quantity} ${item.unit}`,
-            amountDelta: suggested,
-            orderNo: `OTC-${opId.slice(0, 8)}`,
-            userId: request.user?.sub ?? null,
-            dispenseOpId: opId,
-          },
-          manager,
+      await this.assertPharmacyClearance(saleRef, manager);
+      const locations = manager.getRepository(InventoryLocation);
+      const pharmacy = await locations.findOne({ where: { code: 'PHARMACY', active: true } });
+      if (!pharmacy) throw new NotFoundException('Pharmacy location not configured');
+      const held = await this.heldReservations(manager, saleRef);
+      if (!held.length) {
+        throw domainConflict(
+          ERROR_CODES.SALE_NOT_PREPARED,
+          'This OTC sale has not been prepared. Reserve stock and bill the patient first.',
         );
-        billing = {
-          status: charge ? 'charged' : 'charges_disabled',
-          chargeId: charge?.id ?? null,
-        };
       }
-    }
-
-    return {
-      item,
-      patientId: dto.patientId ?? null,
-      saleId: saleRef,
-      allocations: allocations.map(({ batch, quantity }) => ({
-        batchId: batch.id,
-        batchNo: batch.batchNo,
-        quantity,
-      })),
-      transactions: ledgerRows,
-      billing,
-    };
+      const itemIds = [...new Set(held.map((row) => row.item.id))];
+      for (const itemId of itemIds) {
+        await this.lockLocationBatches(manager, itemId, pharmacy.id);
+      }
+      const issueQty = held.reduce((sum, row) => sum + Number(row.quantity), 0);
+      const allocations = await this.consumeReservations(manager, held, issueQty, request);
+      const batchesRepo = manager.getRepository(InventoryBatch);
+      const ledgerRows: InventoryTransaction[] = [];
+      for (const { batch, quantity } of allocations) {
+        const lineItem = batch.item ?? held.find((row) => row.batch.id === batch.id)?.item;
+        if (!lineItem) throw new NotFoundException('Inventory item not found');
+        batch.qtyOnHand = nextOnHand(Number(batch.qtyOnHand), -quantity).toString();
+        batch.updatedBy = request.user?.sub ?? null;
+        await batchesRepo.save(batch);
+        ledgerRows.push(
+          await ledger.save(
+            ledger.create({
+              item: lineItem,
+              batch,
+              sourceLocation: pharmacy,
+              destinationLocation: null,
+              quantity: (-quantity).toString(),
+              unit: lineItem.unit,
+              transactionType: 'DISPENSE',
+              referenceType: 'otc_sale',
+              referenceId: saleRef,
+              reason: dto.notes?.trim() || 'OTC sale',
+              createdBy: request.user?.sub ?? null,
+              updatedBy: request.user?.sub ?? null,
+            }),
+          ),
+        );
+      }
+      return {
+        item: allocations[0]?.batch.item ?? held[0]?.item,
+        patientId: dto.patientId ?? null,
+        saleId: saleRef,
+        allocations: allocations.map(({ batch, quantity }) => ({
+          batchId: batch.id,
+          batchNo: batch.batchNo,
+          quantity,
+        })),
+        transactions: ledgerRows,
+        replay: false,
+      };
     });
   }
 
@@ -741,13 +773,16 @@ export class InventoryService {
   async issueRequisition(id: string, request: RequestContext) {
     return this.items.manager.transaction(async (manager) => {
       const requisitions = manager.getRepository(InventoryRequisition);
+      await requisitions.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       const requisition = await requisitions.findOne({
         where: { id },
         relations: {
           destinationLocation: true,
           lines: { item: true, sourceLocation: true },
         },
-        lock: { mode: 'pessimistic_write' },
       });
       if (!requisition) throw new NotFoundException('Requisition not found');
       if (requisition.status !== 'approved') {
@@ -907,6 +942,10 @@ export class InventoryService {
   async shipTransfer(id: string, request: RequestContext) {
     return this.items.manager.transaction(async (manager) => {
       const transfers = manager.getRepository(InventoryTransfer);
+      await transfers.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       const transfer = await transfers.findOne({
         where: { id },
         relations: {
@@ -914,7 +953,6 @@ export class InventoryService {
           destinationLocation: true,
           lines: { item: true, batch: true },
         },
-        lock: { mode: 'pessimistic_write' },
       });
       if (!transfer) throw new NotFoundException('Transfer not found');
       if (transfer.status !== 'pending') {
@@ -967,6 +1005,10 @@ export class InventoryService {
   async receiveTransfer(id: string, request: RequestContext) {
     return this.items.manager.transaction(async (manager) => {
       const transfers = manager.getRepository(InventoryTransfer);
+      await transfers.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
       const transfer = await transfers.findOne({
         where: { id },
         relations: {
@@ -974,7 +1016,6 @@ export class InventoryService {
           destinationLocation: true,
           lines: { item: true },
         },
-        lock: { mode: 'pessimistic_write' },
       });
       if (!transfer) throw new NotFoundException('Transfer not found');
       if (transfer.status !== 'in_transit') {
@@ -1181,16 +1222,6 @@ export class InventoryService {
         suggestedAmount: suggestedAmount > 0 ? Math.round(suggestedAmount * 100) / 100 : null,
         orderNo: results[0].orderNo,
       };
-      await this.recordDispenseCharge(
-        billing,
-        request,
-        manager,
-        results.map((row) => ({ orderId: row.orderId, quantity: row.quantity })),
-      );
-      if (this.failNextImportWrite === 'charge') {
-        this.failNextImportWrite = undefined;
-        throw new BadRequestException('Forced charge failure');
-      }
       return {
         prescriptionGroupId: billing.serviceEntityId,
         lines: results,
@@ -1202,10 +1233,13 @@ export class InventoryService {
   async retryDispenseBilling(orderId: string, request: RequestContext) {
     return this.items.manager.transaction(async (manager) => {
       const orders = manager.getRepository(ClinicalOrder);
+      await orders.findOne({
+        where: { id: orderId, orderType: 'pharmacy' },
+        lock: { mode: 'pessimistic_write' },
+      });
       const order = await orders.findOne({
         where: { id: orderId, orderType: 'pharmacy' },
         relations: { patient: true, encounter: true, admission: true },
-        lock: { mode: 'pessimistic_write' },
       });
       if (!order) throw new NotFoundException('Pharmacy order not found');
       if (order.status !== 'dispensed' && order.status !== 'partially_dispensed') {
@@ -1313,6 +1347,561 @@ export class InventoryService {
     return selected;
   }
 
+  /**
+   * Reserve FEFO lots and open/update the pharmacy charge. Does not change qty_on_hand
+   * and does not post DISPENSE. Safe to retry with the same lines.
+   */
+  async preparePrescriptionSale(dto: PreparePrescriptionDto, request: RequestContext) {
+    if (!dto.lines?.length) {
+      throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'Select at least one medication line to prepare.');
+    }
+    return this.items.manager.transaction(async (manager) => {
+      await this.assertReservationsReady(manager);
+      const results = [];
+      for (const line of dto.lines) {
+        if (line.rejected) continue;
+        results.push(await this.preparePharmacyLine(line, request, manager));
+      }
+      if (!results.length) {
+        throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'No lines were prepared.');
+      }
+      const saleId = dto.prescriptionGroupId ?? results[0].saleId;
+      const suggestedAmount = results.reduce((sum, row) => sum + (row.suggestedAmount ?? 0), 0);
+      await this.postPrepareCharge(
+        {
+          saleId,
+          patientId: results[0].patientId,
+          encounterId: results[0].encounterId,
+          admissionId: results[0].admissionId,
+          description: results.map((row) => row.description).join(' · '),
+          suggestedAmount,
+          orderNo: results[0].orderNo,
+          lines: results.map((row) => ({ orderId: row.orderId, quantity: row.quantity })),
+        },
+        request,
+        manager,
+      );
+      return { saleId, replay: results.every((row) => row.replay), lines: results };
+    });
+  }
+
+  async prepareOtcSale(dto: PrepareOtcCartDto | DispenseOtcDto, request: RequestContext) {
+    const clientSaleId = dto.saleId?.trim();
+    if (!clientSaleId) {
+      throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'OTC sales require a stable saleId so retries cannot become a second sale.');
+    }
+    const rawLines =
+      'lines' in dto && Array.isArray(dto.lines) && dto.lines.length
+        ? dto.lines
+        : 'itemId' in dto && dto.itemId
+          ? [{ itemId: dto.itemId, quantity: dto.quantity }]
+          : [];
+    const lines = rawLines.map((line) => {
+      const quantity = Number(line.quantity);
+      if (!line.itemId?.trim() || !Number.isFinite(quantity) || quantity <= 0) {
+        throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'Each cart line needs a product and a quantity.');
+      }
+      return { itemId: line.itemId.trim(), quantity };
+    });
+    if (!lines.length) {
+      throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'Add at least one product to the cart.');
+    }
+    const patientId = dto.patientId?.trim() || null;
+    const walkInName = 'walkInName' in dto ? dto.walkInName?.trim() : undefined;
+    const walkInPhone = 'walkInPhone' in dto ? dto.walkInPhone?.trim() : undefined;
+    return this.items.manager.transaction(async (manager) => {
+      await this.assertReservationsReady(manager);
+      const saleRef = otcSaleReferenceId(clientSaleId);
+      await this.acquireImportAdvisoryLock(manager, `otc_prepare:${saleRef}`);
+      const existing = await this.heldReservations(manager, saleRef);
+      const opId = dispenseOperationId({
+        serviceEntityId: saleRef,
+        lines: lines.map((line, index) => ({ orderId: `${saleRef}:${index}`, quantity: line.quantity })),
+      });
+      if (existing.length && existing.every((row) => row.prepareOpId === opId)) {
+        return { saleId: saleRef, replay: true, reservations: existing };
+      }
+      if (existing.length) {
+        throw domainConflict(ERROR_CODES.CONFLICT, 'This OTC sale already has a different reservation. Cancel it before preparing again.');
+      }
+      const locations = manager.getRepository(InventoryLocation);
+      const items = manager.getRepository(InventoryItem);
+      const pharmacy = await locations.findOne({ where: { code: 'PHARMACY', active: true } });
+      if (!pharmacy) throw new NotFoundException('Pharmacy location not configured');
+      const pricing = await this.readPricingMap(request);
+      const descriptions: string[] = [];
+      let suggested = 0;
+      const allReservations = [];
+      for (const line of lines) {
+        const item = await items.findOne({ where: { id: line.itemId, active: true } });
+        if (!item) throw new NotFoundException('Inventory item not found');
+        if (item.category !== 'pharmaceutical') {
+          throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, `${item.name} is not a pharmaceutical OTC item.`);
+        }
+        const batches = await this.lockLocationBatches(manager, item.id, pharmacy.id);
+        const allocations = await this.allocateAvailableFromBatches(manager, batches, line.quantity, item.name);
+        allReservations.push(
+          ...(await this.insertReservations(
+            manager,
+            allocations.map((row) => ({
+              saleId: saleRef,
+              clinicalOrderId: null,
+              item,
+              batch: row.batch,
+              location: pharmacy,
+              quantity: row.quantity,
+              prepareOpId: opId,
+            })),
+            request,
+          )),
+        );
+        const unitSell = Number(pricing[item.sku]?.sell ?? 0);
+        if (!Number.isFinite(unitSell) || unitSell <= 0) {
+          throw domainConflict(
+            ERROR_CODES.INCONSISTENT_CHARGE,
+            `${item.name} has no selling price. Price it in inventory before preparing the sale.`,
+          );
+        }
+        suggested += Math.round(unitSell * line.quantity * 100) / 100;
+        descriptions.push(`${item.name} × ${line.quantity} ${item.unit}`);
+      }
+      await this.postPrepareCharge(
+        {
+          saleId: saleRef,
+          patientId,
+          encounterId: null,
+          admissionId: null,
+          description: descriptions.join(' · '),
+          suggestedAmount: Math.round(suggested * 100) / 100,
+          orderNo: `OTC-${saleRef.slice(0, 8)}`,
+          lines: lines.map((line, index) => ({ orderId: `${saleRef}:${index}`, quantity: line.quantity })),
+          walkIn: patientId ? null : { name: walkInName || 'Walk-in', phone: walkInPhone || null },
+          clientSaleId,
+        },
+        request,
+        manager,
+      );
+      return { saleId: saleRef, replay: false, reservations: allReservations };
+    });
+  }
+
+  async cancelPharmacySale(dto: CancelPharmacySaleDto, request: RequestContext) {
+    const saleId = dto.saleId.trim();
+    if (!saleId) throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'saleId is required.');
+    return this.items.manager.transaction(async (manager) => {
+      await this.assertReservationsReady(manager);
+      const held = await this.heldReservations(manager, saleId);
+      if (!held.length) {
+        const any = await manager.getRepository(InventoryReservation).find({ where: { saleId } });
+        if (any.some((row) => row.status === 'consumed')) {
+          throw domainConflict(
+            ERROR_CODES.SALE_ALREADY_ISSUED,
+            'Medicine from this sale was already issued. Remaining stock cannot be cancelled as a pending hold.',
+          );
+        }
+        throw domainNotFound(ERROR_CODES.NOT_FOUND, 'No pending pharmacy sale matches this id.');
+      }
+      await this.payments.cancelUnpaidPharmacyCharge(saleId, manager);
+      const repo = manager.getRepository(InventoryReservation);
+      for (const row of held) {
+        row.status = 'released';
+        row.updatedBy = request.user?.sub ?? null;
+        await repo.save(row);
+      }
+      const orders = manager.getRepository(ClinicalOrder);
+      const orderIds = [...new Set(held.map((row) => row.clinicalOrderId).filter(Boolean))] as string[];
+      for (const id of orderIds) {
+        const order = await orders.findOne({ where: { id } });
+        if (!order || order.status === 'dispensed' || order.status === 'partially_dispensed') continue;
+        order.status = 'cancelled';
+        order.metadata = { ...(order.metadata ?? {}), saleStatus: 'cancelled', cancelReason: dto.reason ?? null };
+        order.updatedBy = request.user?.sub ?? null;
+        await orders.save(order);
+      }
+      return { saleId, released: held.length, reason: dto.reason ?? null };
+    });
+  }
+
+  async pharmacySaleStatus(saleId: string, _request: RequestContext) {
+    const held = await this.reservations.find({
+      where: { saleId, status: 'held' },
+      relations: { item: true, batch: true },
+    });
+    const charge = await this.payments.loadPharmacyCharge(saleId);
+    const transactions = charge ? await this.payments.loadPaymentsForCharge(charge.id) : [];
+    const clearance = evaluatePharmacyClearance({
+      serviceEntityId: saleId,
+      chargesEnabled: chargesEnabled(),
+      charge,
+      transactions,
+    });
+    return {
+      saleId,
+      reservedQuantity: held.reduce((sum, row) => sum + Number(row.quantity), 0),
+      reservations: held.map((row) => ({
+        id: row.id,
+        itemId: row.item.id,
+        batchId: row.batch.id,
+        quantity: Number(row.quantity),
+        status: row.status,
+      })),
+      chargeId: charge?.id ?? null,
+      remaining: charge ? Number(charge.amountOwed) - Number(charge.amountPaid) - Number(charge.amountWaived) : null,
+      clearance,
+    };
+  }
+
+  private async preparePharmacyLine(
+    line: { clinicalOrderId: string; itemId: string; quantity?: number; rejected?: boolean },
+    request: RequestContext,
+    manager: EntityManager,
+  ) {
+    const orders = manager.getRepository(ClinicalOrder);
+    const items = manager.getRepository(InventoryItem);
+    const locations = manager.getRepository(InventoryLocation);
+    await orders.findOne({
+      where: { id: line.clinicalOrderId, orderType: 'pharmacy' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const order = await orders.findOne({
+      where: { id: line.clinicalOrderId, orderType: 'pharmacy' },
+      relations: { patient: true, encounter: true, admission: true },
+    });
+    if (!order) throw new NotFoundException('Pharmacy order not found');
+    if (order.metadata?.kind === 'prescription') {
+      throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'Prepare the medication lines, not the prescription header.');
+    }
+    if (order.status === 'cancelled') {
+      throw domainConflict(ERROR_CODES.SALE_CANCELLED, 'This prescription was cancelled.');
+    }
+    const remaining = remainingQuantity(order);
+    if (order.status === 'dispensed' || remaining === 0) {
+      throw domainConflict(ERROR_CODES.SALE_ALREADY_ISSUED, 'This prescription line is already fully dispensed.');
+    }
+    const pharmacy = await locations.findOne({ where: { code: 'PHARMACY', active: true } });
+    if (!pharmacy) throw new NotFoundException('Pharmacy location not configured');
+    const item = await this.resolvePharmacyItem(items, order, line.itemId);
+    const quantity = this.resolveDispenseQuantity(line.quantity, order, remaining);
+    const saleId = prescriptionGroupId(order);
+    const opId = dispenseOperationId({
+      serviceEntityId: saleId,
+      lines: [{ orderId: order.id, quantity }],
+    });
+    const existing = await this.heldReservations(manager, saleId, order.id);
+    if (existing.length && existing.every((row) => row.prepareOpId === opId)) {
+      return {
+        saleId,
+        orderId: order.id,
+        orderNo: order.orderNo,
+        quantity,
+        replay: true,
+        patientId: order.patient.id,
+        encounterId: order.encounter?.id ?? null,
+        admissionId: order.admission?.id ?? null,
+        description: `${item.name} × ${quantity} ${item.unit}`,
+        suggestedAmount: await this.suggestLineAmount(item, quantity, request),
+      };
+    }
+    if (existing.length) {
+      throw domainConflict(
+        ERROR_CODES.CONFLICT,
+        'This line already has a pending reservation. Cancel the sale before preparing a different quantity.',
+      );
+    }
+    const batches = await this.lockLocationBatches(manager, item.id, pharmacy.id);
+    const allocations = await this.allocateAvailableFromBatches(manager, batches, quantity, item.name);
+    await this.insertReservations(
+      manager,
+      allocations.map((row) => ({
+        saleId,
+        clinicalOrderId: order.id,
+        item,
+        batch: row.batch,
+        location: pharmacy,
+        quantity: row.quantity,
+        prepareOpId: opId,
+      })),
+      request,
+    );
+    order.metadata = { ...(order.metadata ?? {}), saleStatus: 'pending_payment', billingStatus: 'awaiting_payment' };
+    order.updatedBy = request.user?.sub ?? null;
+    await orders.save(order);
+    return {
+      saleId,
+      orderId: order.id,
+      orderNo: order.orderNo,
+      quantity,
+      replay: false,
+      patientId: order.patient.id,
+      encounterId: order.encounter?.id ?? null,
+      admissionId: order.admission?.id ?? null,
+      description: `${item.name} × ${quantity} ${item.unit}`,
+      suggestedAmount: await this.suggestLineAmount(item, quantity, request),
+    };
+  }
+
+  private async suggestLineAmount(
+    item: InventoryItem,
+    quantity: number,
+    request: RequestContext,
+  ) {
+    const pricing = await this.readPricingMap(request);
+    let unitSell = Number(pricing[item.sku]?.sell ?? 0);
+    if (!(unitSell > 0)) {
+      const settings = await this.loadSettings(request);
+      const catalogue = readHospitalChargeCatalogue((settings?.clinicalCatalog as Record<string, unknown>) ?? null);
+      unitSell =
+        lookupCatalogueTariff(catalogue.items, {
+          code: item.sku,
+          name: item.name,
+          category: 'pharmacy',
+        }) ?? 0;
+    }
+    return Number.isFinite(unitSell) && unitSell > 0 ? Math.round(unitSell * quantity * 100) / 100 : null;
+  }
+
+  private async postPrepareCharge(
+    billing: {
+      saleId: string;
+      patientId: string | null;
+      encounterId: string | null;
+      admissionId: string | null;
+      description: string;
+      suggestedAmount: number | null;
+      orderNo?: string;
+      lines: Array<{ orderId: string; quantity: number }>;
+      walkIn?: { name: string; phone: string | null } | null;
+      clientSaleId?: string;
+    },
+    request: RequestContext,
+    manager: EntityManager,
+  ) {
+    if (!chargesEnabled()) {
+      throw domainConflict(
+        ERROR_CODES.CHARGES_DISABLED,
+        'Operational charges are disabled. Medicine cannot be reserved until billing is available.',
+      );
+    }
+    if (billing.suggestedAmount == null || billing.suggestedAmount <= 0) {
+      throw domainConflict(
+        ERROR_CODES.INCONSISTENT_CHARGE,
+        'This product has no selling price. Price it in inventory before preparing the sale.',
+      );
+    }
+    if (this.failNextImportWrite === 'charge') {
+      this.failNextImportWrite = undefined;
+      throw new BadRequestException('Forced charge failure');
+    }
+    const opId = dispenseOperationId({ serviceEntityId: billing.saleId, lines: billing.lines });
+    const charge = await this.payments.upsertPharmacyCharge(
+      {
+        patientId: billing.patientId,
+        encounterId: billing.encounterId,
+        admissionId: billing.admissionId,
+        serviceEntityId: billing.saleId,
+        description: billing.description,
+        amountDelta: billing.suggestedAmount,
+        orderNo: billing.orderNo,
+        userId: request.user?.sub ?? null,
+        dispenseOpId: opId,
+        opKind: 'prepare',
+        walkIn: billing.walkIn ?? null,
+        clientSaleId: billing.clientSaleId,
+      },
+      manager,
+    );
+    if (!charge) {
+      throw domainConflict(
+        ERROR_CODES.CHARGES_DISABLED,
+        'Operational charges are disabled. Medicine cannot be reserved until billing is available.',
+      );
+    }
+    return charge;
+  }
+
+  private async assertPharmacyClearance(saleId: string, manager: EntityManager) {
+    const charge = await this.payments.loadPharmacyCharge(saleId, manager);
+    const transactions = charge ? await this.payments.loadPaymentsForCharge(charge.id, manager) : [];
+    const decision = evaluatePharmacyClearance({
+      serviceEntityId: saleId,
+      chargesEnabled: chargesEnabled(),
+      charge,
+      transactions,
+    });
+    if (!decision.cleared) {
+      throw domainConflict(ERROR_CODES.FINANCIAL_CLEARANCE_DENIED, decision.message, {
+        nextAction: 'Collect payment or a documented credit/exemption at the cashier desk, then issue.',
+      });
+    }
+    return decision;
+  }
+
+  private async assertReservationsReady(manager: EntityManager) {
+    try {
+      await manager.query('SELECT 1 FROM demo.inventory_reservations LIMIT 1');
+    } catch (error) {
+      if (isUndefinedTable(error)) {
+        throw domainConflict(
+          ERROR_CODES.RESERVATIONS_UNAVAILABLE,
+          'Pharmacy reservations are unavailable on this database. Apply the local inventory_reservations migration before preparing sales.',
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async heldReservations(manager: EntityManager, saleId: string, clinicalOrderId?: string) {
+    const repo = manager.getRepository(InventoryReservation);
+    const where = {
+      saleId,
+      status: 'held' as const,
+      ...(clinicalOrderId ? { clinicalOrderId } : {}),
+    };
+    await repo.find({
+      where,
+      lock: { mode: 'pessimistic_write' },
+      order: { createdAt: 'ASC' },
+    });
+    return repo.find({
+      where,
+      relations: { item: true, batch: true, location: true },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  private async reservedHeldQty(manager: EntityManager, batchId: string) {
+    const rows = await manager.getRepository(InventoryReservation).find({
+      where: { batch: { id: batchId }, status: 'held' },
+    });
+    return rows.reduce((sum, row) => sum + Number(row.quantity), 0);
+  }
+
+  private async allocateAvailableFromBatches(
+    manager: EntityManager,
+    batches: InventoryBatch[],
+    quantity: number,
+    itemName: string,
+  ) {
+    const usable = [...batches]
+      .filter((batch) => !isExpiredBatch(batch.expiryDate) && Number(batch.qtyOnHand) > 0)
+      .sort((a, b) => {
+        const ax = a.expiryDate || '9999-12-31';
+        const bx = b.expiryDate || '9999-12-31';
+        if (ax !== bx) return ax.localeCompare(bx);
+        return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+      });
+    let remaining = quantity;
+    const allocations: Array<{ batch: InventoryBatch; quantity: number }> = [];
+    for (const batch of usable) {
+      const held = await this.reservedHeldQty(manager, batch.id);
+      const available = availableQuantity(Number(batch.qtyOnHand), held);
+      if (available <= 0) continue;
+      const take = Math.min(available, remaining);
+      allocations.push({ batch, quantity: take });
+      remaining -= take;
+      if (remaining <= 0) break;
+    }
+    if (remaining > 0) {
+      try {
+        assertEnoughAvailable(quantity - remaining, quantity, itemName);
+      } catch (error) {
+        throw domainConflict(
+          ERROR_CODES.INSUFFICIENT_STOCK,
+          error instanceof Error ? error.message : 'Insufficient available stock.',
+        );
+      }
+    }
+    return allocations;
+  }
+
+  private async insertReservations(
+    manager: EntityManager,
+    rows: Array<{
+      saleId: string;
+      clinicalOrderId: string | null;
+      item: InventoryItem;
+      batch: InventoryBatch;
+      location: InventoryLocation;
+      quantity: number;
+      prepareOpId: string;
+    }>,
+    request: RequestContext,
+  ) {
+    const repo = manager.getRepository(InventoryReservation);
+    const saved: InventoryReservation[] = [];
+    for (const row of rows) {
+      saved.push(
+        await repo.save(
+          repo.create({
+            saleId: row.saleId,
+            clinicalOrderId: row.clinicalOrderId,
+            item: row.item,
+            batch: row.batch,
+            location: row.location,
+            quantity: row.quantity.toString(),
+            status: 'held',
+            prepareOpId: row.prepareOpId,
+            createdBy: request.user?.sub ?? null,
+            updatedBy: request.user?.sub ?? null,
+          }),
+        ),
+      );
+    }
+    return saved;
+  }
+
+  private async consumeReservations(
+    manager: EntityManager,
+    held: InventoryReservation[],
+    quantity: number,
+    request: RequestContext,
+  ) {
+    let remaining = quantity;
+    const allocations: Array<{ batch: InventoryBatch; quantity: number }> = [];
+    const repo = manager.getRepository(InventoryReservation);
+    for (const row of held) {
+      if (remaining <= 0) break;
+      const have = Number(row.quantity);
+      const take = Math.min(have, remaining);
+      if (isExpiredBatch(row.batch.expiryDate)) {
+        throw domainConflict(
+          ERROR_CODES.BATCH_INELIGIBLE,
+          `Batch ${row.batch.batchNo ?? row.batch.id} is expired and cannot be issued.`,
+        );
+      }
+      allocations.push({ batch: row.batch, quantity: take });
+      if (take === have) {
+        row.status = 'consumed';
+      } else {
+        row.quantity = (have - take).toString();
+        await repo.save(
+          repo.create({
+            saleId: row.saleId,
+            clinicalOrderId: row.clinicalOrderId,
+            item: row.item,
+            batch: row.batch,
+            location: row.location,
+            quantity: take.toString(),
+            status: 'consumed',
+            prepareOpId: row.prepareOpId,
+            createdBy: request.user?.sub ?? null,
+            updatedBy: request.user?.sub ?? null,
+          }),
+        );
+      }
+      row.updatedBy = request.user?.sub ?? null;
+      await repo.save(row);
+      remaining -= take;
+    }
+    if (remaining > 0) {
+      throw domainConflict(
+        ERROR_CODES.INSUFFICIENT_STOCK,
+        `This sale only reserved ${quantity - remaining} units. Prepare the remaining quantity before issuing.`,
+      );
+    }
+    return allocations;
+  }
+
   private allocateFromBatches(
     batches: InventoryBatch[],
     quantity: number,
@@ -1367,8 +1956,18 @@ export class InventoryService {
     const applyStock = Boolean(dto.confirmStockTake) && !previewOnly && intent !== 'catalogue';
     const updateExisting = Boolean(dto.updateExisting);
     const sessionId = dto.sessionId?.trim() || null;
+    if (intent === 'stock_take' && applyStock) {
+      throw domainBadRequest(
+        ERROR_CODES.STOCK_TAKE_INVALID,
+        'Stock-take counts cannot be posted from CSV. Import them into an open session; a different authorised user must approve before stock changes.',
+        {
+          nextAction:
+            'Start or open a stock-take session, download the physical count sheet, import counts into that session, then submit for independent approval.',
+        },
+      );
+    }
     if (applyStock && !sessionId) {
-      throw new BadRequestException('A sessionId is required before posting a stock-take or receipt import.');
+      throw new BadRequestException('A sessionId is required before posting a receipt import.');
     }
     const summary = {
       preview: previewOnly,
@@ -1444,6 +2043,10 @@ export class InventoryService {
         drugClass: string;
         unit: string;
         trackBatch: boolean;
+        strength?: string | null;
+        dosageForm?: string | null;
+        minLevel?: number;
+        maxLevel?: number;
       };
       updateExisting?: {
         id: string;
@@ -1452,6 +2055,10 @@ export class InventoryService {
         drugClass: string;
         unit: string;
         trackBatch?: boolean;
+        strength?: string | null;
+        dosageForm?: string | null;
+        minLevel?: number;
+        maxLevel?: number;
       };
       price?: ItemPrice;
     };
@@ -1517,6 +2124,25 @@ export class InventoryService {
           `Line ${line}: ${name} likely matches ${classified.existingSku} (${classified.existingName}). Not applied.`,
         );
       }
+
+      const rawMinLevel = (row.min_level ?? row.reorder_level ?? '').trim();
+      const rawMaxLevel = (row.max_level ?? '').trim();
+      const minLevel = rawMinLevel === '' ? undefined : Number(rawMinLevel);
+      const maxLevel = rawMaxLevel === '' ? undefined : Number(rawMaxLevel);
+      const invalidQty = countedRaw.trim() !== '' && (!Number.isFinite(qty) || qty < 0);
+      const invalidDate = Boolean(expiry && !/^\d{4}-\d{2}-\d{2}$/.test(expiry.slice(0, 10)));
+      const invalidMin = minLevel !== undefined && (!Number.isFinite(minLevel) || minLevel < 0);
+      const invalidMax = maxLevel !== undefined && (!Number.isFinite(maxLevel) || maxLevel < 0);
+      if (invalidQty) {
+        summary.errors.push(`Line ${line}: quantity "${countedRaw}" must be a non-negative number.`);
+      }
+      if (invalidDate) {
+        summary.errors.push(`Line ${line}: expiry date "${expiry}" must be YYYY-MM-DD.`);
+      }
+      if (invalidMin || invalidMax) {
+        summary.errors.push(`Line ${line}: reorder/max level must be a non-negative number.`);
+      }
+
       const action =
         classified.match === 'likely_name'
           ? 'hold_unresolved'
@@ -1529,6 +2155,10 @@ export class InventoryService {
                 : 'adjust';
       const rejected =
         classified.match === 'likely_name' ||
+        invalidQty ||
+        invalidDate ||
+        invalidMin ||
+        invalidMax ||
         (Number.isFinite(qty) && qty > 0 && expiry && isExpiredBatch(expiry));
       summary.rows.push({
         line,
@@ -1590,7 +2220,7 @@ export class InventoryService {
         continue;
       }
 
-      if (classified.match === 'likely_name') {
+      if (classified.match === 'likely_name' || rejected) {
         summary.skippedExisting += 1;
         continue;
       }
@@ -1603,6 +2233,8 @@ export class InventoryService {
             active: true,
           },
         }));
+      const strength = (row.strength ?? '').trim() || null;
+      const dosageForm = (row.dosage_form ?? row.form ?? '').trim() || null;
       const work: PendingMove = {
         intent: intent === 'stock_take' ? 'stock_take' : 'receipt',
         sku,
@@ -1610,7 +2242,7 @@ export class InventoryService {
         quantity: qty,
         snapshotQty: Number.isFinite(snapshotQty as number) ? snapshotQty : previewRow.systemQty,
         batchNo: row.batch_no?.trim() || null,
-        expiryDate: expiry || null,
+        expiryDate: expiry ? expiry.slice(0, 10) : null,
         line,
         matchId,
         price,
@@ -1623,6 +2255,10 @@ export class InventoryService {
           drugClass,
           unit,
           trackBatch: parseBool(row.track_batch) ?? category === 'pharmaceutical',
+          strength,
+          dosageForm,
+          minLevel,
+          maxLevel,
         };
       } else if (updateExisting) {
         work.updateExisting = {
@@ -1632,6 +2268,10 @@ export class InventoryService {
           drugClass,
           unit: (row.unit ?? unit).trim() || unit,
           trackBatch: row.track_batch != null && row.track_batch !== '' ? parseBool(row.track_batch) : undefined,
+          strength: strength ?? undefined,
+          dosageForm: dosageForm ?? undefined,
+          minLevel,
+          maxLevel,
         };
       }
       pendingCatalogue.push(work);
@@ -1675,6 +2315,8 @@ export class InventoryService {
       );
     }
 
+    const canStoreStrength = await this.hasStrengthColumns();
+    const canStoreReorder = await this.hasReorderColumns();
     await this.items.manager.transaction(async (manager) => {
       const itemIds = new Map<string, string>();
       for (const work of pendingCatalogue) {
@@ -1689,7 +2331,24 @@ export class InventoryService {
           }
           item = await items.save(
             items.create({
-              ...work.create,
+              sku: work.create.sku,
+              name: work.create.name,
+              category: work.create.category,
+              drugClass: work.create.drugClass,
+              unit: work.create.unit,
+              trackBatch: work.create.trackBatch,
+              ...(canStoreStrength
+                ? {
+                    strength: work.create.strength ?? null,
+                    dosageForm: work.create.dosageForm ?? null,
+                  }
+                : {}),
+              ...(canStoreReorder
+                ? {
+                    minLevel: work.create.minLevel != null ? String(work.create.minLevel) : null,
+                    maxLevel: work.create.maxLevel != null ? String(work.create.maxLevel) : null,
+                  }
+                : {}),
               active: true,
               createdBy: request.user?.sub ?? null,
               updatedBy: request.user?.sub ?? null,
@@ -1702,6 +2361,14 @@ export class InventoryService {
           item.drugClass = work.updateExisting.drugClass;
           item.unit = work.updateExisting.unit;
           if (work.updateExisting.trackBatch != null) item.trackBatch = work.updateExisting.trackBatch;
+          if (canStoreStrength) {
+            if (work.updateExisting.strength !== undefined) item.strength = work.updateExisting.strength ?? null;
+            if (work.updateExisting.dosageForm !== undefined) item.dosageForm = work.updateExisting.dosageForm ?? null;
+          }
+          if (canStoreReorder) {
+            if (work.updateExisting.minLevel !== undefined) item.minLevel = String(work.updateExisting.minLevel);
+            if (work.updateExisting.maxLevel !== undefined) item.maxLevel = String(work.updateExisting.maxLevel);
+          }
           item.updatedBy = request.user?.sub ?? null;
           item = await items.save(item);
           summary.updated += 1;
@@ -1844,10 +2511,15 @@ export class InventoryService {
     for (const id of [...new Set(candidates.map((row) => row.id))].sort()) {
       const row = await batches.findOne({
         where: { id },
-        relations: { item: true, location: true },
         lock: { mode: 'pessimistic_write' },
       });
-      if (row) locked.push(row);
+      const hydrated = row
+        ? await batches.findOne({
+            where: { id },
+            relations: { item: true, location: true },
+          })
+        : null;
+      if (hydrated) locked.push(hydrated);
     }
     return locked;
   }
@@ -1867,10 +2539,15 @@ export class InventoryService {
     for (const id of matches.map((row) => row.id).sort()) {
       const row = await batches.findOne({
         where: { id },
-        relations: { item: true, location: true },
         lock: { mode: 'pessimistic_write' },
       });
-      if (row && !locked) locked = row;
+      const hydrated = row
+        ? await batches.findOne({
+            where: { id },
+            relations: { item: true, location: true },
+          })
+        : null;
+      if (hydrated && !locked) locked = hydrated;
     }
     return locked;
   }
@@ -2286,6 +2963,857 @@ export class InventoryService {
     }));
   }
 
+  async oversightSummary() {
+    const locations = await this.locations.find({ where: { active: true } });
+    const batches = await this.batches.find({ relations: { item: true, location: true } });
+    const held = await this.reservations.find({
+      where: { status: 'held' },
+      relations: { batch: true, location: true },
+    });
+    const heldByBatch = new Map<string, number>();
+    for (const row of held) {
+      heldByBatch.set(row.batch.id, (heldByBatch.get(row.batch.id) ?? 0) + Number(row.quantity));
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const expiryHorizon = new Date();
+    expiryHorizon.setDate(expiryHorizon.getDate() + 90);
+    const horizon = expiryHorizon.toISOString().slice(0, 10);
+    let onHand = 0;
+    let reserved = 0;
+    let available = 0;
+    let expiredLots = 0;
+    let nearExpiryLots = 0;
+    for (const batch of batches) {
+      const qty = Number(batch.qtyOnHand);
+      if (qty <= 0) continue;
+      const hold = heldByBatch.get(batch.id) ?? 0;
+      onHand += qty;
+      reserved += hold;
+      available += Math.max(0, qty - hold);
+      if (batch.expiryDate && batch.expiryDate < today) expiredLots += 1;
+      else if (batch.expiryDate && batch.expiryDate <= horizon) nearExpiryLots += 1;
+    }
+    let pendingSessions = 0;
+    try {
+      pendingSessions = await this.stockTakeSessions.count({
+        where: [{ status: 'open' }, { status: 'submitted' }, { status: 'rejected' }],
+      });
+    } catch {
+      pendingSessions = 0;
+    }
+    return {
+      locations: locations.length,
+      onHand: roundQty(onHand),
+      reserved: roundQty(reserved),
+      available: roundQty(available),
+      expiredLots,
+      nearExpiryLots,
+      pendingStockTakes: pendingSessions,
+    };
+  }
+
+  async pharmacyDashboard(request?: RequestContext) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const horizonDate = new Date();
+    horizonDate.setDate(horizonDate.getDate() + 90);
+    const horizonIso = horizonDate.toISOString().slice(0, 10);
+
+    const [orders, locations, items, heldReservations, recentCharges, recentPayments, recentMovements] =
+      await Promise.all([
+        this.clinicalOrders.find({
+          where: { orderType: 'pharmacy' },
+          relations: { patient: true, encounter: true, admission: { ward: true, bed: true } },
+          order: { orderedAt: 'DESC' },
+          take: 150,
+        }),
+        this.locations.find({ where: { active: true }, order: { name: 'ASC' } }),
+        this.listItems({ category: 'pharmaceutical', includeInactive: true, request }),
+        this.reservations.find({
+          where: { status: 'held' },
+          relations: { item: true, batch: true, location: true },
+        }),
+        this.payments.listRecentPharmacyCharges(150),
+        this.payments.listRecentPharmacyPayments(150),
+        this.listTransactions({ limit: 30 }),
+      ]);
+
+    const pharmacyLocation =
+      locations.find((loc) => loc.code === 'PHARMACY' || loc.locationType === 'pharmacy') ?? null;
+
+    const batches = pharmacyLocation
+      ? await this.batches.find({
+          where: { location: { id: pharmacyLocation.id } },
+          relations: { item: true, location: true },
+          order: { expiryDate: 'ASC' },
+        })
+      : [];
+
+    const heldByBatch = new Map<string, number>();
+    for (const row of heldReservations) {
+      if (pharmacyLocation && row.location?.id !== pharmacyLocation.id) continue;
+      heldByBatch.set(row.batch.id, (heldByBatch.get(row.batch.id) ?? 0) + Number(row.quantity));
+    }
+
+    let onHandTotal = 0;
+    let reservedTotal = 0;
+    let availableTotal = 0;
+    const expiredBatches: Array<{
+      batchId: string;
+      sku: string;
+      name: string;
+      batchNo: string | null;
+      expiryDate: string;
+      qtyOnHand: number;
+    }> = [];
+    const nearExpiryBatches: Array<{
+      batchId: string;
+      sku: string;
+      name: string;
+      batchNo: string | null;
+      expiryDate: string;
+      qtyOnHand: number;
+      availableQty: number;
+    }> = [];
+
+    const usableByItem = new Map<string, { onHand: number; reserved: number; available: number }>();
+
+    for (const batch of batches) {
+      const qty = roundQty(Number(batch.qtyOnHand));
+      if (qty <= 0) continue;
+      const held = roundQty(heldByBatch.get(batch.id) ?? 0);
+      const isExpired = Boolean(batch.expiryDate && batch.expiryDate < todayIso);
+      const avail = isExpired ? 0 : Math.max(0, roundQty(qty - held));
+      onHandTotal += qty;
+      reservedTotal += held;
+      availableTotal += avail;
+
+      if (isExpired && batch.expiryDate) {
+        expiredBatches.push({
+          batchId: batch.id,
+          sku: batch.item.sku,
+          name: batch.item.name,
+          batchNo: batch.batchNo,
+          expiryDate: batch.expiryDate,
+          qtyOnHand: qty,
+        });
+      } else if (batch.expiryDate && batch.expiryDate <= horizonIso) {
+        nearExpiryBatches.push({
+          batchId: batch.id,
+          sku: batch.item.sku,
+          name: batch.item.name,
+          batchNo: batch.batchNo,
+          expiryDate: batch.expiryDate,
+          qtyOnHand: qty,
+          availableQty: avail,
+        });
+      }
+
+      if (!isExpired) {
+        const cur = usableByItem.get(batch.item.id) ?? { onHand: 0, reserved: 0, available: 0 };
+        cur.onHand = roundQty(cur.onHand + qty);
+        cur.reserved = roundQty(cur.reserved + held);
+        cur.available = roundQty(cur.available + avail);
+        usableByItem.set(batch.item.id, cur);
+      }
+    }
+
+    const lowStockItems: Array<{
+      itemId: string;
+      sku: string;
+      name: string;
+      unit: string;
+      onHand: number;
+      available: number;
+      minLevel: number;
+    }> = [];
+    const outOfStockItems: Array<{
+      itemId: string;
+      sku: string;
+      name: string;
+      unit: string;
+      minLevel: number | null;
+    }> = [];
+
+    for (const item of items) {
+      if (!item.active) continue;
+      const bal = usableByItem.get(item.id) ?? { onHand: 0, reserved: 0, available: 0 };
+      const min = item.minLevel != null && Number.isFinite(Number(item.minLevel)) ? Number(item.minLevel) : 10;
+      if (bal.available <= 0) {
+        outOfStockItems.push({
+          itemId: item.id,
+          sku: item.sku,
+          name: item.name,
+          unit: item.unit,
+          minLevel: item.minLevel ?? null,
+        });
+      } else if (bal.available <= min) {
+        lowStockItems.push({
+          itemId: item.id,
+          sku: item.sku,
+          name: item.name,
+          unit: item.unit,
+          onHand: bal.onHand,
+          available: bal.available,
+          minLevel: min,
+        });
+      }
+    }
+
+    const activeOrders = orders.filter(
+      (order) =>
+        order.metadata?.kind !== 'prescription' &&
+        order.status !== 'cancelled' &&
+        order.status !== 'dispensed' &&
+        remainingQuantity(order) !== 0,
+    );
+    const isIpdOrder = (order: ClinicalOrder) =>
+      Boolean(order.admission?.id || order.encounter?.type === 'inpatient');
+    const opdOrders = activeOrders.filter((order) => !isIpdOrder(order));
+    const ipdOrders = activeOrders.filter((order) => isIpdOrder(order));
+
+    const otcChargesToday = recentCharges.filter((charge) => {
+      const created = new Date(charge.createdAt).getTime() >= startOfToday.getTime();
+      const orderNo = String(charge.metadata?.orderNo ?? '');
+      const isOtc = orderNo.startsWith('OTC-') || Boolean(charge.metadata?.walkIn || charge.metadata?.clientSaleId);
+      return created && isOtc && charge.status !== 'cancelled';
+    });
+    const otcPaymentsToday = recentPayments.filter((txn) => {
+      const created = new Date(txn.createdAt).getTime() >= startOfToday.getTime();
+      return created && txn.status === 'completed' && txn.metadata?.kind !== 'refund';
+    });
+
+    let pendingSessions = 0;
+    let submittedSessions = 0;
+    try {
+      const openRows = await this.stockTakeSessions.find({
+        where: [{ status: 'open' }, { status: 'submitted' }, { status: 'rejected' }],
+      });
+      pendingSessions = openRows.length;
+      submittedSessions = openRows.filter((row) => row.status === 'submitted').length;
+    } catch {
+      pendingSessions = 0;
+      submittedSessions = 0;
+    }
+
+    const openOtcQueue = recentCharges
+      .filter((charge) => {
+        const orderNo = String(charge.metadata?.orderNo ?? '');
+        const isOtc = orderNo.startsWith('OTC-') || Boolean(charge.metadata?.walkIn || charge.metadata?.clientSaleId);
+        return isOtc && (charge.status === 'owed' || charge.status === 'partially_paid' || charge.status === 'paid');
+      })
+      .slice(0, 40)
+      .map((charge) => ({
+        chargeId: charge.id,
+        saleId: String(charge.metadata?.clientSaleId ?? charge.serviceEntityId ?? charge.id),
+        serviceEntityId: charge.serviceEntityId,
+        orderNo: String(charge.metadata?.orderNo ?? `OTC-${charge.id.slice(0, 8)}`),
+        customerName: charge.patient
+          ? `${charge.patient.firstName} ${charge.patient.lastName}`
+          : String((charge.metadata?.walkIn as { name?: string } | undefined)?.name ?? 'Walk-in'),
+        patientNo: charge.patient?.patientNo ?? null,
+        description: charge.serviceDescription,
+        amountOwed: Number(charge.amountOwed),
+        amountPaid: Number(charge.amountPaid),
+        amountWaived: Number(charge.amountWaived),
+        status: charge.status,
+        createdAt: charge.createdAt,
+      }));
+
+    return {
+      pharmacyLocation: pharmacyLocation
+        ? { id: pharmacyLocation.id, name: pharmacyLocation.name, code: pharmacyLocation.code }
+        : null,
+      prescriptions: {
+        pendingTotal: activeOrders.length,
+        opdPending: opdOrders.length,
+        ipdPending: ipdOrders.length,
+        partialCount: activeOrders.filter((o) => o.status === 'partially_dispensed').length,
+        urgentCount: activeOrders.filter((o) => o.priority === 'stat' || o.priority === 'urgent').length,
+      },
+      otcToday: {
+        preparedSalesCount: otcChargesToday.length,
+        chargedAmountKes: roundQty(otcChargesToday.reduce((s, c) => s + Number(c.amountOwed), 0)),
+        completedPaymentsCount: otcPaymentsToday.length,
+        collectedAmountKes: roundQty(otcPaymentsToday.reduce((s, p) => s + Number(p.amount ?? 0), 0)),
+        outstandingKes: roundQty(
+          otcChargesToday.reduce(
+            (s, c) => s + Math.max(0, Number(c.amountOwed) - Number(c.amountPaid) - Number(c.amountWaived)),
+            0,
+          ),
+        ),
+      },
+      stock: {
+        onHand: roundQty(onHandTotal),
+        reserved: roundQty(reservedTotal),
+        available: roundQty(availableTotal),
+        lowStockCount: lowStockItems.length,
+        outOfStockCount: outOfStockItems.length,
+        nearExpiryCount: nearExpiryBatches.length,
+        expiredCount: expiredBatches.length,
+        quarantinedCount: null,
+        quarantinePolicyNote: 'Quarantine and recall status is not configured in hospital policy.',
+      },
+      stockTake: {
+        pendingSessions,
+        awaitingApproval: submittedSessions,
+      },
+      lowStockItems: lowStockItems.slice(0, 20),
+      outOfStockItems: outOfStockItems.slice(0, 20),
+      nearExpiryBatches: nearExpiryBatches.slice(0, 20),
+      expiredBatches: expiredBatches.slice(0, 20),
+      openOtcQueue,
+      recentMovements: recentMovements.slice(0, 15).map((m) => ({
+        id: m.id,
+        transactionType: m.transactionType,
+        quantity: Number(m.quantity),
+        unit: m.unit,
+        itemName: m.item?.name ?? 'Item',
+        sku: m.item?.sku ?? '',
+        batchNo: m.batch?.batchNo ?? null,
+        reason: m.reason,
+        createdAt: m.createdAt,
+      })),
+    };
+  }
+
+  async pharmacyStockTable(params?: {
+    locationId?: string;
+    includeInactive?: boolean;
+    request?: RequestContext;
+  }) {
+    const locations = await this.locations.find({ where: { active: true }, order: { name: 'ASC' } });
+    const selectedLocation =
+      (params?.locationId ? locations.find((l) => l.id === params.locationId) : null) ??
+      locations.find((l) => l.code === 'PHARMACY' || l.locationType === 'pharmacy') ??
+      locations[0] ??
+      null;
+
+    const items = await this.listItems({
+      includeInactive: params?.includeInactive ?? true,
+      request: params?.request,
+    });
+
+    const batches = selectedLocation
+      ? await this.batches.find({
+          where: { location: { id: selectedLocation.id } },
+          relations: { item: true, location: true },
+          order: { expiryDate: 'ASC' },
+        })
+      : [];
+
+    const held = selectedLocation
+      ? await this.reservations.find({
+          where: { location: { id: selectedLocation.id }, status: 'held' },
+          relations: { batch: true, item: true },
+        })
+      : [];
+
+    const heldByBatch = new Map<string, number>();
+    for (const row of held) {
+      heldByBatch.set(row.batch.id, (heldByBatch.get(row.batch.id) ?? 0) + Number(row.quantity));
+    }
+
+    const batchesByItem = new Map<string, InventoryBatch[]>();
+    for (const batch of batches) {
+      if (Number(batch.qtyOnHand) <= 0 && (heldByBatch.get(batch.id) ?? 0) <= 0) continue;
+      const list = batchesByItem.get(batch.item.id) ?? [];
+      list.push(batch);
+      batchesByItem.set(batch.item.id, list);
+    }
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const rows: Array<{
+      rowId: string;
+      itemId: string;
+      sku: string;
+      name: string;
+      genericName: string | null;
+      category: string;
+      drugClass: string | null;
+      strength: string | null;
+      dosageForm: string | null;
+      unit: string;
+      sell: number;
+      cost: number;
+      currency: string;
+      active: boolean;
+      trackBatch: boolean;
+      minLevel: number | null;
+      maxLevel: number | null;
+      locationId: string | null;
+      locationName: string | null;
+      batchId: string | null;
+      batchNo: string | null;
+      expiryDate: string | null;
+      expired: boolean;
+      onHand: number;
+      reserved: number;
+      available: number;
+      stockStatus: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'EXPIRED' | 'INACTIVE';
+    }> = [];
+
+    for (const item of items) {
+      const lotList = batchesByItem.get(item.id) ?? [];
+      const min = item.minLevel != null && Number.isFinite(Number(item.minLevel)) ? Number(item.minLevel) : 10;
+      if (!lotList.length) {
+        rows.push({
+          rowId: `${item.id}:none`,
+          itemId: item.id,
+          sku: item.sku,
+          name: item.name,
+          genericName: null,
+          category: item.category,
+          drugClass: item.drugClass ?? null,
+          strength: item.strength ?? null,
+          dosageForm: item.dosageForm ?? null,
+          unit: item.unit,
+          sell: Number(item.sell ?? 0),
+          cost: Number(item.cost ?? 0),
+          currency: 'KES',
+          active: item.active,
+          trackBatch: item.trackBatch,
+          minLevel: item.minLevel ?? null,
+          maxLevel: item.maxLevel ?? null,
+          locationId: selectedLocation?.id ?? null,
+          locationName: selectedLocation?.name ?? null,
+          batchId: null,
+          batchNo: null,
+          expiryDate: null,
+          expired: false,
+          onHand: 0,
+          reserved: 0,
+          available: 0,
+          stockStatus: !item.active ? 'INACTIVE' : 'OUT_OF_STOCK',
+        });
+        continue;
+      }
+
+      for (const batch of lotList) {
+        const onHand = roundQty(Number(batch.qtyOnHand));
+        const reserved = roundQty(heldByBatch.get(batch.id) ?? 0);
+        const expired = Boolean(batch.expiryDate && batch.expiryDate < todayIso);
+        const available = expired ? 0 : Math.max(0, roundQty(onHand - reserved));
+        const stockStatus = !item.active
+          ? 'INACTIVE'
+          : expired
+            ? 'EXPIRED'
+            : available <= 0
+              ? 'OUT_OF_STOCK'
+              : available <= min
+                ? 'LOW_STOCK'
+                : 'IN_STOCK';
+        rows.push({
+          rowId: `${item.id}:${batch.id}`,
+          itemId: item.id,
+          sku: item.sku,
+          name: item.name,
+          genericName: null,
+          category: item.category,
+          drugClass: item.drugClass ?? null,
+          strength: item.strength ?? null,
+          dosageForm: item.dosageForm ?? null,
+          unit: item.unit,
+          sell: Number(item.sell ?? 0),
+          cost: Number(item.cost ?? 0),
+          currency: 'KES',
+          active: item.active,
+          trackBatch: item.trackBatch,
+          minLevel: item.minLevel ?? null,
+          maxLevel: item.maxLevel ?? null,
+          locationId: selectedLocation?.id ?? null,
+          locationName: selectedLocation?.name ?? null,
+          batchId: batch.id,
+          batchNo: batch.batchNo,
+          expiryDate: batch.expiryDate ?? null,
+          expired,
+          onHand,
+          reserved,
+          available,
+          stockStatus,
+        });
+      }
+    }
+
+    return {
+      selectedLocation: selectedLocation
+        ? { id: selectedLocation.id, name: selectedLocation.name, code: selectedLocation.code }
+        : null,
+      locations: locations.map((l) => ({ id: l.id, name: l.name, code: l.code, locationType: l.locationType })),
+      rows,
+    };
+  }
+
+  listStockTakeSessions() {
+    return this.stockTakeSessions.find({
+      relations: { location: true, lines: { item: true, batch: true } },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    }).then((rows) => rows.map((row) => this.serializeStockTakeSession(row)));
+  }
+
+  async getStockTakeSession(id: string) {
+    const session = await this.stockTakeSessions.findOne({
+      where: { id },
+      relations: { location: true, lines: { item: true, batch: true } },
+    });
+    if (!session) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take session was not found.');
+    session.lines = [...(session.lines ?? [])].sort((a, b) => a.item.name.localeCompare(b.item.name));
+    return this.serializeStockTakeSession(session);
+  }
+
+  async exportPhysicalCountSheet(id: string) {
+    const session = await this.stockTakeSessions.findOne({
+      where: { id },
+      relations: { location: true, lines: { item: true, batch: true } },
+    });
+    if (!session) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take session was not found.');
+    const header = [
+      'session_id',
+      'line_id',
+      'sku',
+      'name',
+      'batch_no',
+      'expiry',
+      'book_qty',
+      'physical_count',
+      'variance_reason',
+    ];
+    const rows = (session.lines ?? []).map((line) =>
+      [
+        csvEscape(session.id),
+        csvEscape(line.id),
+        csvEscape(line.item?.sku ?? ''),
+        csvEscape(line.item?.name ?? ''),
+        csvEscape(line.batch?.batchNo ?? ''),
+        csvEscape(line.batch?.expiryDate ?? ''),
+        csvEscape(Number(line.expectedQty)),
+        '',
+        csvEscape(line.reason ?? ''),
+      ].join(','),
+    );
+    return `${header.join(',')}\n${rows.join('\n')}\n`;
+  }
+
+  async importCountsIntoSession(id: string, dto: ImportStockTakeCountsDto, request: RequestContext) {
+    const session = await this.stockTakeSessions.findOne({
+      where: { id },
+      relations: { lines: { item: true, batch: true } },
+    });
+    if (!session) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take session was not found.');
+    assertCanCount(session.status);
+    const rows = parseInventoryCsv(dto.csv);
+    if (!rows.length) {
+      throw domainBadRequest(ERROR_CODES.STOCK_TAKE_INVALID, 'The count sheet is empty or missing a header row.');
+    }
+    let applied = 0;
+    const errors: string[] = [];
+    for (const [index, row] of rows.entries()) {
+      const lineNo = index + 2;
+      const countedRaw = row.counted_qty ?? '';
+      if (!countedRaw.trim()) continue;
+      const counted = Number(countedRaw);
+      if (!Number.isFinite(counted) || counted < 0) {
+        errors.push(`Line ${lineNo}: physical_count must be a number 0 or greater.`);
+        continue;
+      }
+      const lineId = row.line_id?.trim() ?? '';
+      const sku = row.sku?.trim().toUpperCase() ?? '';
+      const batchNo = row.batch_no?.trim() ?? '';
+      const byId = lineId ? session.lines.filter((line) => line.id === lineId) : [];
+      const bySkuBatch = !byId.length
+        ? session.lines.filter((line) => {
+            if (!sku || line.item?.sku?.toUpperCase() !== sku) return false;
+            if (batchNo) return (line.batch?.batchNo ?? '') === batchNo;
+            return true;
+          })
+        : [];
+      const candidates = byId.length ? byId : bySkuBatch;
+      if (!candidates.length) {
+        errors.push(`Line ${lineNo}: unknown product or batch for ${row.sku || row.line_id || 'row'}.`);
+        continue;
+      }
+      if (candidates.length > 1) {
+        errors.push(
+          `Line ${lineNo}: ambiguous match for ${row.sku || 'item'} (${candidates.length} lots in session). Include line_id or batch_no.`,
+        );
+        continue;
+      }
+      const match = candidates[0];
+      if (row.unit?.trim() && match.item?.unit && row.unit.trim().toLowerCase() !== match.item.unit.toLowerCase()) {
+        errors.push(
+          `Line ${lineNo}: unit "${row.unit.trim()}" does not match catalogue unit "${match.item.unit}" for ${match.item.sku}.`,
+        );
+        continue;
+      }
+      const expected = roundQty(Number(match.expectedQty));
+      const qty = roundQty(counted);
+      try {
+        assertVarianceReason(expected, qty, row.reason);
+      } catch (error) {
+        errors.push(error instanceof Error ? `Line ${lineNo}: ${error.message}` : `Line ${lineNo}: reason required.`);
+        continue;
+      }
+      match.countedQty = String(qty);
+      match.varianceQty = String(stockVariance(qty, expected));
+      match.reason = row.reason?.trim() || null;
+      match.updatedBy = request.user?.sub ?? null;
+      await this.stockTakeLines.save(match);
+      applied += 1;
+    }
+    if (session.status === 'rejected') {
+      session.status = 'open';
+      session.updatedBy = request.user?.sub ?? null;
+      await this.stockTakeSessions.save(session);
+    }
+    if (!applied && errors.length) {
+      throw domainBadRequest(ERROR_CODES.STOCK_TAKE_INVALID, errors[0]);
+    }
+    const result = await this.getStockTakeSession(id);
+    return { ...result, imported: applied, errors };
+  }
+
+  async createStockTakeSession(dto: CreateStockTakeSessionDto, request: RequestContext) {
+    const location = await this.locations.findOne({ where: { id: dto.locationId, active: true } });
+    if (!location) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Count location was not found.');
+    const open = await this.stockTakeSessions.findOne({
+      where: [
+        { location: { id: location.id }, status: 'open' },
+        { location: { id: location.id }, status: 'submitted' },
+        { location: { id: location.id }, status: 'rejected' },
+      ],
+    });
+    if (open) {
+      throw domainConflict(
+        ERROR_CODES.STOCK_TAKE_INVALID,
+        'This location already has an unfinished stock-take session.',
+        { nextAction: 'Finish, reject, or post the open session before starting another count.' },
+      );
+    }
+    const actor = request.user?.sub ?? null;
+    const session = await this.items.manager.transaction(async (manager) => {
+      const sessions = manager.getRepository(InventoryStockTakeSession);
+      const lines = manager.getRepository(InventoryStockTakeLine);
+      const batches = manager.getRepository(InventoryBatch);
+      const saved = await sessions.save(
+        sessions.create({
+          location,
+          status: 'open',
+          baselineAt: new Date(),
+          notes: dto.notes?.trim() || null,
+          createdBy: actor,
+          updatedBy: actor,
+        }),
+      );
+      const lots = await batches.find({
+        where: { location: { id: location.id } },
+        relations: { item: true, location: true },
+        order: { expiryDate: 'ASC' },
+      });
+      for (const batch of lots) {
+        if (Number(batch.qtyOnHand) <= 0) continue;
+        await lines.save(
+          lines.create({
+            session: saved,
+            item: batch.item,
+            batch,
+            expectedQty: String(roundQty(Number(batch.qtyOnHand))),
+            countedQty: null,
+            varianceQty: null,
+            reason: null,
+            createdBy: actor,
+            updatedBy: actor,
+          }),
+        );
+      }
+      return saved;
+    });
+    return this.getStockTakeSession(session.id);
+  }
+
+  async countStockTakeLine(sessionId: string, lineId: string, dto: CountStockTakeLineDto, request: RequestContext) {
+    const session = await this.stockTakeSessions.findOne({
+      where: { id: sessionId },
+      relations: { lines: true },
+    });
+    if (!session) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take session was not found.');
+    assertCanCount(session.status);
+    const line = session.lines.find((row) => row.id === lineId);
+    if (!line) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take line was not found.');
+    const counted = roundQty(Number(dto.countedQty));
+    const expected = roundQty(Number(line.expectedQty));
+    assertVarianceReason(expected, counted, dto.reason);
+    line.countedQty = String(counted);
+    line.varianceQty = String(stockVariance(counted, expected));
+    line.reason = dto.reason?.trim() || null;
+    line.updatedBy = request.user?.sub ?? null;
+    if (session.status === 'rejected') {
+      session.status = 'open';
+      session.updatedBy = request.user?.sub ?? null;
+      await this.stockTakeSessions.save(session);
+    }
+    await this.stockTakeLines.save(line);
+    return this.getStockTakeSession(sessionId);
+  }
+
+  async submitStockTakeSession(id: string, request: RequestContext) {
+    const session = await this.stockTakeSessions.findOne({
+      where: { id },
+      relations: { lines: true },
+    });
+    if (!session) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take session was not found.');
+    assertCanSubmit(session.status);
+    if (!session.lines.length) {
+      throw domainBadRequest(ERROR_CODES.STOCK_TAKE_INVALID, 'There is no baseline stock to count at this location.');
+    }
+    const missing = session.lines.filter((line) => line.countedQty == null);
+    if (missing.length) {
+      throw domainBadRequest(
+        ERROR_CODES.STOCK_TAKE_INVALID,
+        `${missing.length} line(s) still have no physical count.`,
+        { nextAction: 'Enter a counted quantity for every line, including zeros, then submit.' },
+      );
+    }
+    for (const line of session.lines) {
+      assertVarianceReason(Number(line.expectedQty), Number(line.countedQty), line.reason);
+    }
+    session.status = 'submitted';
+    session.submittedBy = request.user?.sub ?? null;
+    session.submittedAt = new Date();
+    session.updatedBy = request.user?.sub ?? null;
+    await this.stockTakeSessions.save(session);
+    return this.getStockTakeSession(id);
+  }
+
+  async rejectStockTakeSession(id: string, dto: RejectStockTakeDto, request: RequestContext) {
+    const session = await this.stockTakeSessions.findOne({ where: { id } });
+    if (!session) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take session was not found.');
+    assertCanReject(session.status);
+    if (!dto.reason?.trim()) {
+      throw domainBadRequest(ERROR_CODES.STOCK_TAKE_INVALID, 'A reject reason is required.');
+    }
+    session.status = 'rejected';
+    session.rejectedBy = request.user?.sub ?? null;
+    session.rejectedAt = new Date();
+    session.rejectReason = dto.reason.trim();
+    session.updatedBy = request.user?.sub ?? null;
+    await this.stockTakeSessions.save(session);
+    return this.getStockTakeSession(id);
+  }
+
+  async approveAndPostStockTakeSession(id: string, request: RequestContext) {
+    const actor = request.user?.sub ?? null;
+    return this.items.manager.transaction(async (manager) => {
+      const sessions = manager.getRepository(InventoryStockTakeSession);
+      await sessions.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const session = await sessions.findOne({
+        where: { id },
+        relations: { location: true, lines: { item: true, batch: true } },
+      });
+      if (!session) throw domainNotFound(ERROR_CODES.NOT_FOUND, 'Stock-take session was not found.');
+      if (session.status === 'posted') {
+        return this.serializeStockTakeSession(session);
+      }
+      if (session.status !== 'submitted') {
+        throw domainBadRequest(
+          ERROR_CODES.STOCK_TAKE_INVALID,
+          `Only a submitted session can be posted. Current status is ${session.status}.`,
+        );
+      }
+      assertIndependentApprover(session.submittedBy, actor);
+      await this.claimImportSession(manager, session.id, 'stock_take');
+      for (const line of session.lines) {
+        const expected = roundQty(Number(line.expectedQty));
+        const counted = roundQty(Number(line.countedQty ?? NaN));
+        if (!Number.isFinite(counted)) {
+          throw domainBadRequest(ERROR_CODES.STOCK_TAKE_INVALID, 'Every line must have a counted quantity before posting.');
+        }
+        assertVarianceReason(expected, counted, line.reason);
+        const variance = stockVariance(counted, expected);
+        if (variance === 0) continue;
+        const batchNo = line.batch?.batchNo ?? null;
+        const actual = await this.quantityOnHand(line.item.id, session.location.id, batchNo, manager);
+        try {
+          assertFreshSnapshot(expected, actual);
+        } catch (error) {
+          throw domainConflict(
+            ERROR_CODES.STOCK_TAKE_INVALID,
+            error instanceof Error ? error.message : 'On-hand changed since the baseline. Recount before posting.',
+            { nextAction: 'Reject this session, recount against the live quantity, then submit again.' },
+          );
+        }
+        await this.adjustOnHand({
+          manager,
+          item: line.item,
+          location: session.location,
+          variance,
+          batchNo,
+          expiryDate: line.batch?.expiryDate ?? null,
+          sessionId: session.id,
+          reason:
+            line.reason ||
+            `Stock-take ${line.item.sku}: counted ${counted}, baseline ${expected}, variance ${variance}`,
+          request,
+        });
+      }
+      session.status = 'posted';
+      session.approvedBy = actor;
+      session.approvedAt = new Date();
+      session.postedAt = new Date();
+      session.updatedBy = actor;
+      await sessions.save(session);
+      return this.serializeStockTakeSession(
+        (await sessions.findOne({
+          where: { id: session.id },
+          relations: { location: true, lines: { item: true, batch: true } },
+        })) ?? session,
+      );
+    });
+  }
+
+  private serializeStockTakeSession(session: InventoryStockTakeSession) {
+    const lines = (session.lines ?? []).map((line) => ({
+      id: line.id,
+      itemId: line.item?.id,
+      sku: line.item?.sku,
+      name: line.item?.name,
+      batchId: line.batch?.id ?? null,
+      batchNo: line.batch?.batchNo ?? null,
+      expiryDate: line.batch?.expiryDate ?? null,
+      expectedQty: Number(line.expectedQty),
+      countedQty: line.countedQty == null ? null : Number(line.countedQty),
+      varianceQty: line.varianceQty == null ? null : Number(line.varianceQty),
+      reason: line.reason,
+    }));
+    return {
+      id: session.id,
+      status: session.status,
+      notes: session.notes,
+      baselineAt: session.baselineAt,
+      submittedBy: session.submittedBy,
+      submittedAt: session.submittedAt,
+      rejectedBy: session.rejectedBy,
+      rejectedAt: session.rejectedAt,
+      rejectReason: session.rejectReason,
+      approvedBy: session.approvedBy,
+      approvedAt: session.approvedAt,
+      postedAt: session.postedAt,
+      location: session.location
+        ? { id: session.location.id, name: session.location.name, code: session.location.code }
+        : null,
+      lines,
+      totals: {
+        lines: lines.length,
+        counted: lines.filter((line) => line.countedQty != null).length,
+        variances: lines.filter((line) => (line.varianceQty ?? 0) !== 0).length,
+      },
+    };
+  }
+
   private async readPricingMap(request?: RequestContext): Promise<Record<string, ItemPrice>> {
     const settings = await this.loadSettings(request);
     const raw = (settings?.clinicalCatalog as { inventoryPricing?: Record<string, ItemPrice> } | undefined)
@@ -2468,6 +3996,11 @@ export function aliasInventoryHeader(header: string) {
     counted_qty: 'counted_qty',
     counted: 'counted_qty',
     physical_qty: 'counted_qty',
+    physical_count: 'counted_qty',
+    variance_reason: 'reason',
+    reason: 'reason',
+    line_id: 'line_id',
+    session_id: 'session_id',
     system_qty: 'system_qty',
     system_quantity: 'system_qty',
     item_id: 'item_id',
@@ -2484,6 +4017,16 @@ export function aliasInventoryHeader(header: string) {
     class: 'drug_class',
     therapeutic_class: 'drug_class',
     category_name: 'category',
+    generic_name: 'generic_name',
+    generic: 'generic_name',
+    strength: 'strength',
+    dosage_form: 'dosage_form',
+    form: 'dosage_form',
+    reorder_level: 'min_level',
+    min_level: 'min_level',
+    max_level: 'max_level',
+    barcode: 'sku',
+    sku_code: 'sku',
   };
   return aliases[key] ?? key;
 }

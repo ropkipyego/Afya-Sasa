@@ -31,7 +31,7 @@ export type PaymentTransactionRow = {
 }
 
 export type CollectPaymentInput = {
-  patientId: string
+  patientId?: string
   serviceLine: PaymentServiceLine
   serviceEntityId?: string
   encounterId?: string

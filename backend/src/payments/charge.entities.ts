@@ -9,9 +9,9 @@ export type ChargeStatus = 'owed' | 'partially_paid' | 'paid' | 'waived' | 'canc
 @Entity({ name: 'charges', schema: 'demo' })
 @Index(['status', 'serviceLine'])
 export class Charge extends SoftDeleteClinicalEntity {
-  @ManyToOne(() => Patient)
+  @ManyToOne(() => Patient, { nullable: true })
   @JoinColumn({ name: 'patient_id' })
-  patient!: Patient;
+  patient!: Patient | null;
 
   @ManyToOne(() => Encounter, { nullable: true })
   @JoinColumn({ name: 'encounter_id' })

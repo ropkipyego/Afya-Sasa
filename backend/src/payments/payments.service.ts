@@ -8,6 +8,9 @@ import { Patient } from '../patients/patient.entities';
 import { ClinicalOrder } from '../clinical-order/clinical-order.entities';
 import { prescriptionGroupId } from '../clinical-order/pharmacy-prescription';
 import { Charge, chargeRemaining, chargesEnabled } from './charge.entities';
+import { domainBadRequest, domainConflict, domainForbidden } from '../common/errors/domain-exception';
+import { ERROR_CODES } from '../common/errors/error-codes';
+import { readCreditApproval } from './pharmacy-clearance';
 import { InitiateMpesaStkDto, RecordManualPaymentDto, RefundPaymentDto } from './payments.dto';
 import { PaymentTransaction, QuickbooksSyncQueueItem, type PaymentServiceLine } from './payment.entities';
 import { amountsMatch } from './mpesa-callback.contract';
@@ -36,25 +39,35 @@ export class PaymentsService {
 
   async initiateMpesaStk(dto: InitiateMpesaStkDto, request: RequestContext) {
     this.assertAmount(dto.amount, false);
-    const patient = await this.patients.findOne({ where: { id: dto.patientId } });
-    if (!patient) throw new NotFoundException('Patient not found');
-    await this.assertNoRecentDuplicate({
-      patientId: patient.id,
-      amount: dto.amount,
-      method: 'mpesa',
-      serviceLine: dto.serviceLine,
-    });
+    const patientId = dto.patientId?.trim() || '';
+    if (dto.serviceLine !== 'pharmacy' && !patientId) {
+      throw new BadRequestException('A patient is required for this payment.');
+    }
+    const patient = patientId ? await this.patients.findOne({ where: { id: patientId } }) : null;
+    if (patientId && !patient) throw new NotFoundException('Patient not found');
+    if (!patient && !dto.chargeId?.trim()) {
+      throw new BadRequestException('Select a patient or a pharmacy sale bill for M-Pesa.');
+    }
+    if (patient) {
+      await this.assertNoRecentDuplicate({
+        patientId: patient.id,
+        amount: dto.amount,
+        method: 'mpesa',
+        serviceLine: dto.serviceLine,
+      });
+    }
 
     const serviceEntityId = dto.serviceEntityId ?? dto.labRequestId ?? null;
     const labRequest = await this.resolveLabRequest(dto.serviceLine, serviceEntityId, dto.labRequestId);
     const encounterId = dto.encounterId ?? labRequest?.encounter?.id ?? null;
-    const charge = await this.lockChargeForPayment(dto.chargeId, patient.id, dto.amount, false);
+    const charge = await this.lockChargeForPayment(dto.chargeId, patient?.id ?? null, dto.amount, false);
 
     const accountReference =
       dto.accountReference ??
       labRequest?.requestNo ??
-      patient.patientNo ??
-      dto.patientId.slice(0, 8);
+      patient?.patientNo ??
+      dto.chargeId?.slice(0, 8) ??
+      'pharmacy';
 
     const stk = await this.mpesa.initiateStkPush({
       phone: dto.phone,
@@ -103,13 +116,20 @@ export class PaymentsService {
   async recordManualPayment(dto: RecordManualPaymentDto, request: RequestContext) {
     const amount = dto.method === 'waived' ? dto.amount ?? 0 : dto.amount;
     this.assertAmount(amount, dto.method === 'waived');
-    const patient = await this.patients.findOne({ where: { id: dto.patientId } });
-    if (!patient) throw new NotFoundException('Patient not found');
+    const patientId = dto.patientId?.trim() || '';
+    if (dto.serviceLine !== 'pharmacy' && !patientId) {
+      throw new BadRequestException('A patient is required for this payment.');
+    }
+    const patient = patientId ? await this.patients.findOne({ where: { id: patientId } }) : null;
+    if (patientId && !patient) throw new NotFoundException('Patient not found');
+    if (!patient && !dto.chargeId?.trim()) {
+      throw new BadRequestException('Select a patient or a pharmacy sale bill to collect against.');
+    }
     if (dto.idempotencyKey?.trim()) {
       const existing = await this.findByIdempotencyKey(dto.idempotencyKey.trim());
       if (existing) return existing;
     }
-    if (amount != null) {
+    if (amount != null && patient) {
       await this.assertNoRecentDuplicate({
         patientId: patient.id,
         amount,
@@ -128,7 +148,7 @@ export class PaymentsService {
         const existing = await this.findByIdempotencyKey(idempotencyKey, manager);
         if (existing) return { replay: true as const, txn: existing, receiptNo: existing.externalReference };
       }
-      if (amount != null) {
+      if (amount != null && patient) {
         await this.assertNoRecentDuplicate(
           {
             patientId: patient.id,
@@ -142,7 +162,7 @@ export class PaymentsService {
 
       const charge = await this.lockChargeForPayment(
         dto.chargeId,
-        patient.id,
+        patient?.id ?? null,
         amount ?? 0,
         dto.method === 'waived',
         manager,
@@ -197,7 +217,7 @@ export class PaymentsService {
 
     if (dto.method === 'quickbooks') {
       await this.enqueueQuickbooks('payment', posted.txn.id, 'payment_add', {
-        patientNo: patient.patientNo,
+        patientNo: patient?.patientNo ?? 'WALK-IN',
         serviceLine: dto.serviceLine,
         serviceEntityId,
         reference: dto.reference,
@@ -294,7 +314,7 @@ export class PaymentsService {
           (txn.metadata && typeof txn.metadata.chargeId === 'string' ? txn.metadata.chargeId : null);
         if (chargeId && txn.patient?.id) {
           if (Number.isFinite(paidAmount) && paidAmount > 0) {
-            const charge = await this.lockChargeForPayment(chargeId, txn.patient.id, paidAmount, false);
+            const charge = await this.lockChargeForPayment(chargeId, txn.patient?.id ?? null, paidAmount, false);
             if (charge) await this.applyPaymentToCharge(charge, paidAmount, false);
           }
         }
@@ -381,6 +401,51 @@ export class PaymentsService {
       relations: { encounter: true },
       order: { createdAt: 'DESC' },
       take: 80,
+    });
+  }
+
+  async findPharmacyChargeBySale(saleId: string) {
+    const trimmed = saleId.trim();
+    if (!trimmed) return null;
+    const byEntity = await this.charges.findOne({
+      where: { serviceLine: 'pharmacy', serviceEntityId: trimmed, status: In(['owed', 'partially_paid', 'paid']) },
+      relations: { patient: true, encounter: true },
+    });
+    if (byEntity) return byEntity;
+    return this.charges
+      .createQueryBuilder('charge')
+      .leftJoinAndSelect('charge.patient', 'patient')
+      .leftJoinAndSelect('charge.encounter', 'encounter')
+      .where("charge.service_line = 'pharmacy'")
+      .andWhere("charge.status IN ('owed','partially_paid','paid')")
+      .andWhere("charge.metadata->>'clientSaleId' = :saleId", { saleId: trimmed })
+      .getOne();
+  }
+
+  listOpenPharmacyQueue() {
+    return this.charges.find({
+      where: { serviceLine: 'pharmacy', status: In(['owed', 'partially_paid']) },
+      relations: { patient: true },
+      order: { createdAt: 'DESC' },
+      take: 80,
+    });
+  }
+
+  async listRecentPharmacyCharges(limit = 100) {
+    return this.charges.find({
+      where: { serviceLine: 'pharmacy' },
+      relations: { patient: true, encounter: true },
+      order: { createdAt: 'DESC' },
+      take: Math.min(Math.max(limit, 1), 200),
+    });
+  }
+
+  async listRecentPharmacyPayments(limit = 100) {
+    return this.transactions.find({
+      where: { serviceLine: 'pharmacy' },
+      relations: { patient: true, encounter: true },
+      order: { createdAt: 'DESC' },
+      take: Math.min(Math.max(limit, 1), 200),
     });
   }
 
@@ -547,7 +612,7 @@ export class PaymentsService {
 
   async upsertPharmacyCharge(
     params: {
-      patientId: string;
+      patientId: string | null;
       encounterId: string | null;
       admissionId?: string | null;
       serviceEntityId: string;
@@ -556,6 +621,10 @@ export class PaymentsService {
       orderNo?: string;
       userId: string | null;
       dispenseOpId?: string;
+      /** prepare = hold/bill; dispense kept for legacy retries. Same id is never charged twice. */
+      opKind?: 'prepare' | 'dispense';
+      walkIn?: { name: string; phone: string | null } | null;
+      clientSaleId?: string;
     },
     manager?: EntityManager,
   ) {
@@ -563,6 +632,16 @@ export class PaymentsService {
     if (!Number.isFinite(params.amountDelta) || params.amountDelta <= 0) return null;
 
     const charges = manager ? manager.getRepository(Charge) : this.charges;
+    if (manager) {
+      await charges.findOne({
+        where: {
+          serviceLine: 'pharmacy',
+          serviceEntityId: params.serviceEntityId,
+          status: In(['owed', 'partially_paid', 'paid']),
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+    }
     const existing = await charges.findOne({
       where: {
         serviceLine: 'pharmacy',
@@ -570,16 +649,20 @@ export class PaymentsService {
         status: In(['owed', 'partially_paid', 'paid']),
       },
       relations: { patient: true, encounter: true },
-      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
 
-    const priorOps = Array.isArray(existing?.metadata?.dispenseOps)
-      ? (existing?.metadata?.dispenseOps as string[])
+    const opKey = params.opKind === 'prepare' ? 'prepareOps' : 'dispenseOps';
+    const priorOps = Array.isArray(existing?.metadata?.[opKey])
+      ? (existing?.metadata?.[opKey] as string[])
       : [];
-    if (params.dispenseOpId && priorOps.includes(params.dispenseOpId)) {
+    const otherKey = opKey === 'prepareOps' ? 'dispenseOps' : 'prepareOps';
+    const otherOps = Array.isArray(existing?.metadata?.[otherKey])
+      ? (existing?.metadata?.[otherKey] as string[])
+      : [];
+    if (params.dispenseOpId && (priorOps.includes(params.dispenseOpId) || otherOps.includes(params.dispenseOpId))) {
       return existing;
     }
-    const dispenseOps = params.dispenseOpId ? [...priorOps, params.dispenseOpId] : priorOps;
+    const nextOps = params.dispenseOpId ? [...priorOps, params.dispenseOpId] : priorOps;
 
     if (existing && existing.status !== 'cancelled' && existing.status !== 'waived') {
       existing.amountOwed = String(Number(existing.amountOwed) + params.amountDelta);
@@ -589,8 +672,11 @@ export class PaymentsService {
         orderNo: params.orderNo ?? existing.metadata?.orderNo,
         admissionId: params.admissionId ?? existing.metadata?.admissionId ?? null,
         source: 'PHARMACY',
-        kind: 'pharmacy_dispense',
-        dispenseOps,
+        kind: 'pharmacy_sale',
+        [opKey]: nextOps,
+        [otherKey]: otherOps,
+        ...(params.walkIn ? { walkIn: params.walkIn } : {}),
+        ...(params.clientSaleId ? { clientSaleId: params.clientSaleId } : {}),
       };
       existing.status = chargeRemaining(existing) <= 0 ? 'paid' : Number(existing.amountPaid) > 0 ? 'partially_paid' : 'owed';
       existing.updatedBy = params.userId;
@@ -599,7 +685,7 @@ export class PaymentsService {
 
     return charges.save(
       charges.create({
-        patient: { id: params.patientId } as Patient,
+        patient: params.patientId ? ({ id: params.patientId } as Patient) : null,
         encounter: params.encounterId ? ({ id: params.encounterId } as Encounter) : null,
         serviceLine: 'pharmacy',
         serviceEntityId: params.serviceEntityId,
@@ -611,15 +697,129 @@ export class PaymentsService {
         status: 'owed',
         metadata: {
           orderNo: params.orderNo,
-          kind: 'pharmacy_dispense',
+          kind: 'pharmacy_sale',
           source: 'PHARMACY',
           admissionId: params.admissionId ?? null,
-          dispenseOps,
+          prepareOps: opKey === 'prepareOps' ? nextOps : [],
+          dispenseOps: opKey === 'dispenseOps' ? nextOps : [],
+          ...(params.walkIn ? { walkIn: params.walkIn } : {}),
+          ...(params.clientSaleId ? { clientSaleId: params.clientSaleId } : {}),
         },
         createdBy: params.userId,
         updatedBy: params.userId,
       }),
     );
+  }
+
+  /**
+   * Documented credit covering an unpaid remainder. Pharmacists cannot self-approve
+   * a sale they prepared (createdBy on the charge).
+   */
+  async approvePharmacyCredit(
+    chargeId: string,
+    dto: { amount: number; reason: string },
+    request: RequestContext,
+  ) {
+    if (!chargesEnabled()) {
+      throw domainBadRequest(ERROR_CODES.CHARGES_DISABLED, 'Operational charges are disabled.');
+    }
+    const actor = request.user?.sub ?? null;
+    if (!actor) throw domainForbidden(ERROR_CODES.AUTH_FORBIDDEN, 'Sign in before approving credit.');
+    const permissions = request.user?.permissions ?? [];
+    if (!permissions.includes('payments:manage')) {
+      throw domainForbidden(
+        ERROR_CODES.CREDIT_APPROVAL_INVALID,
+        'Only a payments manager can approve pharmacy credit.',
+      );
+    }
+    const amount = Number(dto.amount);
+    const reason = dto.reason.trim();
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw domainBadRequest(ERROR_CODES.CREDIT_APPROVAL_INVALID, 'Credit amount must be greater than zero.');
+    }
+    if (reason.length < 3) {
+      throw domainBadRequest(ERROR_CODES.CREDIT_APPROVAL_INVALID, 'Credit approval needs a reason.');
+    }
+
+    return this.charges.manager.transaction(async (manager) => {
+      const charges = manager.getRepository(Charge);
+      const charge = await charges.findOne({
+        where: { id: chargeId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!charge) throw domainBadRequest(ERROR_CODES.CHARGE_NOT_FOUND, 'Charge not found');
+      if (charge.serviceLine !== 'pharmacy') {
+        throw domainBadRequest(ERROR_CODES.CREDIT_APPROVAL_INVALID, 'Credit approval is only for pharmacy bills.');
+      }
+      if (charge.status === 'cancelled') {
+        throw domainConflict(ERROR_CODES.SALE_CANCELLED, 'Cannot approve credit on a cancelled bill.');
+      }
+      if (charge.createdBy && charge.createdBy === actor) {
+        throw domainForbidden(
+          ERROR_CODES.CREDIT_APPROVAL_INVALID,
+          'You cannot approve credit on a pharmacy bill you prepared.',
+        );
+      }
+      const remaining = chargeRemaining(charge);
+      if (amount + 1e-9 < remaining && remaining > 0) {
+        throw domainBadRequest(
+          ERROR_CODES.CREDIT_APPROVAL_INVALID,
+          `Credit KES ${amount} does not cover the remaining KES ${remaining}.`,
+        );
+      }
+      charge.metadata = {
+        ...(charge.metadata ?? {}),
+        creditApproval: {
+          by: actor,
+          at: new Date().toISOString(),
+          reason,
+          amount,
+        },
+      };
+      charge.updatedBy = actor;
+      await charges.save(charge);
+      return { chargeId: charge.id, creditApproval: readCreditApproval(charge.metadata) };
+    });
+  }
+
+  async loadPharmacyCharge(serviceEntityId: string, manager?: EntityManager) {
+    const charges = manager ? manager.getRepository(Charge) : this.charges;
+    return charges.findOne({
+      where: {
+        serviceLine: 'pharmacy',
+        serviceEntityId,
+        status: In(['owed', 'partially_paid', 'paid', 'waived']),
+      },
+    });
+  }
+
+  async loadPaymentsForCharge(chargeId: string, manager?: EntityManager) {
+    return this.paymentRepo(manager).find({
+      where: { chargeId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async cancelUnpaidPharmacyCharge(serviceEntityId: string, manager: EntityManager) {
+    const charges = manager.getRepository(Charge);
+    const charge = await charges.findOne({
+      where: { serviceLine: 'pharmacy', serviceEntityId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!charge || charge.status === 'cancelled') return { cancelled: false as const, reason: 'missing' };
+    const payments = await this.loadPaymentsForCharge(charge.id, manager);
+    const collected = payments.some(
+      (row) => row.status === 'completed' && row.metadata?.kind !== 'refund' && Number(row.amount ?? 0) > 0,
+    );
+    if (collected || Number(charge.amountPaid) > 0) {
+      throw domainConflict(
+        ERROR_CODES.CONFLICT,
+        'Payment has already been collected. Reverse or refund the payment at cashier before cancelling this sale.',
+      );
+    }
+    charge.status = 'cancelled';
+    await charges.save(charge);
+    return { cancelled: true as const, chargeId: charge.id };
   }
 
   async listOutstandingPharmacy(patientId: string) {
@@ -835,19 +1035,24 @@ export class PaymentsService {
 
   private async lockChargeForPayment(
     chargeId: string | undefined,
-    patientId: string,
+    patientId: string | null,
     amount: number,
     waived: boolean,
     manager?: EntityManager,
   ) {
     if (!chargeId || !chargesEnabled()) return null;
+    if (manager) {
+      await this.chargeRepo(manager).findOne({
+        where: { id: chargeId },
+        lock: { mode: 'pessimistic_write' },
+      });
+    }
     const charge = await this.chargeRepo(manager).findOne({
       where: { id: chargeId },
       relations: { patient: true },
-      ...(manager ? { lock: { mode: 'pessimistic_write' as const } } : {}),
     });
     if (!charge) throw new NotFoundException('Charge not found');
-    if (charge.patient.id !== patientId) {
+    if (charge.patient?.id && patientId && charge.patient.id !== patientId) {
       throw new BadRequestException('This payment does not belong to the selected patient.');
     }
     if (charge.status === 'cancelled' || charge.status === 'paid') {

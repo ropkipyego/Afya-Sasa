@@ -17,11 +17,11 @@ const SERVICE_LINES = [
 ] as const;
 
 export class InitiateMpesaStkDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
   @Transform(trimString)
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  patientId!: string;
+  patientId?: string;
 
   @ApiProperty({ enum: SERVICE_LINES })
   @IsIn(SERVICE_LINES)
@@ -75,11 +75,11 @@ export class InitiateMpesaStkDto {
 }
 
 export class RecordManualPaymentDto {
-  @ApiProperty()
+  @ApiPropertyOptional()
   @Transform(trimString)
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  patientId!: string;
+  patientId?: string;
 
   @ApiProperty({ enum: SERVICE_LINES })
   @IsIn(SERVICE_LINES)
@@ -229,6 +229,20 @@ export class CreateManualChargeDto {
   @IsOptional()
   @IsString()
   serviceDate?: string;
+}
+
+export class PharmacyCreditApprovalDto {
+  @ApiProperty({ example: 500 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+
+  @ApiProperty()
+  @Transform(trimString)
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
 }
 
 export class ImportOrderableCatalogDto {

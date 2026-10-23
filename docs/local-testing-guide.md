@@ -109,6 +109,22 @@ Password: `ChangeMe123!`
 
 The admin account is forced to change password on first login.
 
+## Isolated inventory PostgreSQL tests
+
+Do **not** point Jest at the hospital or shared `afyasasa` database, even on localhost.
+
+Create a disposable database named `inventory_it` owned by user `inventory_it`. Then:
+
+```bash
+# names only — put the URL in your shell, never commit it
+export INVENTORY_TEST_DATABASE_URL='postgresql://inventory_it:***@127.0.0.1:5432/inventory_it'
+cd backend && npm run test:inventory-pg
+```
+
+The harness refuses any other database name or a non-loopback host.
+
+Pharmacy cashier-controlled release (prepare → reserve → pay → issue) is documented in `docs/pharmacy-cashier-release.md`.
+
 ## Smoke test
 
 Start the app in detached mode:

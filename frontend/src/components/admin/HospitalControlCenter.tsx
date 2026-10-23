@@ -34,6 +34,13 @@ import { AuditLogPanel } from './panels/AuditLogPanel'
 import { ServiceCatalogsHub } from '../catalog/ServiceCatalogsHub'
 import { BiometricDevicesPanel } from './panels/BiometricDevicesPanel'
 import { IntegrationsStatusPanel } from './panels/IntegrationsStatusPanel'
+import { PharmacyConfigPanel } from './panels/PharmacyConfigPanel'
+import {
+  StockControlPanel,
+  StockOverviewPanel,
+  StockReportsPanel,
+  StockStoresPanel,
+} from './StockOversightPanels'
 
 export type ControlCenterSection =
   | 'home'
@@ -66,9 +73,22 @@ export type ControlCenterSection =
   | 'catalogs'
   | 'biometrics'
   | 'integrations'
+  | 'pharmacy'
+  | 'stock-overview'
+  | 'stock-stores'
+  | 'stock-control'
+  | 'stock-reports'
 
-export function HospitalControlCenter() {
-  const [section, setSection] = useState<ControlCenterSection>('home')
+export function HospitalControlCenter({
+  stockFocus = false,
+  initialSection,
+}: {
+  stockFocus?: boolean
+  initialSection?: ControlCenterSection
+}) {
+  const [section, setSection] = useState<ControlCenterSection>(
+    initialSection ?? (stockFocus ? 'pharmacy' : 'home'),
+  )
   const permissions = useAuthStore((state) => state.user?.permissions ?? [])
   const activeCard = section === 'home' ? null : findControlCenterCard(section)
   const sectionAllowed =
@@ -81,8 +101,12 @@ export function HospitalControlCenter() {
     <div className="space-y-8 animate-fade-in pb-12">
       <PageHeader
         eyebrow="Administration"
-        title="Hospital control center"
-        description="The operational brain of AfyaSasa — configure, secure, brand, and operate the hospital without code changes."
+        title={stockFocus ? 'Pharmacy configuration' : 'Hospital control center'}
+        description={
+          stockFocus
+            ? 'Medication catalogue, stores, controlled stock-take reconciliation, batch/expiry rules, and audit reports.'
+            : 'The operational brain of AfyaSasa — configure, secure, brand, and operate the hospital without code changes.'
+        }
       />
 
       <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
@@ -105,7 +129,7 @@ export function HospitalControlCenter() {
       </nav>
 
       {section === 'home' ? (
-        <ControlCenterHome permissions={permissions} onOpen={openSection} />
+        <ControlCenterHome permissions={permissions} onOpen={openSection} stockFocus={stockFocus} />
       ) : !sectionAllowed ? (
         <Alert tone="warning">
           You do not have permission to open this configuration area. Contact your hospital
@@ -149,6 +173,11 @@ export function HospitalControlCenter() {
           {section === 'catalogs' && <ServiceCatalogsHub />}
           {section === 'biometrics' && <BiometricDevicesPanel />}
           {section === 'integrations' && <IntegrationsStatusPanel />}
+          {section === 'pharmacy' && <PharmacyConfigPanel />}
+          {section === 'stock-overview' && <StockOverviewPanel />}
+          {section === 'stock-stores' && <StockStoresPanel />}
+          {section === 'stock-control' && <StockControlPanel />}
+          {section === 'stock-reports' && <StockReportsPanel />}
         </div>
       )}
     </div>

@@ -26,6 +26,8 @@ export type RequisitionLineStatus = 'pending' | 'issued' | 'cancelled';
 
 export type TransferStatus = 'pending' | 'in_transit' | 'completed' | 'cancelled';
 
+export type InventoryReservationStatus = 'held' | 'consumed' | 'released';
+
 @Entity({ name: 'inventory_items', schema: 'demo' })
 @Unique(['sku'])
 export class InventoryItem extends SoftDeleteClinicalEntity {
@@ -233,4 +235,114 @@ export class InventoryTransferLine extends SoftDeleteClinicalEntity {
 
   @Column({ type: 'varchar', default: 'pending' })
   status!: 'pending' | 'shipped' | 'received';
+}
+
+/**
+ * Holds available pharmacy stock without changing qty_on_hand or the movement ledger.
+ * Integrity reports must keep reconciling on-hand to inventory_transactions only.
+ */
+@Entity({ name: 'inventory_reservations', schema: 'demo' })
+@Index(['saleId', 'status'])
+@Index(['batch'])
+export class InventoryReservation extends SoftDeleteClinicalEntity {
+  @Column({ type: 'varchar', name: 'sale_id' })
+  saleId!: string;
+
+  @Column({ type: 'uuid', name: 'clinical_order_id', nullable: true })
+  clinicalOrderId!: string | null;
+
+  @ManyToOne(() => InventoryItem)
+  @JoinColumn({ name: 'item_id' })
+  item!: InventoryItem;
+
+  @ManyToOne(() => InventoryBatch)
+  @JoinColumn({ name: 'batch_id' })
+  batch!: InventoryBatch;
+
+  @ManyToOne(() => InventoryLocation)
+  @JoinColumn({ name: 'location_id' })
+  location!: InventoryLocation;
+
+  @Column({ type: 'numeric' })
+  quantity!: string;
+
+  @Column({ type: 'varchar' })
+  status!: InventoryReservationStatus;
+
+  @Column({ type: 'varchar', name: 'prepare_op_id', nullable: true })
+  prepareOpId!: string | null;
+}
+
+export type StockTakeSessionStatus = 'open' | 'submitted' | 'rejected' | 'posted';
+
+@Entity({ name: 'inventory_stock_take_sessions', schema: 'demo' })
+@Index(['location', 'status'])
+export class InventoryStockTakeSession extends SoftDeleteClinicalEntity {
+  @ManyToOne(() => InventoryLocation)
+  @JoinColumn({ name: 'location_id' })
+  location!: InventoryLocation;
+
+  @Column({ type: 'varchar', default: 'open' })
+  status!: StockTakeSessionStatus;
+
+  @Column({ type: 'timestamptz', name: 'baseline_at' })
+  baselineAt!: Date;
+
+  @Column({ type: 'varchar', nullable: true })
+  notes!: string | null;
+
+  @Column({ type: 'uuid', name: 'submitted_by', nullable: true })
+  submittedBy!: string | null;
+
+  @Column({ type: 'timestamptz', name: 'submitted_at', nullable: true })
+  submittedAt!: Date | null;
+
+  @Column({ type: 'uuid', name: 'rejected_by', nullable: true })
+  rejectedBy!: string | null;
+
+  @Column({ type: 'timestamptz', name: 'rejected_at', nullable: true })
+  rejectedAt!: Date | null;
+
+  @Column({ type: 'varchar', name: 'reject_reason', nullable: true })
+  rejectReason!: string | null;
+
+  @Column({ type: 'uuid', name: 'approved_by', nullable: true })
+  approvedBy!: string | null;
+
+  @Column({ type: 'timestamptz', name: 'approved_at', nullable: true })
+  approvedAt!: Date | null;
+
+  @Column({ type: 'timestamptz', name: 'posted_at', nullable: true })
+  postedAt!: Date | null;
+
+  @OneToMany(() => InventoryStockTakeLine, (line) => line.session)
+  lines!: InventoryStockTakeLine[];
+}
+
+@Entity({ name: 'inventory_stock_take_lines', schema: 'demo' })
+@Index(['session'])
+export class InventoryStockTakeLine extends SoftDeleteClinicalEntity {
+  @ManyToOne(() => InventoryStockTakeSession, (session) => session.lines)
+  @JoinColumn({ name: 'session_id' })
+  session!: InventoryStockTakeSession;
+
+  @ManyToOne(() => InventoryItem)
+  @JoinColumn({ name: 'item_id' })
+  item!: InventoryItem;
+
+  @ManyToOne(() => InventoryBatch, { nullable: true })
+  @JoinColumn({ name: 'batch_id' })
+  batch!: InventoryBatch | null;
+
+  @Column({ type: 'numeric', name: 'expected_qty' })
+  expectedQty!: string;
+
+  @Column({ type: 'numeric', name: 'counted_qty', nullable: true })
+  countedQty!: string | null;
+
+  @Column({ type: 'numeric', name: 'variance_qty', nullable: true })
+  varianceQty!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  reason!: string | null;
 }

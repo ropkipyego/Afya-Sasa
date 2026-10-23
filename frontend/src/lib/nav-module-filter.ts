@@ -15,6 +15,10 @@ export const navModuleMap: Partial<Record<string, HospitalModuleKey>> = {
   'Triage Queue': 'opd',
   'Doctor Queue': 'opd',
   'Lab Queue': 'laboratory',
+  Dashboard: 'pharmacy',
+  'Prescription & OTC Queue': 'pharmacy',
+  'OTC Point of Sale': 'pharmacy',
+  'Products & Stock': 'pharmacy',
   'Pharmacy Queue': 'pharmacy',
   'Imaging Queue': 'radiology',
   'All Queues': 'reporting',
@@ -37,11 +41,14 @@ export const navModuleMap: Partial<Record<string, HospitalModuleKey>> = {
   Maternity: 'maternity',
   Orders: 'opd',
   Pharmacy: 'pharmacy',
+  'Pharmacy Sales POS': 'pharmacy',
   'Inventory & Store': 'inventory',
   Reports: 'reporting',
   'Director Dashboard': 'reporting',
   Interoperability: 'registration',
   'Hospital Control Center': 'registration',
+  'Pharmacy Configuration': 'inventory',
+  'Stock Oversight': 'inventory',
 }
 
 export function filterNavigationByModules(

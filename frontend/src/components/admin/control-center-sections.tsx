@@ -17,6 +17,7 @@ import {
   Upload,
   Users,
   Wallet,
+  Package,
 } from 'lucide-react'
 import type { ControlCenterSection } from './HospitalControlCenter'
 
@@ -31,6 +32,15 @@ export type ControlCenterCard = {
 }
 
 export const controlCenterCards: ControlCenterCard[] = [
+  {
+    id: 'pharmacy',
+    title: 'Pharmacy configuration',
+    description: 'Catalogue, stores, controlled stock-take, batch/expiry rules, approvals, and ledger reports.',
+    category: 'Hospital configuration',
+    icon: <Package className="h-6 w-6" />,
+    keywords: ['pharmacy', 'stock', 'catalogue', 'stock take', 'batches', 'expiry', 'reconciliation'],
+    help: 'Follows the Lab Catalogue pattern for pharmacy catalogue administration, stock-take sessions, and ledger reconciliation.',
+  },
   {
     id: 'organization',
     title: 'Hospital profile',
@@ -311,6 +321,7 @@ export function filterControlCenterCards(query: string) {
 }
 
 export const controlCenterCategories = [
+  'Stock oversight',
   'Staff and accounts',
   'Roles and permissions',
   'Hospital configuration',

@@ -63,14 +63,10 @@ export const navigation: NavItem[] = [
   { group: 'Specialty & Procedures', label: 'Theatre', icon: Hospital, permission: 'surgery_bookings:read' },
   { group: 'Specialty & Procedures', label: 'Maternity', icon: Baby, permission: 'pregnancies:read' },
 
-  { group: 'Pharmacy & Supply', label: 'Pharmacy', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Pharmacy' },
-  { group: 'Pharmacy & Supply', label: 'Pharmacy Queue', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Rx queue' },
-  { group: 'Pharmacy & Supply', label: 'Pharmacy Dispensing', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Dispense' },
-  { group: 'Pharmacy & Supply', label: 'Pharmacy Sales', icon: Landmark, permission: 'pharmacy:read', shortLabel: 'Sales' },
-  { group: 'Pharmacy & Supply', label: 'Pharmacy Stock', icon: Package, permission: 'pharmacy:read', shortLabel: 'Stock' },
-  { group: 'Pharmacy & Supply', label: 'Pharmacy Stock Take', icon: ClipboardList, permission: 'pharmacy:read', shortLabel: 'Stock take' },
-  { group: 'Pharmacy & Supply', label: 'Pharmacy Products', icon: Package, permission: 'pharmacy:read', shortLabel: 'Products' },
-  { group: 'Pharmacy & Supply', label: 'Pharmacy Reports', icon: LayoutDashboard, permission: 'pharmacy:read', shortLabel: 'Rx reports' },
+  { group: 'Pharmacy & Supply', label: 'Dashboard', icon: Pill, permission: 'pharmacy:read', shortLabel: 'Dashboard' },
+  { group: 'Pharmacy & Supply', label: 'Prescription & OTC Queue', icon: ClipboardList, permission: 'pharmacy:read', shortLabel: 'Queue' },
+  { group: 'Pharmacy & Supply', label: 'OTC Point of Sale', icon: Landmark, permission: 'pharmacy:read', shortLabel: 'POS' },
+  { group: 'Pharmacy & Supply', label: 'Products & Stock', icon: Package, permission: 'pharmacy:read', shortLabel: 'Stock' },
 
   { group: 'Procurement and Store', label: 'Inventory & Store', icon: Package, permission: 'inventory:read', shortLabel: 'Store' },
 
@@ -85,6 +81,7 @@ export const navigation: NavItem[] = [
 
   { group: 'Management & Intelligence', label: 'Director Dashboard', icon: LayoutDashboard, permission: 'reports:read', shortLabel: 'Director' },
 
+  { group: 'Hospital Control Center', label: 'Pharmacy Configuration', icon: Pill, permission: 'inventory:read', shortLabel: 'Pharmacy cfg' },
   { group: 'Hospital Control Center', label: 'Hospital Control Center', icon: Settings, permission: 'settings:manage', shortLabel: 'Admin' },
   { group: 'Hospital Control Center', label: 'Interoperability', icon: Activity, permission: 'settings:manage', shortLabel: 'FHIR' },
 ]
@@ -157,13 +154,12 @@ export const workflowDescriptions: Record<string, string> = {
   'Blood Bank': 'Laboratory blood bank — grouping, crossmatch and issue. Not pharmacy stock.',
   Radiology: 'Imaging overview and reporting worklist.',
   Emergency: 'ED command center — triage, bays, observation, disposition.',
-  Pharmacy: 'Pharmacy control center — today’s work and shortcuts.',
-  'Pharmacy Dispensing': 'OPD and IPD prescriptions. Stock is deducted only when you confirm.',
-  'Pharmacy Sales': 'Pharmacy collections from the existing payment ledger.',
-  'Pharmacy Stock': 'Usable stock at the PHARMACY location.',
-  'Pharmacy Stock Take': 'Count sheet import, preview, then confirm before posting.',
-  'Pharmacy Products': 'Medication catalogue and sell prices.',
-  'Pharmacy Reports': 'Pharmacy department export.',
+  Dashboard: 'Pharmacy operational summary — OPD/IPD prescriptions, today’s OTC sales, stock availability, and alerts.',
+  'Prescription & OTC Queue': 'Unified OPD, IPD, and OTC pharmacy queue with stock eligibility and cashier clearance.',
+  'OTC Point of Sale': 'Walk-in or identified patient checkout. Prepare, cashier, then issue. Not a second ledger.',
+  'Products & Stock': 'Searchable, sortable batch and catalogue stock table with on-hand, reserved, and available quantities.',
+  Pharmacy: 'Pharmacy operational summary — OPD/IPD prescriptions, today’s OTC sales, stock availability, and alerts.',
+  'Pharmacy Configuration': 'Catalogue administration, stores, stock-take sessions, batch rules, approvals, and ledger reports.',
   Maternity: 'Maternity service line — ANC, labour, delivery, postnatal.',
   Orders: 'Clinical orders from all departments — lab, imaging, procedures.',
   'Inventory & Store': 'Supply overview, requisitions, buying list, transfers, and goods receipt. Not the pharmacy queue.',
@@ -175,5 +171,6 @@ export const workflowDescriptions: Record<string, string> = {
   ICU: 'Intensive care — monitoring, ventilator, and consultant rounds.',
   HDU: 'High dependency unit — enhanced monitoring and step-down care.',
   'Hospital Control Center': 'Configure hospital, users, SMS, documents, security, health, and backup.',
+  'Stock Oversight': 'Catalogue administration, stores, stock-take sessions, batch rules, approvals, and ledger reports.',
   'Hospital Library': 'Hospital-wide policies, protocols, and forms.',
 }
