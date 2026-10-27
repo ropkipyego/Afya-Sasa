@@ -7,6 +7,7 @@ import { AlertTriangle, Baby } from 'lucide-react'
 import { Button, Card, Field, PageHeader, SelectField, TextareaField } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { useCan } from '../../lib/action-access'
 
 type PregnancyRow = {
   id: string
@@ -31,6 +32,9 @@ type PregnancyDetail = {
 export function LabourWardWorkspace({ mode }: { mode: 'labour' | 'deliveries' }) {
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState('')
+  const canPartograph = useCan('partograph:create')
+  const canDeliver = useCan('deliveries:create')
+  const canRegisterNewborn = useCan('newborns:create')
 
   const { data: pregnancies = [] } = useQuery({
     queryKey: ['pregnancies'],
@@ -176,7 +180,7 @@ export function LabourWardWorkspace({ mode }: { mode: 'labour' | 'deliveries' })
                   <Field name="temperatureC" label="Temperature (°C)" type="number" step="0.1" />
                 </div>
                 <TextareaField name="notes" label="Notes" />
-                <Button type="submit" loading={partograph.isPending}>Add partograph entry</Button>
+                <Button type="submit" loading={partograph.isPending} disabled={!canPartograph}>Add partograph entry</Button>
               </form>
             </Card>
           ) : null}
@@ -200,7 +204,7 @@ export function LabourWardWorkspace({ mode }: { mode: 'labour' | 'deliveries' })
                     <option value="maternal_death">Maternal death</option>
                   </SelectField>
                   <TextareaField name="complications" label="Complications" />
-                  <Button type="submit" loading={createDelivery.isPending}>Record delivery</Button>
+                  <Button type="submit" loading={createDelivery.isPending} disabled={!canDeliver}>Record delivery</Button>
                 </form>
               </Card>
 
@@ -223,7 +227,7 @@ export function LabourWardWorkspace({ mode }: { mode: 'labour' | 'deliveries' })
                     <option value="triplet">Triplet</option>
                     <option value="higher_order">Higher order</option>
                   </SelectField>
-                  <Button type="submit" loading={registerNewborn.isPending}>
+                  <Button type="submit" loading={registerNewborn.isPending} disabled={!canRegisterNewborn}>
                     <Baby className="h-4 w-4" />
                     Register newborn patient
                   </Button>

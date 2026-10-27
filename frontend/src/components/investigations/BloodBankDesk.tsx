@@ -36,6 +36,17 @@ type BloodRow = {
   patient?: { firstName: string; lastName: string; patientNo: string }
 }
 
+type BloodUnit = {
+  id: string
+  unitNo: string
+  product: string
+  bloodGroup: string
+  status: string
+  screeningStatus: string
+  expiresAt: string
+  reservedRequestId?: string | null
+}
+
 export function BloodBankDesk() {
   const queryClient = useQueryClient()
   const [patient, setPatient] = useState<PatientSearchItem | null>(null)
@@ -49,6 +60,13 @@ export function BloodBankDesk() {
     queryFn: () => apiRequest<StockSummary>('/laboratory/blood-bank/stock'),
     refetchInterval: 20_000,
     retry: false,
+  })
+  const { data: units = [] } = useQuery({
+    queryKey: ['blood-bank-units'],
+    queryFn: () => apiRequest<BloodUnit[]>('/laboratory/blood-bank/units'),
+    refetchInterval: 20_000,
+    retry: false,
+    enabled: stock?.available === true,
   })
 
   const create = useMutation({
@@ -82,8 +100,23 @@ export function BloodBankDesk() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['blood-bank-requests'] })
+      await queryClient.invalidateQueries({ queryKey: ['blood-bank-units'] })
+      await queryClient.invalidateQueries({ queryKey: ['blood-bank-stock'] })
     },
     onError: (error: Error) => notify('Update failed', error.message, 'critical'),
+  })
+
+  const transitionUnit = useMutation({
+    mutationFn: (input: { id: string; status: string; screeningStatus?: string; reservedRequestId?: string }) =>
+      apiRequest(`/laboratory/blood-bank/units/${input.id}/status`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['blood-bank-units'] })
+      await queryClient.invalidateQueries({ queryKey: ['blood-bank-stock'] })
+    },
+    onError: (error: Error) => notify('Unit update failed', error.message, 'critical'),
   })
 
   return (
@@ -131,14 +164,61 @@ export function BloodBankDesk() {
         ) : null}
         <p className="mt-2 text-[11px] text-slate-500">
           Receipt is not a release. Available stock excludes expired, quarantined, unscreened, reserved and
-          issued units. Compatibility is not calculated here.
+          issued units. Compatibility is not calculated here. Bedside transfusion and donor collection are
+          not in this desk.
         </p>
+        {stock?.available && units.length ? (
+          <ul className="mt-3 divide-y divide-slate-100 text-sm">
+            {units.slice(0, 20).map((unit) => (
+              <li key={unit.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span>
+                  {unit.unitNo} · {unit.product} · {unit.bloodGroup} · {unit.status} / {unit.screeningStatus}
+                </span>
+                <span className="flex flex-wrap gap-2">
+                  {unit.status === 'received' ? (
+                    <Button
+                      type="button"
+                      className="px-2 py-1 text-xs"
+                      onClick={() =>
+                        transitionUnit.mutate({
+                          id: unit.id,
+                          status: 'available',
+                          screeningStatus: 'released',
+                        })
+                      }
+                    >
+                      Release
+                    </Button>
+                  ) : null}
+                  {unit.status === 'available' && rows.some((row) => row.status === 'crossmatched') ? (
+                    <Button
+                      type="button"
+                      className="px-2 py-1 text-xs"
+                      onClick={() => {
+                        const request = rows.find((row) => row.status === 'crossmatched')
+                        if (!request) return
+                        transitionUnit.mutate({
+                          id: unit.id,
+                          status: 'reserved',
+                          reservedRequestId: request.id,
+                        })
+                      }}
+                    >
+                      Reserve for next issue
+                    </Button>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        <p className="text-sm font-semibold text-slate-900">Blood bank — laboratory</p>
+        <p className="text-sm font-semibold text-slate-900">Blood bank — laboratory request desk</p>
         <p className="mt-1 text-xs text-slate-600">
-          Grouping, crossmatch and authorised issue. Units are not pharmacy lots. Record the laboratory
-          result the bench actually obtained. Issue requires verification permission and both results.
+          This records a laboratory blood request plus grouping and crossmatch strings. It is not a donor
+          programme, unit-level reservation ledger, ward handover, or full transfusion workflow. Units are
+          not pharmacy lots. Issue of a request requires verification permission and both results.
         </p>
         <div className="mt-4">
           <PatientSearchAutocomplete selected={patient} onSelect={setPatient} />

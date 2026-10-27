@@ -44,4 +44,24 @@ describe('pharmacy prescription grouping', () => {
       }),
     ).toBe('partially_dispensed');
   });
+
+  it('keeps remaining at zero after the prescribed quantity is issued', () => {
+    const order = {
+      id: 'line-1',
+      status: 'dispensed',
+      metadata: { quantityPrescribed: 10, quantityDispensed: 10 },
+    };
+    expect(remainingQuantity(order)).toBe(0);
+    expect(lineStatus(order)).toBe('dispensed');
+  });
+
+  it('preserves cancelled as cancelled even if quantity remains', () => {
+    expect(
+      lineStatus({
+        id: 'line-1',
+        status: 'cancelled',
+        metadata: { quantityPrescribed: 10, quantityDispensed: 0 },
+      }),
+    ).toBe('cancelled');
+  });
 });

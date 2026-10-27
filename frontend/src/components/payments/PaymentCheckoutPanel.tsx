@@ -9,6 +9,7 @@ import { formatApiError } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { printPaymentReceipt } from '../../lib/print-payment-receipt'
+import { HOSPITAL_ACCOUNT_KINDS } from '../../lib/hospital-accounts'
 
 export type PaymentCheckoutPanelProps = {
   patientId?: string
@@ -47,7 +48,7 @@ export function PaymentCheckoutPanel({
   useEffect(() => {
     setAmount(defaultAmount)
   }, [defaultAmount])
-  const [payerScheme, setPayerScheme] = useState('')
+  const [payerScheme, setPayerScheme] = useState('cash')
   const [mpesaPhone, setMpesaPhone] = useState(patientPhone ?? '')
   const [paymentReference, setPaymentReference] = useState('')
   const [resultMessage, setResultMessage] = useState<string | null>(null)
@@ -66,8 +67,8 @@ export function PaymentCheckoutPanel({
       if (paymentMethod !== 'waived' && parsedAmount <= 0) {
         throw new Error('Enter a valid amount in KES.')
       }
-      if (paymentMethod === 'insurance' && !payerScheme) {
-        throw new Error('Select an insurance scheme.')
+      if (paymentMethod === 'insurance' && (!payerScheme || payerScheme === 'cash')) {
+        throw new Error('Select SHA, private insurance or corporate account.')
       }
       if (paymentMethod === 'mpesa' && !mpesaPhone.trim()) {
         throw new Error('Enter the M-Pesa phone number for STK push.')
@@ -125,7 +126,6 @@ export function PaymentCheckoutPanel({
       notify('Payment failed', formatApiError(error, 'Unable to record the payment.'), 'critical'),
   })
 
-  const showInsurance = paymentMethod === 'insurance'
   const showMpesa = paymentMethod === 'mpesa'
   const showReference = ['cash', 'card', 'quickbooks'].includes(paymentMethod)
 
@@ -147,8 +147,22 @@ export function PaymentCheckoutPanel({
       />
 
       <SelectField
+        name="payerScheme"
+        label="Patient account"
+        required
+        value={payerScheme}
+        onChange={(e) => setPayerScheme(e.target.value)}
+      >
+        {HOSPITAL_ACCOUNT_KINDS.map((account) => (
+          <option key={account.value} value={account.value}>
+            {account.label}
+          </option>
+        ))}
+      </SelectField>
+
+      <SelectField
         name="paymentMethod"
-        label="Payment method"
+        label="How money is collected"
         required
         value={paymentMethod}
         onChange={(e) => setPaymentMethod(e.target.value)}
@@ -159,23 +173,6 @@ export function PaymentCheckoutPanel({
           </option>
         ))}
       </SelectField>
-
-      {showInsurance ? (
-        <SelectField
-          name="payerScheme"
-          label="Insurance scheme"
-          required
-          value={payerScheme}
-          onChange={(e) => setPayerScheme(e.target.value)}
-        >
-          <option value="">Select scheme…</option>
-          {(catalog.insuranceSchemes ?? []).map((scheme) => (
-            <option key={scheme.value} value={scheme.value}>
-              {scheme.label}
-            </option>
-          ))}
-        </SelectField>
-      ) : null}
 
       {showMpesa ? (
         <Field

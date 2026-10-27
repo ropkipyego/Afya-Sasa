@@ -25,6 +25,11 @@ import {
   UpdateSurgeryBookingStatusDto,
   UpdateTheatreDto,
 } from './theatre.dto';
+import {
+  assertMayEnterTheatre,
+  checklistStatusAfterNote,
+  consentStatusAfterNote,
+} from './theatre-lifecycle';
 
 @Injectable()
 export class TheatreService {
@@ -152,7 +157,7 @@ export class TheatreService {
         actualEndAt: null,
         priority: dto.priority,
         status: 'scheduled',
-        consentStatus: 'pending',
+        consentStatus: dto.priority === 'emergency' ? 'not_required' : 'pending',
         checklistStatus: 'pending',
         createdBy: request.user?.sub ?? null,
         updatedBy: request.user?.sub ?? null,
@@ -223,6 +228,9 @@ export class TheatreService {
       relations: { theatre: true },
     });
     if (!booking) throw new NotFoundException('Surgery booking not found');
+    if (dto.status === 'in_theatre') {
+      assertMayEnterTheatre(booking);
+    }
     const update: Partial<SurgeryBooking> = {
       status: dto.status,
       updatedBy: request.user?.sub ?? null,
@@ -299,7 +307,7 @@ export class TheatreService {
     if (dto.amendsNoteId && !dto.amendmentReason) {
       throw new BadRequestException('Amendment reason is required');
     }
-    return this.notes.save(
+    const note = await this.notes.save(
       this.notes.create({
         booking,
         author: request.user?.sub ? ({ id: request.user.sub } as never) : null,
@@ -311,6 +319,16 @@ export class TheatreService {
         updatedBy: request.user?.sub ?? null,
       }),
     );
+    const consentStatus = consentStatusAfterNote(dto.type, booking.consentStatus);
+    const checklistStatus = checklistStatusAfterNote(dto.type, booking.checklistStatus);
+    if (consentStatus !== booking.consentStatus || checklistStatus !== booking.checklistStatus) {
+      await this.bookings.update(id, {
+        consentStatus: consentStatus ?? booking.consentStatus,
+        checklistStatus: checklistStatus ?? booking.checklistStatus,
+        updatedBy: request.user?.sub ?? null,
+      });
+    }
+    return note;
   }
 
   async addComplication(

@@ -86,6 +86,18 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
   const canCancelRequest = useAuthStore((state) =>
     Boolean(state.user?.permissions.includes('lab_requests:cancel')),
   )
+  const canVerifyResults = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('lab_results:verify')),
+  )
+  const canCollectSamples = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('lab_samples:collect')),
+  )
+  const canReceiveSamples = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('lab_samples:receive')),
+  )
+  const canEnterResults = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('lab_results:enter')),
+  )
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [activeId, setActiveId] = useState<string | null>(initialRequestId ?? null)
@@ -494,14 +506,18 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
 
               <div className="flex flex-wrap gap-2">
                 {activeRequest.status === 'requested' ? (
-                  <Button
-                    type="button"
-                    onClick={() => collectSample.mutate(activeRequest.id)}
-                    loading={collectSample.isPending}
-                  >
-                    <TestTube className="h-4 w-4" />
-                    Collect & print stickers
-                  </Button>
+                  canCollectSamples ? (
+                    <Button
+                      type="button"
+                      onClick={() => collectSample.mutate(activeRequest.id)}
+                      loading={collectSample.isPending}
+                    >
+                      <TestTube className="h-4 w-4" />
+                      Collect & print stickers
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-slate-600">Specimen collection needs lab_samples:collect.</p>
+                  )
                 ) : null}
                 {(activeRequest.samples ?? []).length ? (
                   <Button
@@ -526,13 +542,19 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
                   </Button>
                 ) : null}
                 {['resulted', 'processing'].includes(activeRequest.status) ? (
-                  <Button
-                    type="button"
-                    onClick={() => verifyRequest.mutate(activeRequest.id)}
-                    loading={verifyRequest.isPending}
-                  >
-                    Verify & notify doctor
-                  </Button>
+                  canVerifyResults ? (
+                    <Button
+                      type="button"
+                      onClick={() => verifyRequest.mutate(activeRequest.id)}
+                      loading={verifyRequest.isPending}
+                    >
+                      Verify & notify doctor
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-slate-600">
+                      Verification needs lab_results:verify. Unverified results are not released to the clinician inbox.
+                    </p>
+                  )
                 ) : null}
                 {activeRequest.status === 'verified' ? (
                   <Button
@@ -574,14 +596,18 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
                       onChange={(event) => setRejectionReason(event.target.value)}
                     />
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => receiveSample.mutate(activeRequest.samples![0].id)}
-                    loading={receiveSample.isPending}
-                  >
-                    Record receipt
-                  </Button>
+                  {canReceiveSamples ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => receiveSample.mutate(activeRequest.samples![0].id)}
+                      loading={receiveSample.isPending}
+                    >
+                      Record receipt
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-slate-600">Specimen receipt needs lab_samples:receive.</p>
+                  )}
                 </div>
               ) : null}
 
@@ -721,9 +747,17 @@ export function LabWorklist({ initialRequestId }: { initialRequestId?: string | 
                     <Field name="value" label="Value" required />
                     <Field name="unit" label="Unit" />
                   </div>
-                  <Button type="submit" loading={enterResult.isPending} className="px-3 py-2 text-xs">
+                  <Button
+                    type="submit"
+                    loading={enterResult.isPending}
+                    disabled={!canEnterResults}
+                    className="px-3 py-2 text-xs"
+                  >
                     Save result
                   </Button>
+                  {!canEnterResults ? (
+                    <p className="text-xs text-slate-500">Result entry needs lab_results:enter.</p>
+                  ) : null}
                 </form>
               ) : null}
           </div>

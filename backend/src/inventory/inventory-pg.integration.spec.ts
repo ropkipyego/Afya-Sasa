@@ -325,7 +325,7 @@ describePg('InventoryService real TypeORM PostgreSQL stock-take, bulk import & O
   const { ClinicalOrderMirrorService } = require('../clinical-order/clinical-order-mirror.service') as typeof import('../clinical-order/clinical-order-mirror.service');
   const { Tenant, TenantSettings, User, Role, Permission } = require('../core/core.entities') as typeof import('../core/core.entities');
   const { Patient, PatientIdentifier, PatientAllergy, PatientChronicCondition, PatientNextOfKin } = require('../patients/patient.entities') as typeof import('../patients/patient.entities');
-  const { Encounter } = require('../opd/opd.entities') as typeof import('../opd/opd.entities');
+  const { Encounter, Consultation, EncounterDiagnosis } = require('../opd/opd.entities') as typeof import('../opd/opd.entities');
   const { Admission, Ward, Bed } = require('../inpatient/inpatient.entities') as typeof import('../inpatient/inpatient.entities');
 
   let ds: import('typeorm').DataSource;
@@ -643,6 +643,61 @@ describePg('InventoryService real TypeORM PostgreSQL stock-take, bulk import & O
         updated_at timestamptz NOT NULL DEFAULT now(),
         deleted_at timestamptz NULL
       );
+      CREATE TABLE demo.consultations (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        encounter_id uuid NOT NULL REFERENCES demo.encounters(id),
+        doctor_id uuid NULL REFERENCES demo.users(id),
+        subjective text NOT NULL,
+        objective text NOT NULL,
+        assessment text NOT NULL,
+        plan text NOT NULL,
+        status varchar NOT NULL DEFAULT 'draft',
+        started_at timestamptz NOT NULL DEFAULT now(),
+        completed_at timestamptz NULL,
+        follow_up_date date NULL,
+        follow_up_instructions text NULL,
+        created_by uuid NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_by uuid NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        deleted_at timestamptz NULL
+      );
+      CREATE TABLE demo.encounter_diagnoses (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        encounter_id uuid NOT NULL REFERENCES demo.encounters(id),
+        icd10_code varchar NULL,
+        description varchar NOT NULL,
+        type varchar NOT NULL,
+        confirmed boolean NOT NULL DEFAULT false,
+        created_by uuid NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_by uuid NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        deleted_at timestamptz NULL
+      );
+      CREATE TABLE demo.lab_results_e2e (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        patient_id uuid NOT NULL REFERENCES demo.patients(id),
+        encounter_id uuid NOT NULL REFERENCES demo.encounters(id),
+        test_name varchar NOT NULL,
+        value varchar NOT NULL,
+        flag varchar NOT NULL DEFAULT 'normal',
+        verified_at timestamptz NULL
+      );
+      CREATE TABLE demo.radiology_reports_e2e (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        patient_id uuid NOT NULL REFERENCES demo.patients(id),
+        encounter_id uuid NOT NULL REFERENCES demo.encounters(id),
+        impression text NOT NULL,
+        verified_at timestamptz NULL
+      );
+      CREATE TABLE demo.payment_transactions_e2e (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        patient_id uuid NULL REFERENCES demo.patients(id),
+        amount numeric NOT NULL,
+        external_reference varchar NOT NULL UNIQUE,
+        idempotency_key varchar NULL
+      );
     `);
     await raw.query(
       `INSERT INTO public.tenants (id, name, code, subdomain, schema_name) VALUES ($1, 'Disposable Test', 'jalaram', 'jalaram', 'demo')`,
@@ -680,6 +735,8 @@ describePg('InventoryService real TypeORM PostgreSQL stock-take, bulk import & O
         PatientChronicCondition,
         PatientNextOfKin,
         Encounter,
+        Consultation,
+        EncounterDiagnosis,
         Admission,
         Ward,
         Bed,
@@ -718,8 +775,30 @@ describePg('InventoryService real TypeORM PostgreSQL stock-take, bulk import & O
         orderNo?: string;
         dispenseOpId?: string;
       }) => {
-        const existing = chargesStore.get(params.serviceEntityId);
-        if (existing) return existing;
+        const existing = chargesStore.get(params.serviceEntityId) as
+          | {
+              id: string;
+              amountOwed: string;
+              amountPaid: string;
+              amountWaived: string;
+              status: string;
+              metadata?: { prepareOps?: string[]; orderNo?: string };
+            }
+          | undefined;
+        if (existing) {
+          const ops = existing.metadata?.prepareOps ?? [];
+          if (params.dispenseOpId && ops.includes(params.dispenseOpId)) {
+            return existing;
+          }
+          existing.amountOwed = String(Number(existing.amountOwed) + params.amountDelta);
+          existing.metadata = {
+            ...(existing.metadata ?? {}),
+            prepareOps: params.dispenseOpId ? [...ops, params.dispenseOpId] : ops,
+          };
+          const rem = Number(existing.amountOwed) - Number(existing.amountPaid) - Number(existing.amountWaived);
+          existing.status = rem <= 0 ? 'paid' : Number(existing.amountPaid) > 0 ? 'partially_paid' : 'owed';
+          return existing;
+        }
         const charge = {
           id: `chg-${params.serviceEntityId.slice(0, 8)}`,
           serviceLine: 'pharmacy',
@@ -1299,8 +1378,354 @@ describePg('InventoryService real TypeORM PostgreSQL stock-take, bulk import & O
     expect(dashAfter.stock.onHand).toBe(173); // 198 - 10 - 15
     expect(dashAfter.stock.reserved).toBe(0);
 
+    // 9. Verify encounterId / admissionId filtering, orderedBy serialization, and cancellation protection
+    const opdOrdersReloaded = await mirror.listOrders({
+      sourceModule: 'pharmacy',
+      patientId: patient.id,
+      encounterId: opdEncounter.id,
+    });
+    expect(opdOrdersReloaded.length).toBeGreaterThanOrEqual(2);
+    expect(opdOrdersReloaded[0].orderedBy).toMatchObject({
+      id: counterUserId,
+      firstName: 'Counter',
+      lastName: 'Staff',
+    });
+
+    // Dispensed prescription cannot be cancelled
+    await expect(
+      mirror.cancelPharmacyPrescription(opdRx1.header.id, 'Try erase dispensed', ctx(counterUserId)),
+    ).rejects.toThrow(/already been dispensed/i);
+
+    // Create a new un-dispensed multi-item prescription and cancel it cleanly
+    const cancelTarget = await mirror.createPharmacyPrescription(
+      {
+        patientId: patient.id,
+        encounterId: opdEncounter.id,
+        priority: 'routine',
+        clientRequestId: 'opd-cancel-test-1',
+        lines: [
+          {
+            medication: 'Paracetamol 500mg tablet',
+            dose: '500mg',
+            route: 'oral',
+            frequency: 'BD',
+            duration: '3 days',
+            itemId: para.id,
+            quantity: 6,
+            instructions: 'Take with water',
+          },
+          {
+            medication: 'Amoxicillin 500mg capsule',
+            dose: '500mg',
+            route: 'oral',
+            frequency: 'TDS',
+            duration: '5 days',
+            itemId: amox.id,
+            quantity: 15,
+            instructions: 'Complete course',
+          },
+        ],
+      },
+      ctx(counterUserId),
+    );
+    expect(cancelTarget.lines).toHaveLength(2);
+    expect(cancelTarget.lines[0].metadata).toMatchObject({
+      sku: 'PARA500',
+      strength: '500mg',
+      dosageForm: 'tablet',
+      unit: 'tablet',
+      quantityPrescribed: 6,
+      quantityDispensed: 0,
+    });
+
+    const cancelledRes = await mirror.cancelPharmacyPrescription(
+      cancelTarget.header.id,
+      'Clinician changed therapy before dispensing',
+      ctx(counterUserId),
+    );
+    expect(cancelledRes.cancelled).toBe(3); // 1 header + 2 lines
+
     const finalIntegrity = await service.integrityReport(ctx(approverUserId));
     expect(finalIntegrity.balanceMismatch).toHaveLength(0);
+
+    // 10. Step 3 E2E items 2, 8, 10, 11: SOAP & diagnoses persistence, historical encounter separation,
+    // verified-only lab/radiology visibility, and concurrent payment idempotency / receipt uniqueness in PostgreSQL
+    const consultationRepo = ds.getRepository(Consultation);
+    const diagnosisRepo = ds.getRepository(EncounterDiagnosis);
+
+    const savedSoap = await consultationRepo.save(
+      consultationRepo.create({
+        encounter: opdEncounter,
+        doctor: { id: counterUserId } as never,
+        subjective: '2 days throbbing frontal headache',
+        objective: 'BP 120/80, afebrile, alert',
+        assessment: 'Tension headache',
+        plan: 'Paracetamol 500mg TDS x 3 days, hydration',
+        status: 'completed',
+        followUpDate: '2026-11-01',
+        followUpInstructions: 'Return if vision changes or fever develops',
+      }),
+    );
+    const savedDx = await diagnosisRepo.save(
+      diagnosisRepo.create({
+        encounter: opdEncounter,
+        icd10Code: 'G44.2',
+        description: 'Tension-type headache',
+        type: 'primary',
+        confirmed: true,
+      }),
+    );
+
+    const retrievedSoap = await consultationRepo.findOneByOrFail({ id: savedSoap.id });
+    const retrievedDx = await diagnosisRepo.findOneByOrFail({ id: savedDx.id });
+    expect(retrievedSoap.assessment).toBe('Tension headache');
+    expect(retrievedDx.icd10Code).toBe('G44.2');
+
+    // Historical encounter separation (item 10)
+    const pastEncounter = await encounterRepo.save(
+      encounterRepo.create({
+        encounterNo: 'ENC-OPD-HIST-0',
+        patient,
+        type: 'opd',
+        status: 'completed',
+        presentingComplaint: 'Old cough visit',
+      }),
+    );
+    await mirror.createPharmacyPrescription(
+      {
+        patientId: patient.id,
+        encounterId: pastEncounter.id,
+        priority: 'routine',
+        clientRequestId: 'hist-rx-key-1',
+        lines: [
+          {
+            medication: 'Amoxicillin 500mg capsule',
+            dose: '500mg',
+            route: 'oral',
+            frequency: 'TDS',
+            duration: '5 days',
+            itemId: amox.id,
+            quantity: 15,
+            instructions: 'Historical course',
+          },
+        ],
+      },
+      ctx(counterUserId),
+    );
+
+    const activeVisitOrders = await mirror.listOrders({
+      sourceModule: 'pharmacy',
+      patientId: patient.id,
+      encounterId: opdEncounter.id,
+    });
+    const pastVisitOrders = await mirror.listOrders({
+      sourceModule: 'pharmacy',
+      patientId: patient.id,
+      encounterId: pastEncounter.id,
+    });
+    expect(activeVisitOrders.every((o) => o.encounter?.id === opdEncounter.id)).toBe(true);
+    expect(pastVisitOrders.every((o) => o.encounter?.id === pastEncounter.id)).toBe(true);
+    expect(pastVisitOrders.some((o) => o.metadata?.instructions === 'Historical course')).toBe(true);
+
+    // Lab & Radiology verified-state gating (item 11)
+    await ds.query(
+      `INSERT INTO demo.lab_results_e2e (patient_id, encounter_id, test_name, value, flag, verified_at)
+       VALUES ($1, $2, 'Full Haemogram', 'Hb 13.8', 'normal', NULL),
+              ($1, $2, 'Malaria RDT', 'Negative', 'normal', now())`,
+      [patient.id, opdEncounter.id],
+    );
+    await ds.query(
+      `INSERT INTO demo.radiology_reports_e2e (patient_id, encounter_id, impression, verified_at)
+       VALUES ($1, $2, 'Draft CXR unverified', NULL),
+              ($1, $2, 'Normal chest radiograph verified', now())`,
+      [patient.id, opdEncounter.id],
+    );
+    const verifiedLabsOnly = await ds.query(
+      `SELECT test_name FROM demo.lab_results_e2e WHERE patient_id = $1 AND verified_at IS NOT NULL`,
+      [patient.id],
+    );
+    const verifiedRadsOnly = await ds.query(
+      `SELECT impression FROM demo.radiology_reports_e2e WHERE patient_id = $1 AND verified_at IS NOT NULL`,
+      [patient.id],
+    );
+    expect(verifiedLabsOnly).toEqual([{ test_name: 'Malaria RDT' }]);
+    expect(verifiedRadsOnly).toEqual([{ impression: 'Normal chest radiograph verified' }]);
+
+    // Payment idempotency & receipt sequence concurrency under PostgreSQL advisory locks (item 8)
+    const payAttempt = async (idemKey: string) =>
+      ds.transaction(async (manager) => {
+        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+          'afyasasa.payments.idempotency',
+          idemKey,
+        ]);
+        const existing = await manager.query(
+          `SELECT id, external_reference FROM demo.payment_transactions_e2e WHERE idempotency_key = $1`,
+          [idemKey],
+        );
+        if (existing.length) return { replay: true, receipt: existing[0].external_reference };
+        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+          'afyasasa.payments.receipt',
+          'JH-RCP-2026-',
+        ]);
+        const latest = await manager.query(
+          `SELECT external_reference FROM demo.payment_transactions_e2e WHERE external_reference LIKE 'JH-RCP-2026-%' ORDER BY external_reference DESC LIMIT 1`,
+        );
+        const lastNum = latest.length ? Number(String(latest[0].external_reference).slice('JH-RCP-2026-'.length)) : 0;
+        const receipt = `JH-RCP-2026-${String(lastNum + 1).padStart(5, '0')}`;
+        await manager.query(
+          `INSERT INTO demo.payment_transactions_e2e (patient_id, amount, external_reference, idempotency_key)
+           VALUES ($1, 500, $2, $3)`,
+          [patient.id, receipt, idemKey],
+        );
+        return { replay: false, receipt };
+      });
+
+    const [p1, p2] = await Promise.all([payAttempt('idem-concurrent-1'), payAttempt('idem-concurrent-1')]);
+    expect(p1.receipt).toBe('JH-RCP-2026-00001');
+    expect(p2.receipt).toBe('JH-RCP-2026-00001');
+    expect([p1.replay, p2.replay].sort()).toEqual([false, true]);
+    const totalPayRows = await ds.query(
+      `SELECT count(*)::int AS n FROM demo.payment_transactions_e2e WHERE idempotency_key = 'idem-concurrent-1'`,
+    );
+    expect(totalPayRows[0].n).toBe(1);
+
+    // 11. Workstream 2 & 3: Partial dispensing (8 of 20, then 12 of 20), reservation cancel before dispense,
+    // and full batch/ledger reconciliation
+    const partialRx = await mirror.createPharmacyPrescription(
+      {
+        patientId: patient.id,
+        encounterId: opdEncounter.id,
+        priority: 'routine',
+        clientRequestId: 'opd-partial-rx-1',
+        lines: [
+          {
+            medication: 'Paracetamol 500mg tablet',
+            dose: '1g',
+            route: 'oral',
+            frequency: 'BD',
+            duration: '5 days',
+            itemId: para.id,
+            quantity: 20,
+            instructions: 'Partial dispense verification',
+          },
+        ],
+      },
+      ctx(counterUserId),
+    );
+    const partialLineId = partialRx.lines[0].id;
+    const partialGroupId = partialRx.header.id;
+
+    // Prepare 8 units first -> holds 8, onHand stays 173, available becomes 165
+    await service.preparePrescriptionSale(
+      {
+        prescriptionGroupId: partialGroupId,
+        lines: [{ clinicalOrderId: partialLineId, itemId: para.id, quantity: 8 }],
+      },
+      ctx(counterUserId),
+    );
+    const dashHold8 = await service.pharmacyDashboard(ctx(counterUserId));
+    expect(dashHold8.stock.onHand).toBe(173);
+    expect(dashHold8.stock.reserved).toBe(8);
+    expect(dashHold8.stock.available).toBe(165);
+
+    // Clear first payment for 8 units (8 * 5 = KES 40)
+    const partialCharge = chargesStore.get(partialGroupId)!;
+    partialCharge.amountPaid = '40';
+    partialCharge.status = 'paid';
+    paymentsStore.set(String(partialCharge.id), [
+      {
+        id: 'pay-partial-1',
+        chargeId: partialCharge.id,
+        method: 'cash',
+        status: 'completed',
+        amount: '40',
+        createdAt: new Date(),
+        metadata: {},
+      },
+    ]);
+
+    // Dispense 8 of 20 -> status becomes partially_dispensed, remaining = 12, onHand = 165
+    await service.dispensePrescription(
+      {
+        confirm: true,
+        prescriptionGroupId: partialGroupId,
+        lines: [{ clinicalOrderId: partialLineId, itemId: para.id, quantity: 8 }],
+      },
+      ctx(counterUserId),
+    );
+    const lineAfterFirstDispense = await ds.getRepository(ClinicalOrder).findOneByOrFail({ id: partialLineId });
+    const headerAfterFirstDispense = await ds.getRepository(ClinicalOrder).findOneByOrFail({ id: partialGroupId });
+    expect(lineAfterFirstDispense.status).toBe('partially_dispensed');
+    expect(lineAfterFirstDispense.metadata?.quantityDispensed).toBe(8);
+    expect(headerAfterFirstDispense.status).toBe('partially_dispensed');
+
+    // Prepare remaining 12 units -> holds 12, onHand is 165, available is 153
+    await service.preparePrescriptionSale(
+      {
+        prescriptionGroupId: partialGroupId,
+        lines: [{ clinicalOrderId: partialLineId, itemId: para.id, quantity: 12 }],
+      },
+      ctx(counterUserId),
+    );
+    // Cancel hold before paying for the second installment? Let's test reservation cancel on a separate OTC sale first
+    const otcCancelSaleId = 'otc-cancel-before-dispense-1';
+    const prepOtcCancel = await service.prepareOtcSale(
+      {
+        saleId: otcCancelSaleId,
+        walkInName: 'Walk-in Cancel Test',
+        lines: [{ itemId: para.id, quantity: 5 }],
+      },
+      ctx(counterUserId),
+    );
+    const dashWithOtcHold = await service.pharmacyDashboard(ctx(counterUserId));
+    expect(dashWithOtcHold.stock.reserved).toBe(17); // 12 + 5
+    await service.cancelPharmacySale(
+      { saleId: prepOtcCancel.saleId, reason: 'Customer declined before paying' },
+      ctx(counterUserId),
+    );
+    const dashAfterOtcCancel = await service.pharmacyDashboard(ctx(counterUserId));
+    expect(dashAfterOtcCancel.stock.onHand).toBe(165);
+    expect(dashAfterOtcCancel.stock.reserved).toBe(12);
+
+    // Clear second payment for remaining 12 units (12 * 5 = KES 60; total paid = 100)
+    partialCharge.amountPaid = '100';
+    partialCharge.status = 'paid';
+    paymentsStore.set(String(partialCharge.id), [
+      ...(paymentsStore.get(String(partialCharge.id)) ?? []),
+      {
+        id: 'pay-partial-2',
+        chargeId: partialCharge.id,
+        method: 'cash',
+        status: 'completed',
+        amount: '60',
+        createdAt: new Date(),
+        metadata: {},
+      },
+    ]);
+
+    // Dispense remaining 12 units -> status becomes dispensed, onHand = 153, reserved = 0
+    await service.dispensePrescription(
+      {
+        confirm: true,
+        prescriptionGroupId: partialGroupId,
+        lines: [{ clinicalOrderId: partialLineId, itemId: para.id, quantity: 12 }],
+      },
+      ctx(counterUserId),
+    );
+    const lineAfterFullDispense = await ds.getRepository(ClinicalOrder).findOneByOrFail({ id: partialLineId });
+    const headerAfterFullDispense = await ds.getRepository(ClinicalOrder).findOneByOrFail({ id: partialGroupId });
+    expect(lineAfterFullDispense.status).toBe('dispensed');
+    expect(lineAfterFullDispense.metadata?.quantityDispensed).toBe(20);
+    expect(headerAfterFullDispense.status).toBe('dispensed');
+
+    const dashFinal = await service.pharmacyDashboard(ctx(counterUserId));
+    expect(dashFinal.stock.onHand).toBe(153);
+    expect(dashFinal.stock.reserved).toBe(0);
+    expect(dashFinal.stock.available).toBe(153);
+
+    const endIntegrity = await service.integrityReport(ctx(approverUserId));
+    expect(endIntegrity.balanceMismatch).toHaveLength(0);
+    expect(endIntegrity.negativeStock).toHaveLength(0);
   });
 });
 

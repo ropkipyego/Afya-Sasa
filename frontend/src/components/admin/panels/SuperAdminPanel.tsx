@@ -251,7 +251,7 @@ export function SuperAdminPanel() {
           <li>Configure <code>SMS_PROVIDER=celcom_africa</code> with Celcom credentials for live SMS</li>
           <li>Run migrations on deploy: <code>TYPEORM_MIGRATIONS_RUN=true</code></li>
           <li>Restrict Swagger (<code>/docs</code>) behind admin VPN or disable in production</li>
-          <li>Complete <code>docs/go-live-checklist.md</code> before go-live</li>
+          <li>Complete local checks in <code>docs/local-testing-guide.md</code> before go-live</li>
         </ul>
       </Card>
     </div>

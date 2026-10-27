@@ -39,6 +39,39 @@ export function isTerminalStatus(status?: string | null) {
   return status === 'verified' || status === 'cancelled';
 }
 
+export const OPEN_LAB_REQUEST_STATUSES: LabRequestStatus[] = [
+  'requested',
+  'sample_collected',
+  'processing',
+  'resulted',
+];
+
+export type LabOrderIdentity = {
+  testId?: string | null;
+  panelId?: string | null;
+  orderableTestId?: string | null;
+  label: string;
+  requestNo?: string;
+};
+
+export function duplicateOpenLabOrder(
+  incoming: LabOrderIdentity[],
+  existing: LabOrderIdentity[],
+): LabOrderIdentity | null {
+  for (const row of incoming) {
+    const match = existing.find((open) => {
+      if (row.testId && open.testId === row.testId) return true;
+      if (row.orderableTestId && open.orderableTestId === row.orderableTestId) return true;
+      if (row.panelId && !row.testId && !row.orderableTestId && open.panelId === row.panelId) {
+        return true;
+      }
+      return false;
+    });
+    if (match) return { ...row, requestNo: match.requestNo };
+  }
+  return null;
+}
+
 export const LAB_AUDIT = {
   ORDER: 'LAB_ORDER',
   COLLECT: 'LAB_SAMPLE_COLLECT',

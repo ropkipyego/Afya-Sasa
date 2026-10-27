@@ -6,6 +6,7 @@ import {
   chargeItemForWardType,
   classifyZeroPrice,
   defaultHospitalChargeCatalogue,
+  dischargeBlockedByOutstanding,
   isBillablePrice,
   lookupCatalogueTariff,
   planAccommodationCharges,
@@ -208,5 +209,15 @@ describe('billable catalogue preview', () => {
     expect(lookupCatalogueTariff(items, { code: 'OPD-GP' })).toBe(1000);
     expect(lookupCatalogueTariff(items, { name: 'Specialist consultation' })).toBe(2500);
     expect(lookupCatalogueTariff(items, { name: 'consultation' })).toBeNull();
+  });
+
+  it('does not block discharge while blockDischargeOnBalance is off', () => {
+    expect(dischargeBlockedByOutstanding({ blockDischargeOnBalance: false }, 1400)).toBe(false);
+    expect(dischargeBlockedByOutstanding(defaultHospitalChargeCatalogue().policy, 1400)).toBe(false);
+  });
+
+  it('blocks discharge only when the hospital turned the policy on and a balance remains', () => {
+    expect(dischargeBlockedByOutstanding({ blockDischargeOnBalance: true }, 1400)).toBe(true);
+    expect(dischargeBlockedByOutstanding({ blockDischargeOnBalance: true }, 0)).toBe(false);
   });
 });

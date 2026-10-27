@@ -9,6 +9,7 @@ import { EmergencyPatientWorkspace } from './EmergencyPatientWorkspace'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { playNotificationSound } from '../../lib/notification-sound'
+import { useCan } from '../../lib/action-access'
 
 type EmergencyMetrics = {
   totalToday: number
@@ -82,6 +83,10 @@ export function EmergencyCommandCenter() {
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [openEmergencyId, setOpenEmergencyId] = useState<string | null>(null)
   const [focusTriage, setFocusTriage] = useState(false)
+  const canRegister = useCan('emergency:create')
+  const canReadBays = useCan('emergency_bays:read')
+  const canReadAlerts = useCan('critical_alerts:read')
+  const canAcknowledge = useCan('critical_alerts:acknowledge')
 
   const { data: metrics } = useQuery({
     queryKey: ['emergency-metrics'],
@@ -99,12 +104,14 @@ export function EmergencyCommandCenter() {
     queryKey: ['emergency-bays'],
     queryFn: () => apiRequest<BayBoard[]>('/emergency/bays'),
     refetchInterval: 15_000,
+    enabled: canReadBays,
   })
 
   const { data: alerts = [] } = useQuery({
     queryKey: ['emergency-alerts'],
     queryFn: () => apiRequest<CriticalAlertItem[]>('/emergency/alerts'),
     refetchInterval: 10_000,
+    enabled: canReadAlerts,
   })
 
   const previousAlertCount = useRef(0)
@@ -227,14 +234,16 @@ export function EmergencyCommandCenter() {
                       {alert.severity} · {alert.type} · {new Date(alert.createdAt).toLocaleString()}
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="text-xs"
-                    onClick={() => acknowledgeAlert.mutate(alert.id)}
-                  >
-                    Acknowledge
-                  </Button>
+                  {canAcknowledge ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="text-xs"
+                      onClick={() => acknowledgeAlert.mutate(alert.id)}
+                    >
+                      Acknowledge
+                    </Button>
+                  ) : null}
                 </li>
               ))}
           </ul>
@@ -277,6 +286,9 @@ export function EmergencyCommandCenter() {
         <div className="space-y-6">
           <Card className="p-5 md:p-8">
             <PageHeader title="Emergency arrival" description="Search patient — no manual IDs." />
+            {!canRegister ? (
+              <p className="mt-4 text-sm text-slate-600">Registering an arrival needs emergency:create.</p>
+            ) : (
             <form
               className="mt-6 space-y-4"
               onSubmit={(e) => {
@@ -308,11 +320,15 @@ export function EmergencyCommandCenter() {
                 Register arrival
               </Button>
             </form>
+            )}
           </Card>
 
           <Card className="p-5 md:p-8">
             <PageHeader title="Treatment bays" description="Assign patients after triage." />
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              {!canReadBays ? (
+                <p className="text-sm text-slate-600">Bay board needs emergency_bays:read.</p>
+              ) : null}
               {bays.map((bay) => (
                 <div
                   key={bay.id}

@@ -9,6 +9,7 @@ import {
 } from '../../lib/biometric-agent'
 import { openPatientFile } from '../../lib/patient-file'
 import { PatientSearchBrowse } from '../PatientSearchAutocomplete'
+import { dispatchHospitalNavigate } from '../../lib/navigate'
 
 type IdentifiedPatient = {
   id: string
@@ -261,7 +262,7 @@ export function IdentifyPatientWorkspace({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => window.dispatchEvent(new CustomEvent('afyasasa:navigate', { detail: 'Appointments' }))}
+                onClick={() => dispatchHospitalNavigate('Appointments')}
               >
                 Appointments
               </Button>

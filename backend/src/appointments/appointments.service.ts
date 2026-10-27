@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
-import { tenantChannel } from '../common/tenant-defaults';
+import { defaultTenantCode, tenantChannel } from '../common/tenant-defaults';
 import { Clinic } from '../core/core.entities';
 import { Patient } from '../patients/patient.entities';
 import { Encounter } from '../opd/opd.entities';
@@ -12,9 +12,11 @@ import { Appointment, AppointmentSlot } from './appointment.entities';
 import {
   CreateAppointmentDto,
   CreateSlotDto,
+  PublicBookAppointmentDto,
   UpdateAppointmentStatusDto,
   UpdateSlotDto,
 } from './appointments.dto';
+import { formatWebsiteReason } from './website-booking';
 
 @Injectable()
 export class AppointmentsService {
@@ -75,6 +77,7 @@ export class AppointmentsService {
     const slot = dto.slotId
       ? await this.slots.findOne({ where: { id: dto.slotId } })
       : null;
+    if (slot) await this.assertSlotHasCapacity(slot.id, slot.maxPatients);
     const sourceEncounter = dto.sourceEncounterId
       ? await this.encounters.findOne({ where: { id: dto.sourceEncounterId } })
       : null;
@@ -178,5 +181,126 @@ export class AppointmentsService {
       updatedBy: request.user?.sub ?? null,
     });
     return { appointmentId: id, encounter };
+  }
+
+  async listPublicSlots(date?: string) {
+    const day = date?.trim() || new Date().toISOString().slice(0, 10);
+    const slots = await this.slots.find({
+      where: { date: day, available: true },
+      relations: { doctor: true },
+      order: { startTime: 'ASC' },
+    });
+    const open: Array<{
+      id: string;
+      date: string;
+      startTime: string;
+      endTime: string;
+      remaining: number;
+      doctorName: string;
+    }> = [];
+    for (const slot of slots) {
+      const remaining = await this.slotRemaining(slot.id, slot.maxPatients);
+      if (remaining <= 0) continue;
+      const doctorName = slot.doctor
+        ? `${slot.doctor.firstName} ${slot.doctor.lastName}`.trim()
+        : 'Clinic';
+      open.push({
+        id: slot.id,
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        remaining,
+        doctorName,
+      });
+    }
+    return open;
+  }
+
+  async createWebsiteAppointment(dto: PublicBookAppointmentDto) {
+    const patient = await this.findRegisteredPatient(dto.hospitalNumberOrPhone);
+    const slot = await this.slots.findOne({
+      where: { id: dto.slotId, available: true },
+      relations: { doctor: true },
+    });
+    if (!slot) throw new NotFoundException('That clinic slot is not available.');
+    await this.assertSlotHasCapacity(slot.id, slot.maxPatients);
+    const appointment = await this.appointments.save(
+      this.appointments.create({
+        patient,
+        doctorId: slot.doctorId,
+        doctor: { id: slot.doctorId } as never,
+        slot,
+        appointmentDate: slot.date,
+        appointmentTime: slot.startTime,
+        type: dto.type,
+        reason: formatWebsiteReason(dto.reason),
+        status: 'scheduled',
+        sourceEncounter: null,
+        linkedEncounter: null,
+        createdBy: null,
+        updatedBy: null,
+      }),
+    );
+    await this.notifications.notifyUsers([slot.doctorId], {
+      title: 'Website appointment',
+      body: `${patient.firstName} ${patient.lastName} booked ${slot.date} at ${slot.startTime} from the hospital website.`,
+      severity: 'info',
+      link: '/appointments',
+      createdBy: null,
+      tenantCode: defaultTenantCode(),
+    });
+    return {
+      appointmentId: appointment.id,
+      appointmentDate: appointment.appointmentDate,
+      appointmentTime: appointment.appointmentTime,
+      patientName: `${patient.firstName} ${patient.lastName}`,
+      patientNo: patient.patientNo,
+      doctorName: slot.doctor
+        ? `${slot.doctor.firstName} ${slot.doctor.lastName}`.trim()
+        : 'Clinic',
+    };
+  }
+
+  private async assertSlotHasCapacity(slotId: string, maxPatients: number) {
+    const remaining = await this.slotRemaining(slotId, maxPatients);
+    if (remaining <= 0) {
+      throw new BadRequestException('That clinic slot is full. Choose another time.');
+    }
+  }
+
+  private async slotRemaining(slotId: string, maxPatients: number) {
+    const taken = await this.appointments.count({
+      where: {
+        slot: { id: slotId },
+        status: In(['scheduled', 'confirmed', 'arrived']),
+      },
+    });
+    return Math.max(0, maxPatients - taken);
+  }
+
+  private async findRegisteredPatient(query: string) {
+    const trimmed = query.trim();
+    if (trimmed.length < 3) {
+      throw new BadRequestException('Enter the hospital number or the phone used at registration.');
+    }
+    const exact = await this.patients.findOne({ where: { patientNo: trimmed } });
+    if (exact) return exact;
+    const upper = await this.patients.findOne({ where: { patientNo: trimmed.toUpperCase() } });
+    if (upper) return upper;
+    const phoneTail = trimmed.replace(/\D/g, '').slice(-9);
+    if (phoneTail.length >= 9) {
+      const byPhone = await this.patients
+        .createQueryBuilder('patient')
+        .where('patient.deleted_at IS NULL')
+        .andWhere(
+          `regexp_replace(coalesce(patient.primary_phone, ''), '\\D', '', 'g') LIKE :phoneTail`,
+          { phoneTail: `%${phoneTail}` },
+        )
+        .getOne();
+      if (byPhone) return byPhone;
+    }
+    throw new NotFoundException(
+      'No registered patient matches that hospital number or phone. Register at reception, then book.',
+    );
   }
 }

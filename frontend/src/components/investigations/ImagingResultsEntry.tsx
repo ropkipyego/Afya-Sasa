@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { useAuthStore } from '../../lib/auth-store'
+import { radiologyReportBodyFromForm, radiologyReportReady } from '../../lib/radiology-report'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileUp } from 'lucide-react'
 import { Button, Field, PageHeader, TextareaField } from '../ui'
@@ -23,6 +25,9 @@ type RadiologyRequestRow = {
 
 export function ImagingResultsEntry() {
   const queryClient = useQueryClient()
+  const permissions = useAuthStore((state) => state.user?.permissions ?? [])
+  const canCreateReport = permissions.includes('radiology_reports:create')
+  const canVerifyReport = permissions.includes('radiology_reports:verify')
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -63,14 +68,12 @@ export function ImagingResultsEntry() {
   const createReport = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
+      const body = radiologyReportBodyFromForm(form)
+      const problem = radiologyReportReady(body)
+      if (problem) throw new Error(problem)
       return apiRequest(`/radiology/requests/${form.get('requestId')}/reports`, {
         method: 'POST',
-        body: JSON.stringify({
-          findings: form.get('findings'),
-          impression: form.get('impression'),
-          recommendation: form.get('recommendation') || undefined,
-          imageUrl: form.get('imageUrl'),
-        }),
+        body: JSON.stringify(body),
       })
     },
     onSuccess: async () => {
@@ -90,6 +93,7 @@ export function ImagingResultsEntry() {
       await refresh()
       setSelectedId(null)
     },
+    onError: (error: Error) => notify('Verification failed', error.message, 'critical'),
   })
 
   const attachPdf = async (requestId: string, file: File) => {
@@ -245,15 +249,19 @@ export function ImagingResultsEntry() {
                 <TextareaField name="findings" label="Findings" required />
                 <TextareaField name="impression" label="Impression" required />
                 <TextareaField name="recommendation" label="Recommendation" />
-                <Button type="submit" loading={createReport.isPending}>
+                <Button type="submit" loading={createReport.isPending} disabled={!canCreateReport}>
                   Save radiographer report
                 </Button>
               </form>
 
               {detail.status === 'reported' ? (
-                <Button type="button" onClick={() => verifyRequest.mutate(detail.id)} loading={verifyRequest.isPending}>
-                  Verify report
-                </Button>
+                canVerifyReport ? (
+                  <Button type="button" onClick={() => verifyRequest.mutate(detail.id)} loading={verifyRequest.isPending}>
+                    Verify report
+                  </Button>
+                ) : (
+                  <p className="text-sm text-slate-600">Verification needs radiology_reports:verify.</p>
+                )
               ) : null}
           </div>
           )}

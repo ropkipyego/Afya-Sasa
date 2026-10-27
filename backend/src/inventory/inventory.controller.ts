@@ -11,6 +11,7 @@ import {
   CreateRequisitionDto,
   CreateTransferDto,
   CancelPharmacySaleDto,
+  ReturnIssuedPharmacySaleDto,
   DispenseOtcDto,
   PrepareOtcCartDto,
   DispensePharmacyDto,
@@ -287,6 +288,12 @@ export class InventoryController {
   @RequirePermissions('pharmacy:dispense', 'payments:manage')
   cancelSale(@Body() dto: CancelPharmacySaleDto, @Req() request: RequestContext) {
     return this.inventoryService.cancelPharmacySale(dto, request);
+  }
+
+  @Post('sales/return')
+  @RequirePermissions('pharmacy:dispense', 'payments:manage')
+  returnIssuedSale(@Body() dto: ReturnIssuedPharmacySaleDto, @Req() request: RequestContext) {
+    return this.inventoryService.returnIssuedPharmacySale(dto, request);
   }
 
   @Post('dispense/pharmacy')

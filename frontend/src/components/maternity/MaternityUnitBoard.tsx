@@ -5,6 +5,7 @@ import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSea
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { useState } from 'react'
+import { useCan } from '../../lib/action-access'
 
 type UnitAdmission = {
   id: string
@@ -21,11 +22,14 @@ type UnitAdmission = {
 export function MaternityUnitBoard({ unit, title }: { unit: string; title: string }) {
   const queryClient = useQueryClient()
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
+  const canReadUnits = useCan('maternity_units:read')
+  const canAdmit = useCan('maternity_units:manage')
 
   const { data: admissions = [] } = useQuery({
     queryKey: ['maternity-units', unit],
     queryFn: () => apiRequest<UnitAdmission[]>(`/maternity/units?unit=${unit}`),
     refetchInterval: 30_000,
+    enabled: canReadUnits,
   })
 
   const admit = useMutation({
@@ -54,7 +58,7 @@ export function MaternityUnitBoard({ unit, title }: { unit: string; title: strin
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
       <Card>
-        <PageHeader title={title} description={`Active patients in ${title.toLowerCase()}.`} />
+        <PageHeader title={title} description={`${title} occupancy. This is a maternity unit list, not a separate neonatal ICU.`} />
         <div className="mt-4 space-y-2">
           {admissions.map((a) => (
             <div key={a.id} className="rounded-xl border border-pink-200 bg-pink-50/50 p-4">
@@ -95,7 +99,7 @@ export function MaternityUnitBoard({ unit, title }: { unit: string; title: strin
           )}
           <Field name="weightGrams" label="Weight (grams)" type="number" />
           <TextareaField name="notes" label="Notes" />
-          <Button type="submit" loading={admit.isPending} disabled={!selectedPatient}>Admit patient</Button>
+          <Button type="submit" loading={admit.isPending} disabled={!selectedPatient || !canAdmit}>Admit patient</Button>
         </form>
       </Card>
     </div>

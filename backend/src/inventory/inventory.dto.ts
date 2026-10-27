@@ -214,6 +214,18 @@ export class CancelPharmacySaleDto {
   reason?: string;
 }
 
+export class ReturnIssuedPharmacySaleDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  saleId!: string;
+
+  @ApiProperty({ description: 'Why the issued medicine is coming back to stock' })
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
+}
+
 export class DispenseOtcDto {
   @ApiPropertyOptional()
   @IsOptional()

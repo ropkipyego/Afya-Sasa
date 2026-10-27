@@ -3,6 +3,7 @@ import { apiRequest, formatApiError, getApiErrorStatus } from '../../lib/api'
 import { formatKes } from '../../lib/clinical-catalog'
 import { useAuthStore } from '../../lib/auth-store'
 import type { PaymentServiceLine } from '../../lib/payments'
+import { readNavRange } from '../../lib/navigate'
 
 type DepartmentRevenue = {
   available?: boolean
@@ -42,9 +43,11 @@ export function DepartmentRevenueStrip({
 }) {
   const user = useAuthStore((state) => state.user)
   const allowed = canSeeRevenue(user?.permissions ?? [], user?.roles ?? [])
+  const range = readNavRange()
+  const qs = range ? `?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}` : ''
   const { data, error, isLoading, isError } = useQuery({
-    queryKey: ['revenue-summary', serviceLine ?? 'all'],
-    queryFn: () => apiRequest<DepartmentRevenue>('/reports/revenue-summary'),
+    queryKey: ['revenue-summary', serviceLine ?? 'all', range?.from, range?.to],
+    queryFn: () => apiRequest<DepartmentRevenue>(`/reports/revenue-summary${qs}`),
     staleTime: 30_000,
     retry: false,
     enabled: allowed,

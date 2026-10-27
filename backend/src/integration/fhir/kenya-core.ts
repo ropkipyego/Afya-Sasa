@@ -15,6 +15,8 @@ export const KENYA_CORE_PROFILES = {
   Observation: 'https://fhir.dha.go.ke/ig/core/StructureDefinition/kenya-core-observation',
   Condition: 'https://fhir.dha.go.ke/ig/core/StructureDefinition/kenya-core-condition',
   Procedure: 'https://fhir.dha.go.ke/ig/core/StructureDefinition/kenya-core-procedure',
+  MedicationRequest: 'https://fhir.dha.go.ke/ig/core/StructureDefinition/kenya-core-medication-request',
+  MedicationDispense: 'https://fhir.dha.go.ke/ig/core/StructureDefinition/kenya-core-medication-dispense',
 } as const;
 
 export type MappingGap = {

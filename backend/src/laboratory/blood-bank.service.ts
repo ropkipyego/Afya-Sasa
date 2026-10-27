@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { Repository } from 'typeorm';
+import { type EntityManager, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { BloodBankRequest, type BloodBankProduct, type BloodBankStatus } from './blood-bank.entities';
 import { BloodBankUnit } from './blood-bank-unit.entities';
@@ -42,6 +42,14 @@ export class BloodBankService {
       relations: { patient: true, encounter: true, admission: true },
       order: { createdAt: 'DESC' },
       take: 200,
+    });
+  }
+
+  async listUnits() {
+    if (!(await this.unitsTableReady())) return [];
+    return this.units.find({
+      order: { receivedAt: 'DESC' },
+      take: 500,
     });
   }
 
@@ -142,6 +150,7 @@ export class BloodBankService {
       if (dto.status === 'issued') {
         assertCanIssueBlood(request.user?.permissions);
         assertBloodBankIssueReady(row);
+        await this.issueReservedUnits(manager, row, request);
         row.issuedAt = new Date();
       }
       row.status = dto.status;
@@ -241,6 +250,42 @@ export class BloodBankService {
       row.updatedBy = request.user?.sub ?? null;
       return repo.save(row);
     });
+  }
+
+  private async issueReservedUnits(
+    manager: EntityManager,
+    row: BloodBankRequest,
+    request: RequestContext,
+  ) {
+    if (!(await this.unitsTableReady())) return;
+    const unitRepo = manager.getRepository(BloodBankUnit);
+    const reserved = await unitRepo.find({
+      where: { reservedRequestId: row.id, status: 'reserved' },
+    });
+    const physicalCount = await unitRepo.count();
+    const needed = Math.max(1, Number(row.units) || 1);
+    if (physicalCount > 0 && reserved.length === 0) {
+      throw new BadRequestException(
+        'Reserve at least one screened unit against this request before issue. Request-only issue is allowed only when no physical units are registered.',
+      );
+    }
+    if (reserved.length > 0 && reserved.length < needed) {
+      throw new BadRequestException(
+        `This request needs ${needed} reserved unit(s); ${reserved.length} are reserved.`,
+      );
+    }
+    for (const unit of reserved) {
+      try {
+        assertUnitTransition(unit.status, 'issued');
+      } catch (error) {
+        throw new BadRequestException(error instanceof Error ? error.message : 'Invalid unit transition');
+      }
+      unit.status = 'issued';
+      unit.issuedAt = new Date();
+      unit.issuedRequestId = row.id;
+      unit.updatedBy = request.user?.sub ?? null;
+      await unitRepo.save(unit);
+    }
   }
 
   private async requestWorkload(start: Date, end: Date) {

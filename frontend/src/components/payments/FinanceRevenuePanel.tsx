@@ -7,20 +7,16 @@ import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { printPaymentReceipt } from '../../lib/print-payment-receipt'
 import {
+  fetchCashierSummary,
   listRecentPayments,
   PAYMENT_SERVICE_LINES,
   type PaymentServiceLine,
   type PaymentTransactionRow,
 } from '../../lib/payments'
+import { readNavRange } from '../../lib/navigate'
 import { formatPatientNoShort } from '../../lib/patient-utils'
 import { LabSection, LabStatCard } from '../investigations/lab-ui'
 import { CreditCard, Landmark, Wallet } from 'lucide-react'
-
-function startOfToday() {
-  const date = new Date()
-  date.setHours(0, 0, 0, 0)
-  return date
-}
 
 function isCollected(txn: PaymentTransactionRow) {
   return txn.status === 'completed' || txn.status === 'paid' || txn.status === 'success'
@@ -33,24 +29,36 @@ function lineLabel(line?: string | null) {
 export function FinanceRevenuePanel() {
   const { data: catalog } = useClinicalCatalog()
   const brand = resolveHospitalBranding(catalog)
+  const range = readNavRange()
+  const from = range?.from ?? new Date().toISOString().slice(0, 10)
+  const to = range?.to ?? from
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['payment-transactions', 'revenue'],
     queryFn: () => listRecentPayments(200),
     refetchInterval: 30_000,
   })
+  const { data: summary } = useQuery({
+    queryKey: ['cashier-summary', from, to],
+    queryFn: () => fetchCashierSummary(from, to),
+    refetchInterval: 30_000,
+  })
 
   const collected = transactions.filter(isCollected)
-  const todayStart = startOfToday().getTime()
-  const today = collected.filter((txn) => new Date(txn.createdAt).getTime() >= todayStart)
+  const rangeStart = new Date(`${from}T00:00:00.000Z`).getTime()
+  const rangeEnd = new Date(`${to}T23:59:59.999Z`).getTime()
+  const inRange = collected.filter((txn) => {
+    const at = new Date(txn.createdAt).getTime()
+    return at >= rangeStart && at <= rangeEnd
+  })
 
-  const todayTotal = today.reduce((sum, txn) => sum + Number(txn.amount ?? 0), 0)
+  const todayTotal = summary?.collections ?? inRange.reduce((sum, txn) => sum + Number(txn.amount ?? 0), 0)
   const loadedTotal = collected.reduce((sum, txn) => sum + Number(txn.amount ?? 0), 0)
   const insurancePending = transactions.filter((txn) => txn.status === 'insurance_pending' || txn.method === 'insurance')
 
   const byDepartment = useMemo(() => {
     const map = new Map<PaymentServiceLine | 'other', number>()
     for (const line of PAYMENT_SERVICE_LINES) map.set(line.value, 0)
-    for (const txn of today) {
+    for (const txn of inRange) {
       const key = (txn.serviceLine ?? 'other') as PaymentServiceLine
       map.set(key, (map.get(key) ?? 0) + Number(txn.amount ?? 0))
     }
@@ -58,16 +66,19 @@ export function FinanceRevenuePanel() {
       line: line.label,
       amount: map.get(line.value) ?? 0,
     })).filter((row) => row.amount > 0)
-  }, [today])
+  }, [inRange])
 
   const byMethod = useMemo(() => {
+    if (summary?.collectionsByMethod) {
+      return Object.entries(summary.collectionsByMethod).sort((a, b) => b[1] - a[1])
+    }
     const map = new Map<string, number>()
-    for (const txn of today) {
+    for (const txn of inRange) {
       const method = txn.method || 'other'
       map.set(method, (map.get(method) ?? 0) + Number(txn.amount ?? 0))
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1])
-  }, [today])
+  }, [inRange, summary])
 
   const printTxn = (txn: PaymentTransactionRow) => {
     printPaymentReceipt({
@@ -95,11 +106,11 @@ export function FinanceRevenuePanel() {
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
         <LabStatCard
-          label="Collected today"
+          label={from === to ? `Collected ${from}` : `Collected ${from} to ${to}`}
           value={formatKes(todayTotal)}
           icon={Wallet}
           tone="border-teal-200 bg-gradient-to-br from-teal-50 to-white text-teal-950"
-          hint={`${today.length} receipt${today.length === 1 ? '' : 's'}`}
+          hint={summary ? `${summary.note}` : `${inRange.length} receipt${inRange.length === 1 ? '' : 's'}`}
         />
         <LabStatCard
           label="Loaded period"
@@ -129,7 +140,7 @@ export function FinanceRevenuePanel() {
               ))}
             </ul>
           ) : (
-            <p className="py-8 text-center text-sm text-slate-500">No completed payments today in the loaded set.</p>
+            <p className="py-8 text-center text-sm text-slate-500">No completed payments in this period in the loaded set.</p>
           )}
         </LabSection>
 
@@ -144,7 +155,7 @@ export function FinanceRevenuePanel() {
               ))}
             </ul>
           ) : (
-            <p className="py-8 text-center text-sm text-slate-500">No completed payments today.</p>
+            <p className="py-8 text-center text-sm text-slate-500">No completed payments in this period.</p>
           )}
         </LabSection>
       </div>

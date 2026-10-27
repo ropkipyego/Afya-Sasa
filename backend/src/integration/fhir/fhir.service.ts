@@ -14,8 +14,15 @@ import {
   KENYA_ECLAIMS_STATUS,
   PATIENT_GAPS,
 } from './kenya-core';
-import { mapEncounter, mapPatient, type PatientSource } from './fhir-mapper';
+import {
+  mapEncounter,
+  mapMedicationDispense,
+  mapMedicationRequest,
+  mapPatient,
+  type PatientSource,
+} from './fhir-mapper';
 import { validateMappedResource } from './fhir-validate';
+import { ClinicalOrder } from '../../clinical-order/clinical-order.entities';
 
 @Injectable()
 export class FhirService {
@@ -25,6 +32,7 @@ export class FhirService {
     @InjectRepository(PatientIdentifier)
     private readonly identifiers: Repository<PatientIdentifier>,
     @InjectRepository(Encounter) private readonly encounters: Repository<Encounter>,
+    @InjectRepository(ClinicalOrder) private readonly clinicalOrders: Repository<ClinicalOrder>,
   ) {}
 
   status() {
@@ -122,10 +130,98 @@ export class FhirService {
       gender: '',
       dateOfBirth: '',
     });
+    const medRequest = mapMedicationRequest({
+      id: 'syn-rx-1',
+      orderNo: 'RX-SYN-1',
+      status: 'requested',
+      priority: 'routine',
+      patientId: 'syn-patient-1',
+      encounterId: 'syn-enc-1',
+      itemId: 'syn-item-1',
+      sku: 'PARA500',
+      medicationName: 'Paracetamol 500mg tablet',
+      dose: '1g',
+      route: 'oral',
+      frequency: 'TDS',
+      duration: '3 days',
+      quantity: 18,
+      unit: 'tablet',
+    });
+    const medDispense = mapMedicationDispense({
+      id: 'syn-disp-1',
+      orderId: 'syn-rx-1',
+      status: 'dispensed',
+      patientId: 'syn-patient-1',
+      encounterId: 'syn-enc-1',
+      itemId: 'syn-item-1',
+      sku: 'PARA500',
+      medicationName: 'Paracetamol 500mg tablet',
+      quantityDispensed: 18,
+      unit: 'tablet',
+    });
     return {
       sandboxConnected: false,
       validFixture: validateMappedResource(resource as unknown as Record<string, unknown>),
       missingRequired: validateMappedResource(missing as unknown as Record<string, unknown>),
+      validMedicationRequest: validateMappedResource(medRequest as unknown as Record<string, unknown>),
+      validMedicationDispense: validateMappedResource(medDispense as unknown as Record<string, unknown>),
+    };
+  }
+
+  async mapMedicationOrderById(orderId: string) {
+    const order = await this.clinicalOrders.findOne({
+      where: { id: orderId, orderType: 'pharmacy' },
+      relations: { patient: true, encounter: true, orderedBy: true },
+    });
+    if (!order) return { found: false as const };
+    const prescribed = Number(order.metadata?.quantityPrescribed ?? order.metadata?.quantity ?? 0);
+    const dispensed = Number(order.metadata?.quantityDispensed ?? order.metadata?.dispensedQuantity ?? 0);
+    const requestResource = mapMedicationRequest({
+      id: order.id,
+      orderNo: order.orderNo,
+      status: order.status,
+      priority: order.priority,
+      patientId: order.patient.id,
+      encounterId: order.encounter?.id ?? null,
+      requesterId: order.orderedBy?.id ?? null,
+      authoredOn: order.orderedAt,
+      itemId: order.metadata?.itemId ? String(order.metadata.itemId) : null,
+      sku: order.metadata?.sku ? String(order.metadata.sku) : null,
+      medicationName: String(order.metadata?.medication ?? order.orderNo),
+      dose: order.metadata?.dose ? String(order.metadata.dose) : null,
+      route: order.metadata?.route ? String(order.metadata.route) : null,
+      frequency: order.metadata?.frequency ? String(order.metadata.frequency) : null,
+      duration: order.metadata?.duration ? String(order.metadata.duration) : null,
+      quantity: prescribed,
+      unit: order.metadata?.unit ? String(order.metadata.unit) : null,
+      instructions: order.metadata?.instructions ? String(order.metadata.instructions) : null,
+    });
+    const dispenseResource =
+      dispensed > 0
+        ? mapMedicationDispense({
+            id: `${order.id}-dispense`,
+            orderId: order.id,
+            status: order.status,
+            patientId: order.patient.id,
+            encounterId: order.encounter?.id ?? null,
+            whenHandedOver: order.completedAt ?? order.updatedAt,
+            itemId: order.metadata?.itemId ? String(order.metadata.itemId) : null,
+            sku: order.metadata?.sku ? String(order.metadata.sku) : null,
+            medicationName: String(order.metadata?.medication ?? order.orderNo),
+            quantityDispensed: dispensed,
+            unit: order.metadata?.unit ? String(order.metadata.unit) : null,
+          })
+        : null;
+    return {
+      found: true as const,
+      medicationRequest: requestResource,
+      medicationRequestValidation: validateMappedResource(
+        requestResource as unknown as Record<string, unknown>,
+      ),
+      medicationDispense: dispenseResource,
+      medicationDispenseValidation: dispenseResource
+        ? validateMappedResource(dispenseResource as unknown as Record<string, unknown>)
+        : null,
     };
   }
 }

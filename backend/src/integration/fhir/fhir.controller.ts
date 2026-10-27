@@ -32,4 +32,10 @@ export class FhirController {
   encounter(@Param('id') id: string) {
     return this.fhir.mapEncounterById(id);
   }
+
+  @Get('medication-order/:id')
+  @RequirePermissions('settings:manage', 'pharmacy:read', 'pharmacy:prescribe')
+  medicationOrder(@Param('id') id: string) {
+    return this.fhir.mapMedicationOrderById(id);
+  }
 }

@@ -28,6 +28,7 @@ import {
   CreateStockTakeSessionDto,
   CreateTransferDto,
   CancelPharmacySaleDto,
+  ReturnIssuedPharmacySaleDto,
   DispenseOtcDto,
   DispensePharmacyDto,
   DispensePrescriptionDto,
@@ -46,6 +47,10 @@ import {
   assertIndependentApprover,
   assertVarianceReason,
 } from './stock-take-session';
+import {
+  evaluateFormularyStatus,
+  type FormularyPolicyMetadata,
+} from './formulary-status';
 import {
   csvEscape,
   ledgerNetQuantity,
@@ -165,13 +170,21 @@ export class InventoryService {
       qb.addSelect('item.minLevel').addSelect('item.maxLevel');
     }
     const rows = await qb.getMany();
-    const pricing = await this.readPricingMap(params?.request);
+    const [pricing, formularyMeta] = await Promise.all([
+      this.readPricingMap(params?.request),
+      this.readFormularyMetadataMap(params?.request),
+    ]);
     return rows.map((item) => {
       const price = pricing[item.sku] ?? { cost: 0, markup: 0, sell: 0 };
       const drugClass = item.drugClass ?? classifyDrug(item.name, item.category);
+      const formulary = evaluateFormularyStatus(
+        { category: item.category, active: item.active !== false },
+        formularyMeta[item.sku] ?? null,
+      );
       return {
         ...item,
         ...price,
+        ...formulary,
         drugClass,
         strength: item.strength ?? null,
         dosageForm: item.dosageForm ?? null,
@@ -1519,6 +1532,99 @@ export class InventoryService {
         await orders.save(order);
       }
       return { saleId, released: held.length, reason: dto.reason ?? null };
+    });
+  }
+
+  async returnIssuedPharmacySale(dto: ReturnIssuedPharmacySaleDto, request: RequestContext) {
+    const saleId = dto.saleId.trim();
+    const reason = dto.reason.trim();
+    if (!saleId) throw domainBadRequest(ERROR_CODES.VALIDATION_ERROR, 'saleId is required.');
+    if (reason.length < 3) throw new BadRequestException('A return reason is required.');
+    return this.items.manager.transaction(async (manager) => {
+      const pharmacy = await manager.getRepository(InventoryLocation).findOne({
+        where: { code: 'PHARMACY', active: true },
+      });
+      if (!pharmacy) throw new NotFoundException('Pharmacy location not configured');
+      const ledger = manager.getRepository(InventoryTransaction);
+      const reservations = await manager.getRepository(InventoryReservation).find({
+        where: { saleId, status: 'consumed' },
+      });
+      const otcRows = await ledger.find({
+        where: { transactionType: 'DISPENSE', referenceType: 'otc_sale', referenceId: saleId },
+        relations: { item: true, batch: true },
+      });
+      const orderIds = [...new Set(reservations.map((row) => row.clinicalOrderId).filter(Boolean))] as string[];
+      const rxRows = orderIds.length
+        ? await ledger.find({
+            where: { transactionType: 'DISPENSE', referenceType: 'clinical_order', referenceId: In(orderIds) },
+            relations: { item: true, batch: true },
+          })
+        : [];
+      const dispensed = [...otcRows, ...rxRows];
+      if (!dispensed.length) {
+        throw domainNotFound(
+          ERROR_CODES.NOT_FOUND,
+          'No issued pharmacy stock matches this sale. Pending holds use Cancel, not Return.',
+        );
+      }
+      const returned: Array<{ batchId: string; quantity: number }> = [];
+      for (const row of dispensed) {
+        const qty = Math.abs(Number(row.quantity));
+        const batch = row.batch;
+        const item = row.item;
+        const referenceType = row.referenceType;
+        const referenceId = row.referenceId;
+        if (!Number.isFinite(qty) || qty <= 0 || !batch || !item || !referenceType || !referenceId) continue;
+        const duplicate = await ledger.findOne({
+          where: {
+            transactionType: 'RETURN',
+            referenceType,
+            referenceId,
+            batch: { id: batch.id },
+          },
+        });
+        if (duplicate) {
+          throw domainConflict(ERROR_CODES.CONFLICT, 'This issued sale was already returned to stock.');
+        }
+        const credited = await this.creditLocationBatch({
+          manager,
+          item,
+          sourceBatch: batch,
+          destinationLocation: pharmacy,
+          quantity: qty,
+          transactionType: 'RETURN',
+          referenceType,
+          referenceId,
+          reason,
+          request,
+        });
+        returned.push({ batchId: credited.batch.id, quantity: qty });
+        if (referenceType === 'clinical_order') {
+          const orders = manager.getRepository(ClinicalOrder);
+          const order = await orders.findOne({ where: { id: referenceId } });
+          if (order) {
+            const next = Math.max(0, dispensedQuantity(order) - qty);
+            order.metadata = { ...(order.metadata ?? {}), quantityDispensed: next };
+            order.status = next <= 0 ? 'requested' : 'partially_dispensed';
+            order.updatedBy = request.user?.sub ?? null;
+            await orders.save(order);
+            await this.syncPrescriptionHeader(orders, order);
+          }
+        }
+      }
+      if (!returned.length) {
+        throw domainNotFound(
+          ERROR_CODES.NOT_FOUND,
+          'Issued stock for this sale has no batch that can be returned.',
+        );
+      }
+      return {
+        saleId,
+        returned: returned.length,
+        lines: returned,
+        reason,
+        nextAction: 'Refund collected money at cashier if a payment was taken. Stock is back on the pharmacy shelf.',
+      };
     });
   }
 
@@ -3352,6 +3458,13 @@ export class InventoryService {
       reserved: number;
       available: number;
       stockStatus: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'EXPIRED' | 'INACTIVE';
+      formularyStatus: string | null;
+      formularyStatusLabel: string | null;
+      prescribingStatus: string | null;
+      prescribingStatusLabel: string | null;
+      regulatoryStatus: string | null;
+      regulatoryStatusLabel: string | null;
+      ppbRegistrationNo: string | null;
     }> = [];
 
     for (const item of items) {
@@ -3363,7 +3476,7 @@ export class InventoryService {
           itemId: item.id,
           sku: item.sku,
           name: item.name,
-          genericName: null,
+          genericName: item.genericName ?? null,
           category: item.category,
           drugClass: item.drugClass ?? null,
           strength: item.strength ?? null,
@@ -3386,6 +3499,13 @@ export class InventoryService {
           reserved: 0,
           available: 0,
           stockStatus: !item.active ? 'INACTIVE' : 'OUT_OF_STOCK',
+          formularyStatus: item.formularyStatus ?? null,
+          formularyStatusLabel: item.formularyStatusLabel ?? null,
+          prescribingStatus: item.prescribingStatus ?? null,
+          prescribingStatusLabel: item.prescribingStatusLabel ?? null,
+          regulatoryStatus: item.regulatoryStatus ?? null,
+          regulatoryStatusLabel: item.regulatoryStatusLabel ?? null,
+          ppbRegistrationNo: item.ppbRegistrationNo ?? null,
         });
         continue;
       }
@@ -3409,7 +3529,7 @@ export class InventoryService {
           itemId: item.id,
           sku: item.sku,
           name: item.name,
-          genericName: null,
+          genericName: item.genericName ?? null,
           category: item.category,
           drugClass: item.drugClass ?? null,
           strength: item.strength ?? null,
@@ -3432,6 +3552,13 @@ export class InventoryService {
           reserved,
           available,
           stockStatus,
+          formularyStatus: item.formularyStatus ?? null,
+          formularyStatusLabel: item.formularyStatusLabel ?? null,
+          prescribingStatus: item.prescribingStatus ?? null,
+          prescribingStatusLabel: item.prescribingStatusLabel ?? null,
+          regulatoryStatus: item.regulatoryStatus ?? null,
+          regulatoryStatusLabel: item.regulatoryStatusLabel ?? null,
+          ppbRegistrationNo: item.ppbRegistrationNo ?? null,
         });
       }
     }
@@ -3818,6 +3945,16 @@ export class InventoryService {
     const settings = await this.loadSettings(request);
     const raw = (settings?.clinicalCatalog as { inventoryPricing?: Record<string, ItemPrice> } | undefined)
       ?.inventoryPricing;
+    return raw && typeof raw === 'object' ? raw : {};
+  }
+
+  private async readFormularyMetadataMap(
+    request?: RequestContext,
+  ): Promise<Record<string, FormularyPolicyMetadata>> {
+    const settings = await this.loadSettings(request);
+    const raw = (
+      settings?.clinicalCatalog as { formularyMetadata?: Record<string, FormularyPolicyMetadata> } | undefined
+    )?.formularyMetadata;
     return raw && typeof raw === 'object' ? raw : {};
   }
 

@@ -5,6 +5,7 @@ import { CheckCircle2, Calculator, FileUp, Search } from 'lucide-react'
 import { Button, Field, SelectField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { apiRequest } from '../../lib/api'
+import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { formDataFromElement } from '../../lib/form-utils'
 import { uploadClinicalFile, viewClinicalFile } from '../../lib/clinical-upload'
@@ -221,6 +222,12 @@ function ParameterField({
 
 export function LabResultsEntry() {
   const queryClient = useQueryClient()
+  const canVerifyResults = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('lab_results:verify')),
+  )
+  const canEnterResults = useAuthStore((state) =>
+    Boolean(state.user?.permissions.includes('lab_results:enter')),
+  )
   const fileRef = useRef<HTMLInputElement>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -684,7 +691,12 @@ export function LabResultsEntry() {
                   </p>
 
                   <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-100 pt-5">
-                    <Button type="button" loading={enterPanelResults.isPending} onClick={() => enterPanelResults.mutate()}>
+                    <Button
+                      type="button"
+                      loading={enterPanelResults.isPending}
+                      disabled={!canEnterResults}
+                      onClick={() => enterPanelResults.mutate()}
+                    >
                       <CheckCircle2 className="h-4 w-4" />
                       {savedResults.length
                         ? catalogItems.findIndex((i) => i.id === activeItem?.id) < catalogItems.length - 1
@@ -694,14 +706,18 @@ export function LabResultsEntry() {
                           ? 'Save & next test'
                           : 'Save panel results'}
                     </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => verifyRequest.mutate(detail.id)}
-                      loading={verifyRequest.isPending}
-                    >
-                      Verify & release
-                    </Button>
+                    {canVerifyResults ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => verifyRequest.mutate(detail.id)}
+                        loading={verifyRequest.isPending}
+                      >
+                        Verify & release
+                      </Button>
+                    ) : (
+                      <p className="text-sm text-slate-600">Verification needs lab_results:verify.</p>
+                    )}
                     <Button
                       type="button"
                       variant="ghost"
@@ -797,7 +813,7 @@ export function LabResultsEntry() {
                       <Field name="unit" label="Unit" />
                     </div>
                     <Field name="comment" label="Comment" />
-                    <Button type="submit" loading={enterResult.isPending}>
+                    <Button type="submit" loading={enterResult.isPending} disabled={!canEnterResults}>
                       Save result
                     </Button>
                   </form>
@@ -806,13 +822,17 @@ export function LabResultsEntry() {
 
               {!catalogItems.length ? (
                 <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    onClick={() => verifyRequest.mutate(detail.id)}
-                    loading={verifyRequest.isPending}
-                  >
-                    Verify & notify doctor
-                  </Button>
+                  {canVerifyResults ? (
+                    <Button
+                      type="button"
+                      onClick={() => verifyRequest.mutate(detail.id)}
+                      loading={verifyRequest.isPending}
+                    >
+                      Verify & notify doctor
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-slate-600">Verification needs lab_results:verify.</p>
+                  )}
                 </div>
               ) : null}
             </>

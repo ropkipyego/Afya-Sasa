@@ -61,6 +61,80 @@ describe('pharmacy dispense confirmation', () => {
   });
 });
 
+describe('pharmacy dispense quantity', () => {
+  const resolve = (
+    InventoryService.prototype as unknown as {
+      resolveDispenseQuantity: (
+        requested: number | undefined,
+        order: { metadata?: Record<string, unknown> },
+        remaining?: number | null,
+      ) => number;
+    }
+  ).resolveDispenseQuantity;
+
+  it('refuses a quantity larger than remaining on the prescription line', () => {
+    expect(() =>
+      resolve.call(Object.create(InventoryService.prototype), 12, { metadata: { quantity: 10 } }, 6),
+    ).toThrow(/Only 6 remain/);
+  });
+
+  it('uses remaining when the pharmacist does not override quantity', () => {
+    expect(resolve.call(Object.create(InventoryService.prototype), undefined, { metadata: { quantity: 21 } }, 11)).toBe(
+      11,
+    );
+  });
+});
+
+describe('pharmacy FEFO allocation', () => {
+  const allocate = (
+    InventoryService.prototype as unknown as {
+      allocateFromBatches: (
+        batches: Array<{ id: string; qtyOnHand: string; expiryDate: string | null }>,
+        quantity: number,
+        message?: string,
+      ) => Array<{ quantity: number }>;
+    }
+  ).allocateFromBatches;
+
+  it('refuses issue when usable on-hand is short', () => {
+    expect(() =>
+      allocate.call(
+        Object.create(InventoryService.prototype),
+        [{ id: 'b1', qtyOnHand: '2', expiryDate: '2027-01-01' }],
+        5,
+        'Insufficient stock to fulfill this request.',
+      ),
+    ).toThrow(/Insufficient stock/);
+  });
+
+  it('takes the earliest expiry first', () => {
+    const rows = allocate.call(
+      Object.create(InventoryService.prototype),
+      [
+        { id: 'late', qtyOnHand: '10', expiryDate: '2028-01-01' },
+        { id: 'soon', qtyOnHand: '4', expiryDate: '2027-01-01' },
+      ],
+      5,
+    );
+    expect(rows.map((row) => row.quantity)).toEqual([4, 1]);
+  });
+});
+
+describe('pharmacy return contract', () => {
+  it('refuses a return without a sale id before opening a transaction', async () => {
+    const instance = Object.create(InventoryService.prototype) as InventoryService;
+    Object.assign(instance, { items: { manager: { transaction: jest.fn() } } });
+    await expect(
+      instance.returnIssuedPharmacySale({ saleId: '  ', reason: 'Patient unused tablets' } as never, {
+        user: { sub: 'u1' },
+      } as never),
+    ).rejects.toThrow(/saleId is required/);
+    expect(
+      (instance as unknown as { items: { manager: { transaction: jest.Mock } } }).items.manager.transaction,
+    ).not.toHaveBeenCalled();
+  });
+});
+
 describe('pharmacy prepare contract', () => {
   it('refuses an empty OTC cart before opening a transaction', async () => {
     const instance = Object.create(InventoryService.prototype) as InventoryService;
@@ -352,6 +426,13 @@ describe('pharmacy dashboard and stock table aggregation', () => {
           active: true,
           trackBatch: true,
           minLevel: 10,
+          formularyStatus: 'hospital_formulary',
+          formularyStatusLabel: 'Hospital formulary',
+          prescribingStatus: 'available_for_prescribing',
+          prescribingStatusLabel: 'Available for prescribing',
+          regulatoryStatus: 'regulatory_status_unverified',
+          regulatoryStatusLabel: 'PPB regulatory registration not recorded',
+          ppbRegistrationNo: null,
         },
       ]),
       batches: {
@@ -389,6 +470,10 @@ describe('pharmacy dashboard and stock table aggregation', () => {
       reserved: 6,
       available: 24,
       stockStatus: 'IN_STOCK',
+      formularyStatus: 'hospital_formulary',
+      prescribingStatus: 'available_for_prescribing',
+      regulatoryStatus: 'regulatory_status_unverified',
+      ppbRegistrationNo: null,
     });
     expect(table.rows[1]).toMatchObject({
       batchNo: 'LOT-LATE',

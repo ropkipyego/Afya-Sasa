@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "node --experimental-strip-types --test src/lib/website-booking.spec.ts src/lib/hospital-accounts.spec.ts src/lib/director-kpi-destinations.spec.ts src/lib/theatre-lifecycle.spec.ts src/lib/emergency-disposition-beds.spec.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },

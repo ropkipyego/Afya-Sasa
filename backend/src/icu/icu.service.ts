@@ -18,6 +18,7 @@ import {
   CreateVentilatorRecordDto,
   UpdateIcuStatusDto,
 } from './icu.dto';
+import { assertCriticalCareBed, assertCriticalCareChartOpen } from './critical-care-gates';
 
 @Injectable()
 export class IcuService {
@@ -47,7 +48,11 @@ export class IcuService {
     if (duplicate) {
       return duplicate;
     }
-    const bed = dto.icuBedId ? await this.beds.findOne({ where: { id: dto.icuBedId } }) : null;
+    const bed = dto.icuBedId
+      ? await this.beds.findOne({ where: { id: dto.icuBedId }, relations: { ward: true } })
+      : null;
+    if (dto.icuBedId && !bed) throw new NotFoundException('ICU bed not found');
+    assertCriticalCareBed(bed, 'icu');
     return this.icuAdmissions.save(
       this.icuAdmissions.create({
         admission,
@@ -101,6 +106,7 @@ export class IcuService {
 
   async observe(id: string, dto: CreateIcuObservationDto, request: RequestContext) {
     const icuAdmission = await this.get(id);
+    assertCriticalCareChartOpen(icuAdmission.status, 'ICU');
     return this.observations.save(
       this.observations.create({
         icuAdmission,
@@ -114,6 +120,7 @@ export class IcuService {
 
   async ventilator(id: string, dto: CreateVentilatorRecordDto, request: RequestContext) {
     const icuAdmission = await this.get(id);
+    assertCriticalCareChartOpen(icuAdmission.status, 'ICU');
     return this.ventilators.save(
       this.ventilators.create({
         icuAdmission,
@@ -130,6 +137,7 @@ export class IcuService {
 
   async fluid(id: string, dto: CreateFluidBalanceDto, request: RequestContext) {
     const icuAdmission = await this.get(id);
+    assertCriticalCareChartOpen(icuAdmission.status, 'ICU');
     const input = dto.inputVolumeMl ?? 0;
     const output = dto.outputVolumeMl ?? 0;
     return this.fluidBalance.save(
@@ -147,6 +155,7 @@ export class IcuService {
 
   async round(id: string, dto: CreateIcuRoundDto, request: RequestContext) {
     const icuAdmission = await this.get(id);
+    assertCriticalCareChartOpen(icuAdmission.status, 'ICU');
     return this.rounds.save(
       this.rounds.create({
         icuAdmission,

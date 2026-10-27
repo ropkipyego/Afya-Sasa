@@ -32,6 +32,19 @@ export function validateMappedResource(resource: Record<string, unknown>) {
   if (type === 'Encounter' && !resource.subject) {
     issues.push({ severity: 'error', path: 'Encounter.subject', message: 'Encounter.subject is required' });
   }
+  if (type === 'MedicationRequest') {
+    if (!resource.subject) {
+      issues.push({ severity: 'error', path: 'MedicationRequest.subject', message: 'subject is required' });
+    }
+    if (!resource.intent) {
+      issues.push({ severity: 'error', path: 'MedicationRequest.intent', message: 'intent is required' });
+    }
+  }
+  if (type === 'MedicationDispense') {
+    if (!resource.subject) {
+      issues.push({ severity: 'error', path: 'MedicationDispense.subject', message: 'subject is required' });
+    }
+  }
   return {
     resourceType: type,
     valid: issues.filter((issue) => issue.severity === 'error').length === 0,

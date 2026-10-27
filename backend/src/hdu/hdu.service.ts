@@ -10,6 +10,7 @@ import {
   CreateHduRoundDto,
   UpdateHduStatusDto,
 } from './hdu.dto';
+import { assertCriticalCareBed, assertCriticalCareChartOpen } from '../icu/critical-care-gates';
 
 @Injectable()
 export class HduService {
@@ -35,7 +36,11 @@ export class HduService {
     if (duplicate) {
       return duplicate;
     }
-    const bed = dto.hduBedId ? await this.beds.findOne({ where: { id: dto.hduBedId } }) : null;
+    const bed = dto.hduBedId
+      ? await this.beds.findOne({ where: { id: dto.hduBedId }, relations: { ward: true } })
+      : null;
+    if (dto.hduBedId && !bed) throw new NotFoundException('HDU bed not found');
+    assertCriticalCareBed(bed, 'hdu');
     return this.hduAdmissions.save(
       this.hduAdmissions.create({
         admission,
@@ -78,6 +83,7 @@ export class HduService {
 
   async observe(id: string, dto: CreateHduObservationDto, request: RequestContext) {
     const hduAdmission = await this.get(id);
+    assertCriticalCareChartOpen(hduAdmission.status, 'HDU');
     return this.observations.save(
       this.observations.create({
         hduAdmission,
@@ -97,6 +103,7 @@ export class HduService {
 
   async round(id: string, dto: CreateHduRoundDto, request: RequestContext) {
     const hduAdmission = await this.get(id);
+    assertCriticalCareChartOpen(hduAdmission.status, 'HDU');
     return this.rounds.save(
       this.rounds.create({
         hduAdmission,

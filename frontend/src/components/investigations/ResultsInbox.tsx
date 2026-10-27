@@ -19,6 +19,7 @@ type LabInboxItem = {
     orderableTest?: { name: string } | null
     request?: {
       requestNo?: string
+      encounter?: { encounterNo?: string | null } | null
       patient?: { firstName: string; lastName: string; patientNo: string }
     }
   }
@@ -94,6 +95,12 @@ function testName(item: LabInboxItem) {
   )
 }
 
+function inboxSubtitle(item: LabInboxItem) {
+  return [item.requestItem?.request?.requestNo, item.requestItem?.request?.encounter?.encounterNo, testName(item)]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 export function ResultsInbox() {
   const queryClient = useQueryClient()
   const { data: labResults = [] } = useQuery({
@@ -146,7 +153,7 @@ export function ResultsInbox() {
                   key={item.id}
                   patientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
                   patientNo={patient?.patientNo ? formatPatientNoShort(patient.patientNo) : undefined}
-                  subtitle={[item.requestItem?.request?.requestNo, testName(item)].filter(Boolean).join(' · ')}
+                  subtitle={inboxSubtitle(item)}
                   resultLine={[item.value, item.unit].filter(Boolean).join(' ')}
                   flag={item.flag}
                   reviewed={Boolean(item.reviewedAt)}
@@ -176,7 +183,7 @@ export function ResultsInbox() {
                   critical
                   patientName={patient ? `${patient.firstName} ${patient.lastName}` : undefined}
                   patientNo={patient?.patientNo ? formatPatientNoShort(patient.patientNo) : undefined}
-                  subtitle={[item.requestItem?.request?.requestNo, testName(item)].filter(Boolean).join(' · ')}
+                  subtitle={inboxSubtitle(item)}
                   resultLine={[item.value, item.unit].filter(Boolean).join(' ')}
                   flag={item.flag ?? 'CRITICAL'}
                   reviewed={Boolean(item.reviewedAt)}

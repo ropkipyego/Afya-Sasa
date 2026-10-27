@@ -4,6 +4,7 @@ import { Activity, ArrowLeft, Droplets, Stethoscope, Wind } from 'lucide-react'
 import { Alert, Button, Card, Field, PageHeader, SelectField, TextareaField } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { useCan } from '../../lib/action-access'
 
 type IcuAdmission = {
   id: string
@@ -49,6 +50,7 @@ type IpdAdmission = {
 export function IcuModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdmit, setShowAdmit] = useState(false)
+  const canAdmit = useCan('icu_admissions:create')
 
   const { data: admissions = [], isLoading } = useQuery({
     queryKey: ['icu-admissions', 'active'],
@@ -80,9 +82,11 @@ export function IcuModule() {
             title="Intensive Care Unit"
             description="Critical care admissions, monitoring, ventilator charting, fluid balance, and consultant rounds."
           />
-          <Button variant="secondary" onClick={() => setShowAdmit(true)}>
-            Admit to ICU
-          </Button>
+          {canAdmit ? (
+            <Button variant="secondary" onClick={() => setShowAdmit(true)}>
+              Admit to ICU
+            </Button>
+          ) : null}
         </div>
         <p className="mt-4 text-sm text-white/80">
           Active patients: <strong>{admissions.length}</strong>
@@ -203,6 +207,11 @@ function IcuAdmitPanel({
 function IcuPatientWorkspace({ icuId, onBack }: { icuId: string; onBack: () => void }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<'monitor' | 'vent' | 'fluid' | 'rounds'>('monitor')
+  const canObserve = useCan('icu_observations:create')
+  const canVent = useCan('ventilator_records:create')
+  const canFluid = useCan('fluid_balance:create')
+  const canRound = useCan('icu_rounds:create')
+  const canTransferOut = useCan('icu_admissions:update')
 
   const { data, isLoading } = useQuery({
     queryKey: ['icu-workspace', icuId],
@@ -320,6 +329,7 @@ function IcuPatientWorkspace({ icuId, onBack }: { icuId: string; onBack: () => v
   }
 
   const patient = data.admission.patient
+  const chartOpen = data.status === 'active'
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -338,8 +348,11 @@ function IcuPatientWorkspace({ icuId, onBack }: { icuId: string; onBack: () => v
               {new Date(data.admittedToIcuAt).toLocaleString()}
             </p>
             <p className="mt-2 text-sm text-slate-700">{data.reason}</p>
+            {chartOpen ? null : (
+              <p className="mt-2 text-sm font-medium text-amber-800">This ICU overlay is closed. Charting is read-only.</p>
+            )}
           </div>
-          <Button variant="secondary" onClick={() => discharge.mutate()} disabled={discharge.isPending}>
+          <Button variant="secondary" onClick={() => discharge.mutate()} disabled={discharge.isPending || !canTransferOut || !chartOpen}>
             Transfer out of ICU
           </Button>
         </div>
@@ -378,7 +391,7 @@ function IcuPatientWorkspace({ icuId, onBack }: { icuId: string; onBack: () => v
               <Field name="dia" label="BP dia" value={dia} onChange={(e) => setDia(e.target.value)} />
               <Field name="gcs" label="GCS" value={gcs} onChange={(e) => setGcs(e.target.value)} />
             </div>
-            <Button className="mt-4" onClick={() => observe.mutate()} disabled={observe.isPending}>Save vitals</Button>
+            <Button className="mt-4" onClick={() => observe.mutate()} disabled={observe.isPending || !canObserve || !chartOpen}>Save vitals</Button>
           </Card>
           <Card className="p-6">
             <h3 className="font-bold text-slate-900">Recent observations</h3>
@@ -411,7 +424,7 @@ function IcuPatientWorkspace({ icuId, onBack }: { icuId: string; onBack: () => v
               <Field name="fio2" label="FiO₂ %" value={fio2} onChange={(e) => setFio2(e.target.value)} />
               <Field name="peep" label="PEEP" value={peep} onChange={(e) => setPeep(e.target.value)} />
             </div>
-            <Button className="mt-4" onClick={() => vent.mutate()} disabled={vent.isPending}>Record settings</Button>
+            <Button className="mt-4" onClick={() => vent.mutate()} disabled={vent.isPending || !canVent || !chartOpen}>Record settings</Button>
           </Card>
           <Card className="p-6">
             <h3 className="font-bold">Ventilator log</h3>
@@ -434,7 +447,7 @@ function IcuPatientWorkspace({ icuId, onBack }: { icuId: string; onBack: () => v
               <Field name="input-ml" label="Input (ml)" value={inputMl} onChange={(e) => setInputMl(e.target.value)} />
               <Field name="output-ml" label="Output (ml)" value={outputMl} onChange={(e) => setOutputMl(e.target.value)} />
             </div>
-            <Button className="mt-4" onClick={() => fluid.mutate()} disabled={fluid.isPending}>Save balance</Button>
+            <Button className="mt-4" onClick={() => fluid.mutate()} disabled={fluid.isPending || !canFluid || !chartOpen}>Save balance</Button>
           </Card>
           <Card className="p-6">
             <h3 className="font-bold">Fluid log</h3>
@@ -457,7 +470,7 @@ function IcuPatientWorkspace({ icuId, onBack }: { icuId: string; onBack: () => v
               <TextareaField name="assessment" label="Assessment" rows={4} value={assessment} onChange={(e) => setAssessment(e.target.value)} />
               <TextareaField name="plan" label="Plan" rows={4} value={plan} onChange={(e) => setPlan(e.target.value)} />
             </div>
-            <Button className="mt-4" onClick={() => round.mutate()} disabled={!assessment.trim() || !plan.trim() || round.isPending}>Save round</Button>
+            <Button className="mt-4" onClick={() => round.mutate()} disabled={!assessment.trim() || !plan.trim() || round.isPending || !canRound || !chartOpen}>Save round</Button>
           </Card>
           <Card className="p-6">
             <h3 className="font-bold">Round history</h3>

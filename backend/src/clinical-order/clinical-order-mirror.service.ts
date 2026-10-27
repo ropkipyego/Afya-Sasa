@@ -6,6 +6,11 @@ import type { RequestContext } from '../common/request-context';
 import { LabRequest } from '../laboratory/laboratory.entities';
 import { RadiologyRequest } from '../radiology/radiology.entities';
 import { InventoryItem } from '../inventory/inventory.entities';
+import {
+  canActorPrescribeRestrictedItem,
+  evaluateFormularyStatus,
+  type FormularyPolicyMetadata,
+} from '../inventory/formulary-status';
 import { ClinicalOrder } from './clinical-order.entities';
 import { lineValidationError } from './prescription-quantity';
 
@@ -156,6 +161,7 @@ export class ClinicalOrderMirrorService {
       admissionId?: string | null
       priority?: string
       clientRequestId?: string
+      formularyPolicies?: Record<string, FormularyPolicyMetadata>
       lines: Array<{
         medication: string
         dose?: string
@@ -166,6 +172,9 @@ export class ClinicalOrderMirrorService {
         itemId?: string
         quantity: number
         instructions?: string
+        strength?: string
+        dosageForm?: string
+        unit?: string
       }>
     },
     request: RequestContext,
@@ -182,14 +191,48 @@ export class ClinicalOrderMirrorService {
         'Every prescription line must be linked to an exact pharmacy catalogue product. Free-text names cannot be dispensed.',
       );
     }
-    const catalogue = await this.inventoryItems.find({
-      where: { id: In(itemIds), category: 'pharmaceutical', active: true },
-    });
-    const known = new Set(catalogue.map((item) => item.id));
+    let catalogue: InventoryItem[] = [];
+    if (typeof (this.inventoryItems as { createQueryBuilder?: unknown }).createQueryBuilder === 'function') {
+      catalogue = await this.inventoryItems
+        .createQueryBuilder('item')
+        .addSelect('item.strength')
+        .addSelect('item.dosageForm')
+        .where('item.id IN (:...itemIds)', { itemIds })
+        .getMany();
+    } else {
+      catalogue = await this.inventoryItems.find({
+        where: { id: In(itemIds) },
+      });
+    }
+    const catalogById = new Map(catalogue.map((item) => [item.id, item]));
     for (const id of itemIds) {
-      if (!known.has(id)) {
+      const found = catalogById.get(id);
+      if (!found) {
         throw new BadRequestException(
-          'A prescription line uses a catalogue product that is missing or inactive. Choose an approved pharmacy product.',
+          'A prescription line uses a catalogue product that is missing or inactive. Select an active hospital formulary medicine.',
+        );
+      }
+      if (found.active === false) {
+        throw new BadRequestException(
+          `A prescription line uses a catalogue product that is missing or inactive (${found.name || id} is inactive in the hospital formulary).`,
+        );
+      }
+      if (found.category && found.category !== 'pharmaceutical') {
+        throw new BadRequestException(
+          `${found.name || id} is a ${found.category.replace(/_/g, ' ')} supply item, not a pharmaceutical hospital formulary medicine.`,
+        );
+      }
+      const policy =
+        input.formularyPolicies?.[found.sku ?? id] ??
+        (found as unknown as { formularyPolicy?: FormularyPolicyMetadata }).formularyPolicy ??
+        null;
+      const evaluated = evaluateFormularyStatus(
+        { category: found.category ?? 'pharmaceutical', active: true },
+        policy,
+      );
+      if (!canActorPrescribeRestrictedItem(evaluated, request.user?.roles, request.user?.permissions)) {
+        throw new BadRequestException(
+          `${found.name || id} is restricted under hospital formulary policy (${evaluated.restrictionNote || 'authorised prescriber role required'}).`,
         );
       }
     }
@@ -229,6 +272,12 @@ export class ClinicalOrderMirrorService {
         kind: 'prescription',
         prescriptionGroupId: headerId,
         lineCount: input.lines.length,
+        medicationSummary: input.lines
+          .map((line) => {
+            const cat = catalogById.get(line.itemId?.trim() ?? '');
+            return `${line.medication?.trim() || cat?.name || 'Medication'} (${line.dose ?? ''}, qty ${line.quantity})`;
+          })
+          .join(' · '),
         clientRequestId: clientRequestId || null,
       },
       ...(clientRequestId && (await this.hasClientRequestColumn())
@@ -251,6 +300,18 @@ export class ClinicalOrderMirrorService {
     const lines = [];
     for (const [index, line] of input.lines.entries()) {
       const id = randomUUID();
+      const catalogItem = catalogById.get(line.itemId?.trim() ?? '');
+      const policy =
+        (catalogItem && input.formularyPolicies?.[catalogItem.sku ?? catalogItem.id]) ??
+        (catalogItem as unknown as { formularyPolicy?: FormularyPolicyMetadata } | undefined)?.formularyPolicy ??
+        null;
+      const formularyEval = evaluateFormularyStatus(
+        {
+          category: catalogItem?.category ?? 'pharmaceutical',
+          active: catalogItem?.active !== false,
+        },
+        policy,
+      );
       lines.push(
         await this.orders.save(
           this.orders.create({
@@ -272,16 +333,25 @@ export class ClinicalOrderMirrorService {
               parentOrderId: headerId,
               prescriptionGroupId: headerId,
               lineNo: index + 1,
-              medication: line.medication,
+              medication: line.medication?.trim() || catalogItem?.name || 'Medication',
+              sku: catalogItem?.sku ?? null,
+              strength: line.strength?.trim() || catalogItem?.strength || null,
+              dosageForm: line.dosageForm?.trim() || catalogItem?.dosageForm || catalogItem?.unit || null,
+              unit: line.unit?.trim() || catalogItem?.unit || null,
               dose: line.dose ?? null,
               route: line.route ?? null,
               frequency: line.frequency ?? null,
               duration: line.duration ?? null,
               unitsPerAdmin: line.unitsPerAdmin ?? null,
-              itemId: line.itemId ?? null,
+              itemId: catalogItem?.id ?? line.itemId ?? null,
+              formularyStatus: formularyEval.formularyStatus,
+              prescribingStatus: formularyEval.prescribingStatus,
+              regulatoryStatus: formularyEval.regulatoryStatus,
+              ppbRegistrationNo: formularyEval.ppbRegistrationNo,
               quantity: line.quantity,
               quantityPrescribed: line.quantity,
               quantityDispensed: 0,
+              dispensedQuantity: 0,
               instructions: line.instructions ?? null,
             },
             createdBy: request.user?.sub ?? null,
@@ -293,10 +363,67 @@ export class ClinicalOrderMirrorService {
     return { header, lines };
   }
 
-  listOrders(filters: {
+  async cancelPharmacyPrescription(orderOrGroupId: string, reason: string | undefined, request: RequestContext) {
+    const trimmed = orderOrGroupId.trim();
+    if (!trimmed) throw new BadRequestException('Prescription identifier is required.');
+    const target = await this.orders.findOne({
+      where: { id: trimmed, orderType: 'pharmacy' },
+      relations: { patient: true },
+    });
+    if (!target) {
+      throw new BadRequestException('Prescription order was not found.');
+    }
+    const groupId = String(target.metadata?.prescriptionGroupId ?? target.metadata?.parentOrderId ?? target.id);
+    const allInPatient = await this.orders.find({
+      where: { orderType: 'pharmacy', patient: { id: target.patient.id } },
+    });
+    const affected =
+      target.metadata?.kind === 'prescription'
+        ? allInPatient.filter(
+            (row) =>
+              row.id === groupId ||
+              row.metadata?.prescriptionGroupId === groupId ||
+              row.metadata?.parentOrderId === groupId,
+          )
+        : [target];
+
+    for (const row of affected) {
+      const disp = Number(row.metadata?.quantityDispensed ?? row.metadata?.dispensedQuantity ?? 0);
+      if (row.status === 'dispensed' || row.status === 'partially_dispensed' || disp > 0) {
+        throw new BadRequestException(
+          `Order ${row.orderNo} has already been dispensed (${disp} issued) and cannot be erased or cancelled.`,
+        );
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    for (const row of affected) {
+      row.status = 'cancelled';
+      row.completedAt = new Date();
+      row.updatedBy = request.user?.sub ?? null;
+      row.metadata = {
+        ...(row.metadata ?? {}),
+        cancelledAt: nowIso,
+        cancelledBy: request.user?.sub ?? null,
+        cancelReason: reason?.trim() || 'Cancelled by prescriber',
+      };
+      await this.orders.save(row);
+    }
+
+    return {
+      cancelled: affected.length,
+      groupId,
+      orderIds: affected.map((row) => row.id),
+      reason: reason?.trim() || 'Cancelled by prescriber',
+    };
+  }
+
+  async listOrders(filters: {
     sourceModule?: string
     status?: string
     patientId?: string
+    encounterId?: string
+    admissionId?: string
     limit?: number
     offset?: number
   } = {}) {
@@ -304,13 +431,32 @@ export class ClinicalOrderMirrorService {
     if (filters.sourceModule) where.sourceModule = filters.sourceModule;
     if (filters.status) where.status = filters.status;
     if (filters.patientId) where.patient = { id: filters.patientId };
-    return this.orders.find({
+    if (filters.encounterId) where.encounter = { id: filters.encounterId };
+    if (filters.admissionId) where.admission = { id: filters.admissionId };
+    const rows = await this.orders.find({
       where,
-      relations: { patient: true, encounter: true, admission: { ward: true, bed: true } },
+      relations: {
+        patient: true,
+        encounter: true,
+        admission: { ward: true, bed: true },
+        orderedBy: true,
+      },
       order: { orderedAt: 'DESC' },
       take: filters.limit ?? 100,
       skip: filters.offset ?? 0,
     });
+    return rows.map((row) => ({
+      ...row,
+      orderedBy: row.orderedBy
+        ? {
+            id: row.orderedBy.id,
+            firstName: row.orderedBy.firstName,
+            lastName: row.orderedBy.lastName,
+            employeeNo: row.orderedBy.employeeNo,
+            specialisation: row.orderedBy.specialisation,
+          }
+        : null,
+    }));
   }
 
   listByModule(sourceModule: string, status?: string, limit = 50, offset = 0) {

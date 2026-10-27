@@ -70,6 +70,39 @@ describe('laboratory blood bank', () => {
     ).rejects.toThrow(/already in that status/);
   });
 
+  it('blocks request issue when physical units exist but none are reserved', async () => {
+    const service = Object.create(BloodBankService.prototype) as BloodBankService;
+    Object.assign(service, {
+      unitsTableReadyCache: true,
+      requests: {
+        manager: {
+          transaction: async (fn: (manager: { getRepository: () => unknown }) => Promise<unknown>) =>
+            fn({
+              getRepository: () => ({
+                findOne: async () => ({
+                  id: 'bb-1',
+                  status: 'crossmatched',
+                  units: '1',
+                  groupingResult: 'O+',
+                  crossmatchResult: 'compatible',
+                }),
+                save: jest.fn(async (row: unknown) => row),
+                find: jest.fn().mockResolvedValue([]),
+                count: jest.fn().mockResolvedValue(2),
+              }),
+            }),
+        },
+      },
+    });
+    await expect(
+      service.updateStatus(
+        'bb-1',
+        { status: 'issued' },
+        { user: { sub: 'lab-1', permissions: ['lab_results:verify'] } } as never,
+      ),
+    ).rejects.toThrow(/Reserve at least one screened unit/);
+  });
+
   it('rejects an unknown blood product', async () => {
     const service = Object.create(BloodBankService.prototype) as BloodBankService;
     Object.assign(service, {

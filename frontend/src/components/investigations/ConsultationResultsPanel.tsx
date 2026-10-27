@@ -12,7 +12,7 @@ type LabRequestRow = {
   status: string
   priority?: string
   createdAt?: string
-  encounter?: { id: string } | null
+  encounter?: { id: string; encounterNo?: string | null } | null
   items?: Array<{
     test?: { name: string } | null
     panel?: { name: string } | null
@@ -45,7 +45,7 @@ type LabInboxItem = {
     orderableTest?: { name: string } | null
     request?: {
       requestNo?: string
-      encounter?: { id: string } | null
+      encounter?: { id: string; encounterNo?: string | null } | null
     }
   }
 }
@@ -283,7 +283,9 @@ export function ConsultationResultsPanel({
                 <ResultCard
                   key={item.id}
                   title={investigationLabel(item.requestItem)}
-                  subtitle={item.requestItem?.request?.requestNo}
+                  subtitle={[item.requestItem?.request?.requestNo, item.requestItem?.request?.encounter?.encounterNo]
+                    .filter(Boolean)
+                    .join(' · ')}
                   value={[item.value, item.unit].filter(Boolean).join(' ')}
                   range={item.referenceRange}
                   flag={item.flag}
@@ -313,7 +315,9 @@ export function ConsultationResultsPanel({
                 <ResultCard
                   key={item.id}
                   title={investigationLabel(item.requestItem)}
-                  subtitle={item.requestItem?.request?.requestNo}
+                  subtitle={[item.requestItem?.request?.requestNo, item.requestItem?.request?.encounter?.encounterNo]
+                    .filter(Boolean)
+                    .join(' · ')}
                   value={[item.value, item.unit].filter(Boolean).join(' ')}
                   range={item.referenceRange}
                   flag={item.flag}

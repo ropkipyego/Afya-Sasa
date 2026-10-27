@@ -170,9 +170,12 @@ export function IpdAdmissionAccount({
       ) : null}
 
       {data.policy.blockDischargeOnBalance && data.totals.outstanding > 0 ? (
-        <Alert tone="warning">Hospital policy currently flags an outstanding balance before discharge. Clinical discharge is still allowed unless you change that policy.</Alert>
+        <Alert tone="warning">
+          Hospital policy blocks discharge until outstanding {formatKes(data.totals.outstanding)} is collected or waived.
+          Use cashier or an authorised waiver. The server will refuse discharge while this balance remains.
+        </Alert>
       ) : data.totals.outstanding > 0 ? (
-        <Alert tone="info">Outstanding {formatKes(data.totals.outstanding)} is visible to cashier. It does not block clinical discharge.</Alert>
+        <Alert tone="info">Outstanding {formatKes(data.totals.outstanding)} is visible to cashier. It does not block clinical discharge unless that hospital policy is turned on.</Alert>
       ) : null}
 
       {canProcess && !compact ? (

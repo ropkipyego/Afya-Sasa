@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Card, PageHeader } from '../ui'
 import { apiRequest, formatApiError } from '../../lib/api'
 import { useAuthStore } from '../../lib/auth-store'
+import { dispatchHospitalNavigate } from '../../lib/navigate'
 
 type CatalogueItem = {
   id: string
@@ -101,7 +102,7 @@ export function ReportsCatalogue({
                   onOpenOperations?.()
                   return
                 }
-                window.dispatchEvent(new CustomEvent('afyasasa:navigate', { detail: row.screen }))
+                dispatchHospitalNavigate(row.screen)
               }}
             >
               Open {row.screen}

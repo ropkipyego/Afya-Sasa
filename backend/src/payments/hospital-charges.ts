@@ -170,6 +170,14 @@ export const DEFAULT_HOSPITAL_CHARGE_POLICY: HospitalChargePolicy = {
   blockDischargeOnBalance: false,
 };
 
+/** Clinical discharge is blocked only when the hospital has turned the policy on. */
+export function dischargeBlockedByOutstanding(
+  policy: Pick<HospitalChargePolicy, 'blockDischargeOnBalance'>,
+  outstanding: number,
+): boolean {
+  return policy.blockDischargeOnBalance === true && Number(outstanding) > 0;
+}
+
 export const DEFAULT_ACCOMMODATION_ITEMS: HospitalChargeItem[] = [
   {
     code: 'ACC-GENERAL',

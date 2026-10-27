@@ -161,3 +161,24 @@ describe('preview and persisted flag mapping stay consistent', () => {
     expect(mapFlagToLegacyResultFlag(preview.flag)).toBe('normal');
   });
 });
+
+describe('clinician laboratory inbox', () => {
+  it('loads only rows with verified_at set', async () => {
+    const where = jest.fn().mockReturnThis();
+    const qb = {
+      innerJoinAndSelect: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where,
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    const lab = Object.create(LaboratoryService.prototype) as LaboratoryService;
+    Object.assign(lab, {
+      results: { createQueryBuilder: jest.fn().mockReturnValue(qb) },
+    });
+    await lab.resultsInbox();
+    expect(where).toHaveBeenCalledWith('result.verified_at IS NOT NULL');
+  });
+});

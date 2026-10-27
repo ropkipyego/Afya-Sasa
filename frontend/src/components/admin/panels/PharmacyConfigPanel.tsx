@@ -12,6 +12,7 @@ import { InventoryPricesPanel } from '../../inventory/InventoryPricesPanel'
 import { StockTakeWorkspace } from '../../inventory/StockTakeWorkspace'
 import { StockControlPanel, StockReportsPanel, StockStoresPanel } from '../StockOversightPanels'
 import { DepartmentExportsPanel } from '../../reports/DepartmentExportsPanel'
+import { dispatchHospitalNavigate } from '../../../lib/navigate'
 
 type ConfigTab = 'catalogue' | 'stores' | 'stocktake' | 'batch' | 'rules' | 'reports'
 
@@ -31,6 +32,10 @@ type CatalogueItem = {
   trackBatch: boolean
   minLevel?: number | null
   maxLevel?: number | null
+  formularyStatusLabel?: string
+  prescribingStatusLabel?: string
+  regulatoryStatusLabel?: string
+  ppbRegistrationNo?: string | null
 }
 
 type ImportPreviewSummary = {
@@ -83,7 +88,7 @@ export function PharmacyConfigPanel() {
   const canExport = permissions.includes('pharmacy:read') || permissions.includes('reports:read')
 
   const openInventoryStore = () => {
-    window.dispatchEvent(new CustomEvent('afyasasa:navigate', { detail: 'Inventory & Store' }))
+    dispatchHospitalNavigate('Inventory & Store')
   }
 
   return (
@@ -453,7 +458,7 @@ function PharmacyCatalogueSection({ canManage }: { canManage: boolean }) {
         <Card className="p-6">
           <PageHeader
             title="Add Single Pharmaceutical Product"
-            description="Creates a record in demo.inventory_items. Batch tracking is enforced for pharmaceuticals."
+            description="Creates a hospital formulary record in demo.inventory_items. Batch tracking is enforced for pharmaceuticals. Adding a product enables prescribing in AfyaSasa; it does not record or imply PPB registration."
           />
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <Field name="sku" label="SKU / Code" value={sku} onChange={(e) => setSku(e.target.value)} />
@@ -493,8 +498,8 @@ function PharmacyCatalogueSection({ canManage }: { canManage: boolean }) {
 
       <Card className="p-6">
         <PageHeader
-          title="Medication & Inventory Catalogue"
-          description="Authoritative product master (demo.inventory_items). No duplicate medicine table."
+          title="Hospital Formulary & Inventory Catalogue"
+          description="Authoritative product master (demo.inventory_items). Hospital formulary and prescribing availability are separate from Pharmacy and Poisons Board (PPB) registration, which is shown only when verified evidence is recorded."
         />
         <input
           className="input mt-4 max-w-md"
@@ -521,7 +526,8 @@ function PharmacyCatalogueSection({ canManage }: { canManage: boolean }) {
                   <th className="pb-2 pr-3">Dosage Form</th>
                   <th className="pb-2 pr-3">Sell Price</th>
                   <th className="pb-2 pr-3">Reorder</th>
-                  <th className="pb-2">Status</th>
+                  <th className="pb-2 pr-3">Formulary / prescribing</th>
+                  <th className="pb-2">Enabled</th>
                 </tr>
               </thead>
               <tbody>
@@ -767,6 +773,18 @@ function CatalogueRow({
           }}
         />
       </td>
+      <td className="py-2 pr-3 text-xs text-slate-700">
+        <p>{item.formularyStatusLabel ?? (item.category === 'pharmaceutical' ? 'Hospital formulary' : 'Non-formulary supply item')}</p>
+        <p className="text-slate-500">
+          {item.prescribingStatusLabel ?? (item.active ? 'Available for prescribing' : 'Inactive in hospital formulary')}
+        </p>
+        <p className="text-slate-500">
+          {item.regulatoryStatusLabel ??
+            (item.ppbRegistrationNo
+              ? `PPB registration verified (${item.ppbRegistrationNo})`
+              : 'PPB regulatory registration not recorded')}
+        </p>
+      </td>
       <td className="py-2">
         {canManage ? (
           <Button
@@ -774,10 +792,10 @@ function CatalogueRow({
             variant="secondary"
             onClick={() => onSave({ active: !item.active })}
           >
-            {item.active ? 'Active' : 'Inactive'}
+            {item.active ? 'Enabled for prescribing' : 'Inactive in formulary'}
           </Button>
         ) : (
-          <span className="text-xs">{item.active ? 'Active' : 'Inactive'}</span>
+          <span className="text-xs">{item.active ? 'Enabled for prescribing' : 'Inactive in formulary'}</span>
         )}
       </td>
     </tr>
@@ -813,6 +831,14 @@ function PharmacyRulesSection({ canManage }: { canManage: boolean }) {
           <p className="mt-1 text-slate-600">
             Dispensing requires verified cashier payment or a documented credit approval by a different{' '}
             <code>payments:manage</code> user. Insurance and undocumented waivers fail closed.
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-4 text-sm">
+          <h4 className="font-semibold text-slate-900">Hospital Formulary vs PPB Registration</h4>
+          <p className="mt-1 text-slate-600">
+            Catalogue inclusion means the product is on the hospital formulary and, if active, available for
+            prescribing in AfyaSasa. It never implies Pharmacy and Poisons Board registration. PPB status is shown
+            only when a registration number is recorded and marked verified.
           </p>
         </div>
         <div className="rounded-xl border border-slate-200 p-4 text-sm">

@@ -29,8 +29,8 @@ export function MaternityDashboard() {
     { label: 'Caesarean today', value: metrics?.caesareanDeliveries ?? 0, icon: Baby },
     { label: 'High-risk mothers', value: metrics?.highRiskMothers ?? 0, icon: Stethoscope },
     { label: 'Postnatal mothers', value: metrics?.postnatalMothers ?? 0, icon: Users },
-    { label: 'Nursery babies', value: metrics?.nurseryBabies ?? 0, icon: Baby },
-    { label: 'NICU babies', value: metrics?.nicuBabies ?? 0, icon: Baby },
+    { label: 'Nursery unit board', value: metrics?.nurseryBabies ?? 0, icon: Baby },
+    { label: 'NICU unit board', value: metrics?.nicuBabies ?? 0, icon: Baby },
     { label: 'Expected deliveries', value: metrics?.expectedDeliveries ?? 0, icon: Heart },
   ]
 
@@ -38,7 +38,7 @@ export function MaternityDashboard() {
     <div className="space-y-6">
       <PageHeader
         title="Maternity dashboard"
-        description="Service-line overview — use tabs above for ANC, labour, nursery, and registry."
+        description="Service-line overview. Nursery and NICU counts are maternity unit-board occupancy, not a separate neonatal ICU programme."
       />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {metricCards.map((m) => (
@@ -51,8 +51,8 @@ export function MaternityDashboard() {
       </div>
       <Card className="p-6">
         <p className="text-sm text-slate-600">
-          Maternity wards (ANC, Labour, Postnatal, Nursery, NICU) are separate from general male/female/paediatric IPD.
-          Every newborn receives their own MRN via <strong>Deliveries → Register newborn patient</strong>.
+          Maternity ANC, labour, and delivery records are separate from general IPD. Postnatal / nursery / NICU
+          screens are unit boards. Every newborn receives their own MRN via <strong>Deliveries → Register newborn patient</strong>.
         </p>
       </Card>
     </div>

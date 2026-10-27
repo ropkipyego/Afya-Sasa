@@ -33,6 +33,43 @@ export type ObservationSource = {
   patientId: string;
 };
 
+export type MedicationRequestSource = {
+  id: string;
+  orderNo: string;
+  status: string;
+  priority?: string | null;
+  patientId: string;
+  encounterId?: string | null;
+  requesterId?: string | null;
+  authoredOn?: string | Date | null;
+  itemId?: string | null;
+  sku?: string | null;
+  medicationName: string;
+  dose?: string | null;
+  route?: string | null;
+  frequency?: string | null;
+  duration?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  instructions?: string | null;
+};
+
+export type MedicationDispenseSource = {
+  id: string;
+  orderId: string;
+  status: string;
+  patientId: string;
+  encounterId?: string | null;
+  performerId?: string | null;
+  whenHandedOver?: string | Date | null;
+  itemId?: string | null;
+  sku?: string | null;
+  medicationName: string;
+  quantityDispensed: number;
+  unit?: string | null;
+  batchNo?: string | null;
+};
+
 function fhirGender(gender: string) {
   if (gender === 'male' || gender === 'female' || gender === 'unknown') return gender;
   if (gender === 'intersex') return 'other';
@@ -134,6 +171,103 @@ export function mapObservation(source: ObservationSource) {
         ? { value: source.value, unit: source.unit ?? undefined }
         : undefined,
     valueString: typeof source.value === 'string' ? source.value : undefined,
+    _mappingGaps: gaps,
+  };
+}
+
+export function mapMedicationRequest(source: MedicationRequestSource) {
+  const gaps: string[] = [];
+  if (!source.patientId) gaps.push('MedicationRequest.subject');
+  if (!source.medicationName) gaps.push('MedicationRequest.medicationCodeableConcept');
+  if (!source.itemId) gaps.push('MedicationRequest.medicationCodeableConcept.coding');
+  if (!(Number(source.quantity) > 0)) gaps.push('MedicationRequest.dispenseRequest.quantity');
+
+  const statusMap: Record<string, string> = {
+    requested: 'active',
+    partially_dispensed: 'active',
+    dispensed: 'completed',
+    cancelled: 'cancelled',
+  };
+
+  return {
+    resourceType: 'MedicationRequest' as const,
+    id: source.id,
+    meta: { profile: [KENYA_CORE_PROFILES.MedicationRequest] },
+    identifier: [{ system: 'https://jalaram.local/clinical-order', value: source.orderNo }],
+    status: statusMap[source.status] ?? 'active',
+    intent: 'order' as const,
+    priority: (source.priority as 'routine' | 'urgent' | 'stat') ?? 'routine',
+    medicationCodeableConcept: {
+      text: source.medicationName,
+      coding: source.itemId
+        ? [
+            {
+              system: 'https://jalaram.local/catalogue-item',
+              code: source.sku || source.itemId,
+              display: source.medicationName,
+            },
+          ]
+        : [],
+    },
+    subject: { reference: `Patient/${source.patientId}` },
+    encounter: source.encounterId ? { reference: `Encounter/${source.encounterId}` } : undefined,
+    authoredOn: source.authoredOn ? new Date(source.authoredOn).toISOString() : undefined,
+    requester: source.requesterId ? { reference: `Practitioner/${source.requesterId}` } : undefined,
+    dosageInstruction: [
+      {
+        text: [source.dose, source.route, source.frequency, source.duration, source.instructions]
+          .filter(Boolean)
+          .join(' · '),
+        route: source.route ? { text: source.route } : undefined,
+      },
+    ],
+    dispenseRequest:
+      Number(source.quantity) > 0
+        ? {
+            quantity: {
+              value: Number(source.quantity),
+              unit: source.unit ?? 'unit',
+            },
+          }
+        : undefined,
+    _mappingGaps: gaps,
+  };
+}
+
+export function mapMedicationDispense(source: MedicationDispenseSource) {
+  const gaps: string[] = [];
+  if (!source.patientId) gaps.push('MedicationDispense.subject');
+  if (!source.medicationName) gaps.push('MedicationDispense.medicationCodeableConcept');
+  if (!(Number(source.quantityDispensed) > 0)) gaps.push('MedicationDispense.quantity');
+
+  return {
+    resourceType: 'MedicationDispense' as const,
+    id: source.id,
+    meta: { profile: [KENYA_CORE_PROFILES.MedicationDispense] },
+    status: source.status === 'dispensed' ? 'completed' : 'in-progress',
+    medicationCodeableConcept: {
+      text: source.medicationName,
+      coding: source.itemId
+        ? [
+            {
+              system: 'https://jalaram.local/catalogue-item',
+              code: source.sku || source.itemId,
+              display: source.medicationName,
+            },
+          ]
+        : [],
+    },
+    subject: { reference: `Patient/${source.patientId}` },
+    context: source.encounterId ? { reference: `Encounter/${source.encounterId}` } : undefined,
+    authorizingPrescription: [{ reference: `MedicationRequest/${source.orderId}` }],
+    quantity: {
+      value: Number(source.quantityDispensed),
+      unit: source.unit ?? 'unit',
+    },
+    whenHandedOver: source.whenHandedOver ? new Date(source.whenHandedOver).toISOString() : undefined,
+    performer: source.performerId
+      ? [{ actor: { reference: `Practitioner/${source.performerId}` } }]
+      : undefined,
     _mappingGaps: gaps,
   };
 }

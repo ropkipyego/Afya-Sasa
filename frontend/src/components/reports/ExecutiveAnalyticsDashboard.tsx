@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -16,6 +16,8 @@ import {
 import { Alert, Button, Card, PageHeader } from '../ui'
 import { apiRequest, formatApiError } from '../../lib/api'
 import { formatKes } from '../../lib/clinical-catalog'
+import { DIRECTOR_KPI_DESTINATIONS } from '../../lib/director-kpi-destinations'
+import { dispatchHospitalNavigate, readNavRange, writeNavRange } from '../../lib/navigate'
 
 type DailyPoint = { date: string; count: number }
 type Comparison = { current: number; previous: number; delta: number; percent: number | null }
@@ -261,7 +263,7 @@ function AttentionLink({
     <button
       type="button"
       className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left"
-      onClick={() => window.dispatchEvent(new CustomEvent('afyasasa:navigate', { detail: href }))}
+      onClick={() => dispatchHospitalNavigate(href)}
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
@@ -279,6 +281,7 @@ function KpiCard({
   comparison,
   suffix,
   unavailable,
+  href,
 }: {
   label: string
   value: number | string
@@ -286,9 +289,10 @@ function KpiCard({
   comparison?: Comparison | null
   suffix?: string
   unavailable?: boolean
+  href?: string
 }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-2">
         <Icon className="h-5 w-5 text-teal-700" />
         {!unavailable && comparison ? <DeltaBadge comparison={comparison} /> : null}
@@ -304,16 +308,33 @@ function KpiCard({
           </>
         )}
       </p>
-    </div>
+      {href ? <p className="mt-2 text-xs text-teal-700">Open {href}</p> : null}
+    </>
+  )
+  if (!href) {
+    return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">{body}</div>
+  }
+  return (
+    <button
+      type="button"
+      className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm"
+      onClick={() => dispatchHospitalNavigate(href)}
+    >
+      {body}
+    </button>
   )
 }
 
 export function ExecutiveAnalyticsDashboard() {
   const [presetId, setPresetId] = useState<string>('month')
-  const [from, setFrom] = useState(startOfUtcMonth())
-  const [to, setTo] = useState(todayIso())
+  const [from, setFrom] = useState(() => readNavRange()?.from ?? startOfUtcMonth())
+  const [to, setTo] = useState(() => readNavRange()?.to ?? todayIso())
   const [configOpen, setConfigOpen] = useState(false)
   const [config, setConfig] = useState<DashboardConfig>(loadConfig)
+
+  useEffect(() => {
+    writeNavRange({ from, to })
+  }, [from, to])
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['executive-analytics', from, to],
@@ -514,6 +535,7 @@ export function ExecutiveAnalyticsDashboard() {
                 value={data.summary.opdVisits}
                 icon={Users}
                 comparison={data.comparison.opdVisits}
+                href={DIRECTOR_KPI_DESTINATIONS.opdVisits}
               />
             ) : null}
             {config.showPatients ? (
@@ -523,11 +545,13 @@ export function ExecutiveAnalyticsDashboard() {
                   value={data.summary.newPatients}
                   icon={Users}
                   comparison={data.comparison.newPatients}
+                  href={DIRECTOR_KPI_DESTINATIONS.newPatients}
                 />
                 <KpiCard
                   label="Returning OPD patients"
                   value={data.summary.returningPatients ?? 0}
                   icon={Users}
+                  href={DIRECTOR_KPI_DESTINATIONS.returningPatients}
                 />
                 <KpiCard
                   label="Avg OPD wait (min)"
@@ -544,23 +568,27 @@ export function ExecutiveAnalyticsDashboard() {
                   value={data.summary.admissions}
                   icon={BedDouble}
                   comparison={data.comparison.admissions}
+                  href={DIRECTOR_KPI_DESTINATIONS.admissions}
                 />
                 <KpiCard
                   label="Discharges"
                   value={data.summary.discharges}
                   icon={BedDouble}
                   comparison={data.comparison.discharges}
+                  href={DIRECTOR_KPI_DESTINATIONS.discharges}
                 />
                 <KpiCard
                   label="Current inpatients"
                   value={data.summary.currentInpatients ?? 0}
                   icon={BedDouble}
+                  href={DIRECTOR_KPI_DESTINATIONS.currentInpatients}
                 />
                 <KpiCard
                   label="Bed occupancy"
                   value={data.summary.bedOccupancyPercent ?? 0}
                   suffix="%"
                   icon={BedDouble}
+                  href={DIRECTOR_KPI_DESTINATIONS.bedOccupancy}
                   unavailable={
                     data.summary.bedOccupancyPercent == null || data.summary.totalBeds === 0
                   }
@@ -574,6 +602,7 @@ export function ExecutiveAnalyticsDashboard() {
                   value={data.summary.labRequests}
                   icon={FlaskConical}
                   comparison={data.comparison.labRequests}
+                  href={DIRECTOR_KPI_DESTINATIONS.labRequests}
                 />
                 <KpiCard
                   label="Lab TAT (hours)"
@@ -589,6 +618,7 @@ export function ExecutiveAnalyticsDashboard() {
                 value={data.summary.radiologyRequests}
                 icon={ScanLine}
                 comparison={data.comparison.radiologyRequests}
+                href={DIRECTOR_KPI_DESTINATIONS.radiologyRequests}
               />
             ) : null}
             {config.showEmergency ? (
@@ -597,10 +627,16 @@ export function ExecutiveAnalyticsDashboard() {
                 value={data.summary.emergencyCases}
                 icon={Activity}
                 comparison={data.comparison.emergencyCases}
+                href={DIRECTOR_KPI_DESTINATIONS.emergencyCases}
               />
             ) : null}
             <KpiCard label="Avg daily OPD" value={data.summary.avgDailyOpd} icon={Activity} />
-            <KpiCard label="Appointments" value={data.summary.appointments} icon={CalendarRange} />
+            <KpiCard
+              label="Appointments"
+              value={data.summary.appointments}
+              icon={CalendarRange}
+              href={DIRECTOR_KPI_DESTINATIONS.appointments}
+            />
           </div>
 
           <Card className="space-y-3 p-5">
@@ -619,22 +655,26 @@ export function ExecutiveAnalyticsDashboard() {
                   icon={Activity}
                   comparison={data.comparison.charges}
                   unavailable={data.chargesEnabled === false}
+                  href={DIRECTOR_KPI_DESTINATIONS.charges}
                 />
                 <KpiCard
                   label="Payments received"
                   value={formatKes(data.summary.collections ?? 0)}
                   icon={Activity}
                   comparison={data.comparison.collections}
+                  href={DIRECTOR_KPI_DESTINATIONS.collections}
                 />
                 <KpiCard
                   label="Refunds"
                   value={formatKes(data.summary.refunds ?? 0)}
                   icon={Activity}
+                  href={DIRECTOR_KPI_DESTINATIONS.refunds}
                 />
                 <KpiCard
                   label="Unmatched payments"
                   value={data.summary.unmatchedPayments ?? 0}
                   icon={Activity}
+                  href={DIRECTOR_KPI_DESTINATIONS.unmatchedPayments}
                 />
                 <KpiCard
                   label="Outstanding balances"
@@ -642,12 +682,14 @@ export function ExecutiveAnalyticsDashboard() {
                   icon={Activity}
                   comparison={data.comparison.outstanding}
                   unavailable={data.chargesEnabled === false}
+                  href={DIRECTOR_KPI_DESTINATIONS.outstanding}
                 />
                 <KpiCard
                   label="Accommodation charges"
                   value={formatKes(data.summary.accommodationCharges ?? 0)}
                   icon={BedDouble}
                   unavailable={data.chargesEnabled === false}
+                  href={DIRECTOR_KPI_DESTINATIONS.accommodationCharges}
                 />
               </div>
             )}
@@ -663,32 +705,32 @@ export function ExecutiveAnalyticsDashboard() {
                 <AttentionLink
                   label="Unassigned OPD encounters"
                   value={data.attention.unassignedOpd}
-                  href="Doctor Queue"
+                  href={DIRECTOR_KPI_DESTINATIONS.unassignedOpd}
                 />
                 <AttentionLink
                   label="Patients waiting for doctor"
                   value={data.attention.waitingForDoctor}
-                  href="Doctor Queue"
+                  href={DIRECTOR_KPI_DESTINATIONS.waitingForDoctor}
                 />
                 <AttentionLink
                   label="Pending lab verification"
                   value={data.attention.pendingLabVerification}
-                  href="Laboratory"
+                  href={DIRECTOR_KPI_DESTINATIONS.pendingLabVerification}
                 />
                 <AttentionLink
                   label="Pending radiology reports"
                   value={data.attention.pendingRadiologyReports}
-                  href="Radiology"
+                  href={DIRECTOR_KPI_DESTINATIONS.pendingRadiologyReports}
                 />
                 <AttentionLink
                   label="Pending discharge summaries"
                   value={data.attention.pendingDischarge}
-                  href="Inpatient (IPD)"
+                  href={DIRECTOR_KPI_DESTINATIONS.pendingDischarge}
                 />
                 <AttentionLink
                   label="Bed assignment conflicts"
                   value={data.attention.bedConflicts}
-                  href="Inpatient (IPD)"
+                  href={DIRECTOR_KPI_DESTINATIONS.bedConflicts}
                 />
                 <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -708,16 +750,11 @@ export function ExecutiveAnalyticsDashboard() {
                       : data.attention.failedIntegrations}
                   </p>
                 </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Expiry-risk batches (30d)
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">
-                    {data.summary.expiryRiskBatches == null
-                      ? 'Data unavailable'
-                      : data.summary.expiryRiskBatches}
-                  </p>
-                </div>
+                <AttentionLink
+                  label="Expiry-risk batches (30d)"
+                  value={data.summary.expiryRiskBatches ?? null}
+                  href={DIRECTOR_KPI_DESTINATIONS.expiryRiskBatches}
+                />
               </div>
             </Card>
           ) : null}

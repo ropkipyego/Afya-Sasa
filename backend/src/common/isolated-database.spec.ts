@@ -1,7 +1,11 @@
 import {
+  assertDisposableHmisSimRestoreUrl,
+  assertDisposableHmisSimUrl,
   assertDisposableInventoryTestUrl,
   assertDisposableLabTestUrl,
+  assertDisposableRestoreTargetName,
   assertIsolatedPostgresUrl,
+  dumpMentionsOperationalDatabase,
   isIsolatedPostgresUrl,
 } from './isolated-database';
 
@@ -50,5 +54,43 @@ describe('disposable laboratory test URL', () => {
     expect(() =>
       assertDisposableLabTestUrl('postgres://inventory_it:x@127.0.0.1:55434/inventory_it'),
     ).toThrow(/lab_it/);
+  });
+});
+
+describe('disposable HMIS simulation URLs', () => {
+  it('accepts only hmis_sim / hmis_sim_restore on loopback', () => {
+    expect(() =>
+      assertDisposableHmisSimUrl('postgres://hmis_sim:x@127.0.0.1:5433/hmis_sim'),
+    ).not.toThrow();
+    expect(() =>
+      assertDisposableHmisSimRestoreUrl('postgres://hmis_sim_restore:x@127.0.0.1:5433/hmis_sim_restore'),
+    ).not.toThrow();
+  });
+
+  it('refuses the operational hospital database', () => {
+    expect(() =>
+      assertDisposableHmisSimUrl('postgres://afyasasa:x@127.0.0.1:5433/afyasasa'),
+    ).toThrow(/hmis_sim/);
+    expect(() =>
+      assertDisposableHmisSimRestoreUrl('postgres://afyasasa:x@127.0.0.1:5433/afyasasa'),
+    ).toThrow(/hmis_sim_restore/);
+  });
+});
+
+describe('disposable restore target name', () => {
+  it('accepts only hmis_sim_restore', () => {
+    expect(assertDisposableRestoreTargetName('hmis_sim_restore')).toBe('hmis_sim_restore');
+  });
+
+  it('refuses the operational hospital database and other catalogs', () => {
+    expect(() => assertDisposableRestoreTargetName('afyasasa')).toThrow(/live or shared/);
+    expect(() => assertDisposableRestoreTargetName('inventory_it')).toThrow(/hmis_sim_restore/);
+    expect(() => assertDisposableRestoreTargetName('postgres')).toThrow(/live or shared/);
+  });
+
+  it('detects dumps that would reconnect to afyasasa', () => {
+    expect(dumpMentionsOperationalDatabase('\\connect afyasasa\n')).toBe(true);
+    expect(dumpMentionsOperationalDatabase('CREATE DATABASE afyasasa;')).toBe(true);
+    expect(dumpMentionsOperationalDatabase('COPY demo.patients FROM stdin;')).toBe(false);
   });
 });

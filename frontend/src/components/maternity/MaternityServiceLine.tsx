@@ -13,9 +13,9 @@ const screens = [
   { id: 'anc', label: 'ANC Clinic' },
   { id: 'labour', label: 'Labour Ward' },
   { id: 'deliveries', label: 'Deliveries' },
-  { id: 'postnatal', label: 'Postnatal Ward' },
-  { id: 'nursery', label: 'Nursery' },
-  { id: 'nicu', label: 'NICU' },
+  { id: 'postnatal', label: 'Postnatal unit board' },
+  { id: 'nursery', label: 'Nursery unit board' },
+  { id: 'nicu', label: 'NICU unit board' },
   { id: 'registry', label: 'Mother-Baby Registry' },
   { id: 'birth-register', label: 'Birth Register' },
 ] as const
@@ -29,7 +29,7 @@ export function MaternityServiceLine() {
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="Maternity Service Line"
-        description="ANC · labour · delivery · postnatal · nursery · NICU — separate from general IPD"
+        description="ANC, labour, and delivery records. Postnatal / nursery / NICU tabs are maternity unit boards (patient list + free-text admit), not a neonatal ICU programme."
       />
 
       <div className="flex flex-wrap gap-2 rounded-2xl border border-pink-200 bg-white p-2 shadow-sm">
@@ -51,9 +51,9 @@ export function MaternityServiceLine() {
       {screen === 'dashboard' ? <MaternityDashboard /> : null}
       {screen === 'anc' ? <AncClinicWorkspace /> : null}
       {screen === 'labour' || screen === 'deliveries' ? <LabourWardWorkspace mode={screen} /> : null}
-      {screen === 'postnatal' ? <MaternityUnitBoard unit="postnatal" title="Postnatal Ward" /> : null}
-      {screen === 'nursery' ? <MaternityUnitBoard unit="nursery" title="Nursery" /> : null}
-      {screen === 'nicu' ? <MaternityUnitBoard unit="nicu" title="NICU" /> : null}
+      {screen === 'postnatal' ? <MaternityUnitBoard unit="postnatal" title="Postnatal unit board" /> : null}
+      {screen === 'nursery' ? <MaternityUnitBoard unit="nursery" title="Nursery unit board" /> : null}
+      {screen === 'nicu' ? <MaternityUnitBoard unit="nicu" title="NICU unit board" /> : null}
       {screen === 'registry' ? <MotherBabyRegistry /> : null}
       {screen === 'birth-register' ? <BirthRegister /> : null}
     </div>

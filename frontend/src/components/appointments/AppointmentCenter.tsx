@@ -16,6 +16,7 @@ import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { doctorSelectOptionsForClinicId } from '../../lib/clinical-catalog'
+import { displayAppointmentReason, isWebsiteBooking } from '../../lib/website-booking'
 
 type AppointmentRow = {
   id: string
@@ -156,7 +157,7 @@ export function AppointmentCenter() {
       <PageHeader
         eyebrow="Front Office"
         title="Appointments"
-        description="Book, confirm, and track patient appointments."
+        description="Desk and website bookings share this list. Website requests stay scheduled until reception confirms."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -325,7 +326,12 @@ export function AppointmentCenter() {
                       <p className="text-xs text-slate-500">
                         {appt.appointmentDate} · {appt.appointmentTime} · {appt.type}
                       </p>
-                      <p className="mt-1 text-sm text-slate-600">{appt.reason}</p>
+                      <p className="mt-1 text-sm text-slate-600">{displayAppointmentReason(appt.reason)}</p>
+                      {isWebsiteBooking(appt.reason) ? (
+                        <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-teal-700">
+                          Website booking
+                        </p>
+                      ) : null}
                       {appt.doctor ? (
                         <p className="text-xs text-slate-500">
                           Dr. {appt.doctor.firstName} {appt.doctor.lastName}

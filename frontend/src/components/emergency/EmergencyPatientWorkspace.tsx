@@ -10,6 +10,8 @@ import { WorkspaceTabs } from '../ui/WorkspaceTabs'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { playNotificationSound } from '../../lib/notification-sound'
+import { useCan } from '../../lib/action-access'
+import { bedsForEmergencyOutcome, type DispositionBed } from '../../lib/emergency-disposition-beds'
 
 type Workspace = {
   id: string
@@ -83,10 +85,10 @@ function formatVitalsSummary(form: FormData) {
 const outcomes = [
   ['discharged_home', 'Discharge home'],
   ['admitted_ipd', 'Admit to ward (IPD)'],
-  ['transferred_icu', 'Transferred to ICU'],
-  ['transferred_hdu', 'Transferred to HDU'],
-  ['transferred_theatre', 'Transferred to theatre'],
-  ['transferred_maternity', 'Transferred to maternity'],
+  ['transferred_icu', 'Admit to ward and open ICU overlay'],
+  ['transferred_hdu', 'Admit to ward and open HDU overlay'],
+  ['transferred_theatre', 'Admit to ward for theatre (book on Theatre board)'],
+  ['transferred_maternity', 'Admit to ward for maternity (continue on Maternity board)'],
   ['external_referral', 'External referral'],
   ['deceased', 'Deceased'],
   ['left_without_being_seen', 'Left without being seen'],
@@ -114,6 +116,11 @@ export function EmergencyPatientWorkspace({
   const [vitalsDue, setVitalsDue] = useState(false)
   const [outcome, setOutcome] = useState('')
   const alertedDueRef = useRef(false)
+  const canWrite = useCan('emergency:create')
+  const canAssignBay = useCan('emergency_bays:manage')
+  const canReadBays = useCan('emergency_bays:read')
+  const canDispose = useCan('emergency:dispose')
+  const canCreateAlert = useCan('critical_alerts:create')
 
   const { data: workspace, isLoading } = useQuery({
     queryKey: ['emergency-workspace', emergencyId],
@@ -123,14 +130,13 @@ export function EmergencyPatientWorkspace({
   const { data: bays = [] } = useQuery({
     queryKey: ['emergency-bays-list'],
     queryFn: () => apiRequest<Bay[]>('/emergency/bays'),
+    enabled: canReadBays,
   })
 
   const { data: availableBeds = [] } = useQuery({
     queryKey: ['available-beds'],
     queryFn: () =>
-      apiRequest<{ id: string; bedNo: string; status?: string; ward: { name: string } }[]>(
-        '/inpatient/beds/available',
-      ),
+      apiRequest<DispositionBed[]>('/inpatient/beds/available'),
     enabled: CONTINUING_CARE.has(outcome as (typeof outcomes)[number][0]),
   })
 
@@ -226,7 +232,7 @@ export function EmergencyPatientWorkspace({
           doctorReview: doctorReview || undefined,
         }),
       })
-      if (vitalsAreCritical(form)) {
+      if (vitalsAreCritical(form) && canCreateAlert) {
         await apiRequest('/emergency/alerts', {
           method: 'POST',
           body: JSON.stringify({
@@ -388,7 +394,7 @@ export function EmergencyPatientWorkspace({
                 <option value="black">BLACK — Deceased</option>
               </SelectField>
               <TextareaField name="notes" label="Triage notes" />
-              <Button type="submit" loading={triage.isPending}>Save triage</Button>
+              <Button type="submit" loading={triage.isPending} disabled={!canWrite}>Save triage</Button>
             </form>
           </Card>
           <Card>
@@ -400,7 +406,7 @@ export function EmergencyPatientWorkspace({
                   <option key={bay.id} value={bay.id}>{bay.name}</option>
                 ))}
               </SelectField>
-              <Button type="submit" loading={assignBay.isPending}>Assign bay</Button>
+              <Button type="submit" loading={assignBay.isPending} disabled={!canAssignBay}>Assign bay</Button>
             </form>
           </Card>
         </div>
@@ -416,7 +422,7 @@ export function EmergencyPatientWorkspace({
               <option value="handover">Handover</option>
             </SelectField>
             <TextareaField name="body" label="Note" required />
-            <Button type="submit" loading={addNote.isPending}>Add note</Button>
+            <Button type="submit" loading={addNote.isPending} disabled={!canWrite}>Add note</Button>
           </form>
           <div className="mt-6 space-y-2">
             {workspace.notes.map((n) => (
@@ -458,7 +464,7 @@ export function EmergencyPatientWorkspace({
             <Field name="dose" label="Dose" required placeholder="e.g. 1g" />
             <Field name="route" label="Route" required placeholder="PO / IV / IM" />
             <TextareaField name="notes" label="Notes" />
-            <Button type="submit" loading={addMedication.isPending}>Record administration</Button>
+            <Button type="submit" loading={addMedication.isPending} disabled={!canWrite}>Record administration</Button>
           </form>
         </Card>
       ) : null}
@@ -483,7 +489,7 @@ export function EmergencyPatientWorkspace({
             </FormSection>
             <TextareaField name="nursingNotes" label="Nursing notes" />
             <TextareaField name="doctorReview" label="Doctor review" />
-            <Button type="submit" loading={addObservation.isPending}>Log vitals & observation</Button>
+            <Button type="submit" loading={addObservation.isPending} disabled={!canWrite}>Log vitals & observation</Button>
           </form>
           <div className="mt-6 space-y-2">
             {workspace.observationLogs.map((log) => (
@@ -502,7 +508,7 @@ export function EmergencyPatientWorkspace({
         <Card>
           <PageHeader
             title="Emergency outcome"
-            description="Closing outcomes complete the encounter. Ward, ICU, HDU, theatre, and maternity keep the clinical journey open."
+            description="Closing outcomes complete the encounter. Ward / ICU / HDU create continuing inpatient care. Theatre and maternity admit to a ward — book the case or maternity episode on those boards next."
           />
           {isClosed ? (
             <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-200">
@@ -527,9 +533,7 @@ export function EmergencyPatientWorkspace({
               <>
                 <SelectField name="bedId" label="Available inpatient bed" required>
                   <option value="">Select a bed</option>
-                  {availableBeds
-                    .filter((bed) => !bed.status || bed.status === 'available')
-                    .map((bed) => (
+                  {bedsForEmergencyOutcome(availableBeds, outcome).map((bed) => (
                       <option key={bed.id} value={bed.id}>
                         {bed.ward?.name} · {bed.bedNo}
                       </option>
@@ -545,19 +549,19 @@ export function EmergencyPatientWorkspace({
                         : outcome === 'transferred_hdu'
                           ? 'HDU transfer reason'
                           : outcome === 'transferred_theatre'
-                            ? 'Theatre transfer reason'
-                            : 'Maternity transfer reason'
+                            ? 'Ward admission reason (theatre booking is separate)'
+                            : 'Ward admission reason (maternity episode is separate)'
                   }
                   required
                 />
                 <Alert tone="info">
-                  This closes the emergency episode and creates (or continues) an IPD admission. The encounter stays open for inpatient care.
+                  This closes the emergency episode and creates (or continues) an IPD admission. ICU and HDU also open their overlays. Theatre and maternity stay on the ward until staff book them on those boards.
                 </Alert>
               </>
             ) : null}
             <Field name="transferFacility" label="Transfer facility (if applicable)" />
             <TextareaField name="notes" label="Disposition notes" />
-            <Button type="submit" loading={disposition.isPending}>
+            <Button type="submit" loading={disposition.isPending} disabled={!canDispose}>
               {CONTINUING_CARE.has(outcome as (typeof outcomes)[number][0])
                 ? 'Admit and continue care'
                 : 'Close emergency episode'}

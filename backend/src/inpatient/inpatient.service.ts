@@ -23,6 +23,7 @@ import {
   DischargeSummary,
   Ward,
 } from './inpatient.entities';
+import { assertActiveAdmission } from './admission-state';
 import { bedBlockedByActiveAdmission, bedClaimSucceeded } from './bed-occupancy';
 import {
   CreateAdmissionDto,
@@ -391,6 +392,7 @@ export class InpatientService {
 
   async transferBed(id: string, dto: TransferBedDto, request: RequestContext) {
     const admission = await this.getAdmission(id);
+    assertActiveAdmission(admission.status, 'transfer the patient');
     const toBed = await this.getBed(dto.toBedId);
     if (toBed.id === admission.bed.id) {
       throw new BadRequestException('Destination bed is the current bed');
@@ -467,6 +469,7 @@ export class InpatientService {
 
   async addProgressNote(id: string, dto: CreateProgressNoteDto, request: RequestContext) {
     const admission = await this.getAdmission(id);
+    assertActiveAdmission(admission.status, 'add a progress note');
     return this.notes.save(
       this.notes.create({
         admission,
@@ -479,9 +482,7 @@ export class InpatientService {
 
   async createDischargeSummary(id: string, dto: CreateDischargeSummaryDto, request: RequestContext) {
     const admission = await this.getAdmission(id);
-    if (admission.status === 'discharged') {
-      throw new BadRequestException('Cannot add a discharge summary to a discharged admission.');
-    }
+    assertActiveAdmission(admission.status, 'add a discharge summary');
     return this.summaries.save(
       this.summaries.create({
         admission,
@@ -500,9 +501,7 @@ export class InpatientService {
       relations: { admission: true },
     });
     if (!summary) throw new NotFoundException('Discharge summary not found');
-    if (summary.admission?.status === 'discharged') {
-      throw new BadRequestException('Cannot finalise a summary on a discharged admission.');
-    }
+    assertActiveAdmission(summary.admission?.status, 'finalise a discharge summary');
     if (summary.status === 'complete') {
       return summary;
     }
@@ -520,10 +519,12 @@ export class InpatientService {
     if (admission.status === 'discharged') {
       throw new BadRequestException('Admission is already discharged');
     }
+    assertActiveAdmission(admission.status, 'discharge the patient');
     const summary = await this.summaries.findOne({
       where: { admission: { id }, status: 'complete' },
     });
     if (!summary) throw new BadRequestException('Completed discharge summary is required');
+    await this.operationalCharges.assertDischargeBalanceAllowed(id);
     if (admission.encounter?.id) {
       const encounter = await this.encounters.findOne({ where: { id: admission.encounter.id } });
       if (encounter && !this.encounterWorkflow.canTransition(encounter.status, 'completed')) {
@@ -549,7 +550,7 @@ export class InpatientService {
         lengthOfStayDays,
         updatedBy: userId,
       });
-      await bedRepo.update(
+      const released = await bedRepo.update(
         { id: admission.bed.id, status: 'occupied' },
         {
           status: 'cleaning',
@@ -557,6 +558,11 @@ export class InpatientService {
           updatedBy: userId,
         },
       );
+      if (!bedClaimSucceeded(released.affected)) {
+        throw new BadRequestException(
+          'Cannot discharge: the bed is not occupied. Refresh occupancy and try again.',
+        );
+      }
       if (admission.encounter?.id) {
         const fresh = await encounterRepo.findOne({ where: { id: admission.encounter.id } });
         if (fresh && this.encounterWorkflow.canTransition(fresh.status, 'completed')) {

@@ -44,6 +44,10 @@ export function PharmacyUnifiedQueue({
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const canDispense = useAuthStore((s) => (s.user?.permissions ?? []).includes('pharmacy:dispense'))
+  const canCancelHold = useAuthStore((s) => {
+    const permissions = s.user?.permissions ?? []
+    return permissions.includes('pharmacy:dispense') || permissions.includes('payments:manage')
+  })
 
   const { data: dashboard, isLoading: otcLoading, error: otcError } = useQuery({
     queryKey: ['pharmacy-dashboard', 'otc-queue'],
@@ -206,7 +210,11 @@ export function PharmacyUnifiedQueue({
                   <Button
                     type="button"
                     variant="secondary"
-                    disabled={selectedClearance.reservedQuantity <= 0 || cancelOtc.isPending}
+                    disabled={
+                      !canCancelHold ||
+                      selectedClearance.reservedQuantity <= 0 ||
+                      cancelOtc.isPending
+                    }
                     loading={cancelOtc.isPending}
                     onClick={() => cancelOtc.mutate(selectedSaleId)}
                   >

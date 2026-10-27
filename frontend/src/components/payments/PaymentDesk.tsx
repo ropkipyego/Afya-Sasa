@@ -15,6 +15,7 @@ import { PaymentCheckoutPanel } from './PaymentCheckoutPanel'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { clinicConsultationFee, formatKes } from '../../lib/clinical-catalog'
 import {
+  fetchCashierSummary,
   listOutstandingPharmacy,
   listPatientCharges,
   listPatientPayments,
@@ -30,6 +31,7 @@ import { ShaEligibilityCard } from '../sha/ShaEligibilityCard'
 import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { printPaymentReceipt } from '../../lib/print-payment-receipt'
 import { apiRequest, formatApiError } from '../../lib/api'
+import { readNavRange } from '../../lib/navigate'
 
 export function PaymentDesk() {
   const { data: catalog } = useClinicalCatalog()
@@ -62,6 +64,14 @@ export function PaymentDesk() {
   const queryClient = useQueryClient()
   const canCloseCashier = useAuthStore((state) => (state.user?.permissions ?? []).includes('payments:manage'))
   const canRefund = canCloseCashier
+  const navRange = readNavRange()
+  const summaryFrom = navRange?.from ?? new Date().toISOString().slice(0, 10)
+  const summaryTo = navRange?.to ?? summaryFrom
+  const { data: periodSummary } = useQuery({
+    queryKey: ['cashier-summary', summaryFrom, summaryTo],
+    queryFn: () => fetchCashierSummary(summaryFrom, summaryTo),
+    refetchInterval: 30_000,
+  })
 
   const { data: stockItems = [] } = useQuery({
     queryKey: ['inventory-items', 'cashier'],
@@ -281,7 +291,7 @@ export function PaymentDesk() {
       <Card className="card-hover p-5 md:p-8">
         <PageHeader
           title="Cashier"
-          description="Collect payment against an existing charge or a confirmed service. A payment settles the account — it does not replace the charge."
+          description="Collect payment against an existing charge or a confirmed service. The live queue is not filtered by the director date range; period totals below use that range when present."
           actions={
             canCloseCashier ? (
               <Button type="button" variant="secondary" loading={closeCashier.isPending} onClick={() => closeCashier.mutate()}>
@@ -290,6 +300,18 @@ export function PaymentDesk() {
             ) : undefined
           }
         />
+
+        {periodSummary ? (
+          <p className="mt-4 text-sm text-slate-600">
+            Posted collections {periodSummary.from} to {periodSummary.to}:{' '}
+            <strong>{formatKes(periodSummary.collections)}</strong>
+            {periodSummary.refunds ? ` · refunds ${formatKes(periodSummary.refunds)}` : ''}
+            {periodSummary.unmatchedCount
+              ? ` · unmatched ${periodSummary.unmatchedCount}`
+              : ''}
+            . Patient search below is the live cash point.
+          </p>
+        ) : null}
 
         <div className="mt-8 space-y-6">
           <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4">

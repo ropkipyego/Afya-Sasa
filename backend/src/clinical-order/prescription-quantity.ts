@@ -32,6 +32,9 @@ const TIMES_PER_DAY: Record<string, number> = {
 export function administrationsPerDay(frequency: string): number | null {
   const key = frequency.trim().toLowerCase().replace(/\s+/g, ' ')
   if (!key) return null
+  if (/\b(prn|as\s+needed|when\s+required|sos|taper|tapering|stat|variable)\b/i.test(key)) {
+    return null
+  }
   if (TIMES_PER_DAY[key] != null) return TIMES_PER_DAY[key]
   const match = key.match(/^q\s*(\d+)\s*h(?:ours?)?$/)
   if (!match) return null
@@ -80,6 +83,13 @@ export function suggestDispenseQuantity(input: {
       reason: 'Enter units taken each time before a quantity can be suggested.',
     }
   }
+  if (/\b(prn|as\s+needed|when\s+required|sos|taper|tapering|stat|variable)\b/i.test(`${input.frequency} ${input.duration}`)) {
+    return {
+      calculable: false,
+      quantity: null,
+      reason: 'PRN, STAT, tapering, or variable-dose schedules require manual quantity entry.',
+    }
+  }
   const times = administrationsPerDay(input.frequency)
   const days = durationInDays(input.duration)
   if (times == null || days == null) {
@@ -111,7 +121,7 @@ export function lineValidationError(line: {
   frequency: string
   route?: string
 }): string | null {
-  if (!line.itemId) return 'Choose an approved catalogue product.'
+  if (!line.itemId) return 'Choose a hospital formulary catalogue product.'
   const qty = Number(line.quantity)
   if (!Number.isFinite(qty) || qty <= 0) return 'Enter a positive quantity.'
   if (qty > 5000) return 'Quantity is above the allowed bound.'

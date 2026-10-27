@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
@@ -34,6 +34,7 @@ import { MarketingModule } from './components/marketing/MarketingModule'
 import { OpdCheckInWorkspace, type CheckInPatient } from './components/opd/OpdCheckInWorkspace'
 import { TriageWorkspace } from './components/opd/TriageWorkspace'
 import { AppointmentCenter } from './components/appointments/AppointmentCenter'
+import { PublicAppointmentBooking } from './components/appointments/PublicAppointmentBooking'
 import { ReferralWorkspace } from './components/referrals/ReferralWorkspace'
 import { LabModule } from './components/investigations/LabModule'
 import { ImagingModule } from './components/investigations/ImagingModule'
@@ -41,6 +42,13 @@ import { OrdersHub } from './components/orders/OrdersHub'
 import { PharmacyModule, pharmacyScreenByNav } from './components/orders/PharmacyModule'
 import { ReportsHub } from './components/reports/ReportsHub'
 import { GlobalPatientSearch } from './components/layout/GlobalPatientSearch'
+import { notify } from './lib/notify'
+import {
+  canAccessScreen,
+  firstAccessibleScreen,
+  imagingInitialTab,
+  labInitialTab,
+} from './lib/screen-access'
 import { resolveScreen } from './lib/screen-aliases'
 import { InventoryModule } from './components/inventory/InventoryModule'
 import { MedicalDocumentsCenter } from './components/documents/MedicalDocumentsCenter'
@@ -138,9 +146,14 @@ function SessionLoadingScreen() {
 function App() {
   const { user, accessToken, tenant, setTenant, inactivityWarning } = useAuthStore()
   const { hydrated } = useAuthSession()
+  const { data: hospitalCatalog } = useClinicalCatalog()
   const [activeScreen, setActiveScreen] = useState(() => {
-    const saved = sessionStorage.getItem('afyasasa.activeScreen')?.trim()
-    return resolveScreen(saved || 'OPD Check-In')
+    const saved = resolveScreen(sessionStorage.getItem('afyasasa.activeScreen')?.trim() || 'OPD Check-In')
+    const currentUser = useAuthStore.getState().user
+    if (currentUser && !canAccessScreen(saved, currentUser.permissions ?? [])) {
+      return firstAccessibleScreen(currentUser.permissions ?? [])
+    }
+    return saved
   })
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
   const [activePatient, setActivePatient] = useState<{
@@ -166,17 +179,24 @@ function App() {
   })
   const greeting = `${greetingForNow()} ${user?.firstName ?? ''}`.trim()
 
-  const goToScreen = (screen: string) => {
-    const next = resolveScreen(screen?.trim())
-    if (!next) return
-    if (next !== activeScreen && !confirmLeaveIfDirty()) return
-    writeScrollPosition(activeScreen, window.scrollY)
-    setActiveScreen(next)
-    setNotificationOpen(false)
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: readScrollPosition(next), behavior: 'auto' })
-    })
-  }
+  const goToScreen = useCallback(
+    (screen: string) => {
+      const next = resolveScreen(screen?.trim())
+      if (!next) return
+      if (user && !canAccessScreen(next, user.permissions ?? [], hospitalCatalog)) {
+        notify('You cannot open that workspace', 'Your role does not include this screen.', 'warning')
+        return
+      }
+      if (next !== activeScreen && !confirmLeaveIfDirty()) return
+      writeScrollPosition(activeScreen, window.scrollY)
+      setActiveScreen(next)
+      setNotificationOpen(false)
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: readScrollPosition(next), behavior: 'auto' })
+      })
+    },
+    [activeScreen, user?.permissions, hospitalCatalog],
+  )
 
   useEffect(() => {
     if (activeScreen.trim()) {
@@ -185,13 +205,19 @@ function App() {
   }, [activeScreen])
 
   useEffect(() => {
+    if (!user) return
+    if (canAccessScreen(activeScreen, user.permissions, hospitalCatalog)) return
+    setActiveScreen(firstAccessibleScreen(user.permissions, hospitalCatalog))
+  }, [user, activeScreen, hospitalCatalog])
+
+  useEffect(() => {
     const onNavigate = (event: Event) => {
       const screen = (event as CustomEvent<string>).detail
       if (typeof screen === 'string') goToScreen(screen)
     }
     window.addEventListener('afyasasa:navigate', onNavigate)
     return () => window.removeEventListener('afyasasa:navigate', onNavigate)
-  }, [])
+  }, [goToScreen])
 
   useEffect(() => {
     localStorage.setItem('afyasasa.sidebarOpen', String(sidebarOpen))
@@ -218,7 +244,6 @@ function App() {
   })
 
   useHospitalSync()
-  const { data: hospitalCatalog } = useClinicalCatalog()
   const hospitalBrand = resolveHospitalBranding(hospitalCatalog)
 
   useEffect(() => {
@@ -251,6 +276,10 @@ function App() {
 
   if (scanCode) {
     return <PatientQrLanding code={decodeURIComponent(scanCode)} />
+  }
+
+  if (window.location.pathname === '/book' || window.location.pathname.startsWith('/book/')) {
+    return <PublicAppointmentBooking />
   }
 
   if (!accessToken || !user) {
@@ -533,15 +562,10 @@ function App() {
             />
           ) : null}
           {activeScreen === 'Laboratory' || activeScreen === 'Lab Queue' || activeScreen === 'Blood Bank' ? (
-            <LabModule
-              key={activeScreen}
-              initialTab={
-                activeScreen === 'Lab Queue' ? 'worklist' : activeScreen === 'Blood Bank' ? 'bloodbank' : 'overview'
-              }
-            />
+            <LabModule key={activeScreen} initialTab={labInitialTab(activeScreen)} />
           ) : null}
           {activeScreen === 'Radiology' || activeScreen === 'Imaging Queue' ? (
-            <ImagingModule key={activeScreen} initialTab="worklist" />
+            <ImagingModule key={activeScreen} initialTab={imagingInitialTab(activeScreen)} />
           ) : null}
           {activeScreen === 'Appointments' ? <AppointmentCenter /> : null}
           {activeScreen === 'Referrals' ? <ReferralWorkspace /> : null}

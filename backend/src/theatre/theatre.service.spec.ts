@@ -1,6 +1,28 @@
 import { TheatreService } from './theatre.service';
 
 describe('TheatreService.updateBookingStatus', () => {
+  it('blocks elective in-theatre without consent and checklist', async () => {
+    const service = Object.create(TheatreService.prototype) as TheatreService;
+    Object.assign(service, {
+      bookings: {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'bk-1',
+          priority: 'elective',
+          consentStatus: 'pending',
+          checklistStatus: 'pending',
+          theatre: { id: 'th-1' },
+        }),
+      },
+    });
+    await expect(
+      service.updateBookingStatus(
+        'bk-1',
+        { status: 'in_theatre' } as never,
+        { user: { sub: 'u1' } } as never,
+      ),
+    ).rejects.toThrow(/consent/);
+  });
+
   it('frees the theatre when the last active booking completes', async () => {
     const service = Object.create(TheatreService.prototype) as TheatreService;
     const theatresUpdate = jest.fn();

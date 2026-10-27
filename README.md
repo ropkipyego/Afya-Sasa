@@ -133,24 +133,13 @@ The seed migration includes:
 - ICU admissions, observations, ventilator records, fluid balance, rounds
 - HDU admissions, observations, and rounds
 
-## Architecture documents
+## Guides
 
-- **Core workflow map (audit):** `docs/core-workflow-map.md`
-- **Workflow gap matrix:** `docs/core-workflow-gap-matrix.md`
-- **Inventory architecture (target):** `docs/inventory-architecture.md`
-- **SHA/HIE integration architecture:** `docs/sha-integration-architecture.md`
-- **Core workflow test plan:** `docs/core-workflow-test-plan.md`
-- **Contabo VPS deployment:** `docs/contabo-deployment-guide.md`
-- Full system status and completion checklist: `docs/system-status-and-completion-checklist.md`
-- Future Theatre, Maternity, ICU, and HDU architecture: `docs/future-clinical-modules-architecture.md`
-- Production hardening notes: `docs/production-hardening-notes.md`
-- SMS and object storage integrations: `docs/integrations.md`
-- Local testing guide: `docs/local-testing-guide.md`
-- **Free test hosting guide:** `docs/free-test-hosting-guide.md`
-- Lab, hospital documents & catalog onboarding: `docs/lab-documents-progress-report.md`
-- **Enterprise backend refactor plan:** `docs/enterprise-backend-refactor-plan.md`
-- **Enterprise migration plan (architecture review + safe upgrade path):** `docs/enterprise-migration-plan.md`
-- Go-live checklist: `docs/go-live-checklist.md`
+- Local setup and tests: `docs/local-testing-guide.md`
+- Role manuals: `docs/user-manuals/`
+- SMS and object storage: `docs/integrations.md`
+- Email: `docs/email-configuration.md`
+- Contabo VPS: `docs/contabo-deployment-guide.md`
 
 ## Workflow tests
 
@@ -158,4 +147,3 @@ The seed migration includes:
 npm run test:workflows   # OPD, IPD, lab, radiology, inventory, pharmacy
 npm run smoke            # health + login
 ```
-- Role manuals: `docs/user-manuals/`

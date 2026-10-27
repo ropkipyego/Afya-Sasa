@@ -342,7 +342,10 @@ export function LoginScreen({ tenant, setTenant }: LoginScreenProps) {
           </p>
         ) : null}
         <p className="mt-6 text-center text-xs text-slate-400">
-          Authorised staff only.
+          Authorised staff only.{' '}
+          <a className="font-medium text-teal-700 hover:underline" href="/book">
+            Book a clinic appointment
+          </a>
         </p>
       </div>
     </div>

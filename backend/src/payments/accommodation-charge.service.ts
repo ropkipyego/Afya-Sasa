@@ -17,6 +17,7 @@ import {
   chargeSourceLabel,
   defaultHospitalChargeCatalogue,
   emptyJobStatus,
+  dischargeBlockedByOutstanding,
   paginateCatalogueItems,
   planAccommodationCharges,
   previewCatalogueRows,
@@ -312,6 +313,15 @@ export class AccommodationChargeService {
         .filter((item, index, list) => list.findIndex((row) => row.code === item.code) === index)
         .map((item) => ({ code: item.code, name: item.name })),
     };
+  }
+
+  async assertDischargeBalanceAllowed(admissionId: string) {
+    const account = await this.admissionAccount(admissionId);
+    if (dischargeBlockedByOutstanding(account.policy, account.totals.outstanding)) {
+      throw new BadRequestException(
+        `Outstanding balance of KES ${account.totals.outstanding.toFixed(2)} must be collected or waived before discharge.`,
+      );
+    }
   }
 
   async createManualCharge(

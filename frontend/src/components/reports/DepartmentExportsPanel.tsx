@@ -5,6 +5,7 @@ import { DEPARTMENT_EXPORTS, downloadDepartmentExport } from '../../lib/exports'
 import { useAuthStore } from '../../lib/auth-store'
 import { notify } from '../../lib/notify'
 import { formatApiError } from '../../lib/api'
+import { readNavRange } from '../../lib/navigate'
 import { PatientFieldExport } from '../patients/PatientFieldExport'
 
 export function DepartmentExportsPanel({ initialDataset }: { initialDataset?: string } = {}) {
@@ -17,8 +18,8 @@ export function DepartmentExportsPanel({ initialDataset }: { initialDataset?: st
     ? initialDataset
     : allowed[0]?.dataset ?? 'opd')
   const [format, setFormat] = useState<'csv' | 'xlsx'>('xlsx')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [from, setFrom] = useState(() => readNavRange()?.from ?? '')
+  const [to, setTo] = useState(() => readNavRange()?.to ?? '')
   const [busy, setBusy] = useState(false)
 
   const selected = allowed.find((row) => row.dataset === dataset)

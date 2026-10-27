@@ -14,6 +14,8 @@ import { notify } from '../../lib/notify'
 import { calcAge, formatPatientName } from '../../lib/patient-utils'
 import { useAuthStore } from '../../lib/auth-store'
 import { PatientBiometricPanel } from '../biometrics/PatientBiometricPanel'
+import { PrescriptionOrdersList, type PersistedPharmacyOrder } from '../orders/PrescriptionForm'
+import { formatApiError } from '../../lib/api'
 
 type PatientFile = {
   id: string
@@ -159,7 +161,6 @@ export function PatientFileModal({
   const chartSection =
     tab === 'diagnoses' ||
     tab === 'treatments' ||
-    tab === 'medications' ||
     tab === 'laboratory' ||
     tab === 'radiology' ||
     tab === 'admissions' ||
@@ -168,11 +169,24 @@ export function PatientFileModal({
     (tab === 'payments' && canSeePayments)
       ? tab
       : null
-  const { data: chart } = useQuery({
+  const { data: chart, error: chartError, isLoading: chartLoading } = useQuery({
     queryKey: ['patient-chart', patientId, chartSection],
     queryFn: () =>
       apiRequest<{ items: ChartItem[] }>(`/patients/${patientId}/chart?section=${chartSection}`),
     enabled: Boolean(chartSection),
+    retry: false,
+  })
+  const {
+    data: pharmacyOrders = [],
+    isLoading: pharmacyOrdersLoading,
+    error: pharmacyOrdersError,
+  } = useQuery({
+    queryKey: ['patient-file-pharmacy', patientId],
+    queryFn: () =>
+      apiRequest<PersistedPharmacyOrder[]>(
+        `/clinical-orders?module=pharmacy&patientId=${patientId}&limit=80`,
+      ),
+    enabled: tab === 'medications',
     retry: false,
   })
   const { data: documents = [], isError: documentsError } = useQuery({
@@ -523,13 +537,36 @@ export function PatientFileModal({
                 </Card>
               ) : null}
 
+              {tab === 'medications' ? (
+                <Card className="p-5">
+                  <PageHeader
+                    title="Prescriptions & Medication History"
+                    description="Grouped prescriptions showing medicine identity, dose, route, frequency, duration, and pharmacy dispensing progress."
+                  />
+                  <div className="mt-4">
+                    <PrescriptionOrdersList
+                      orders={pharmacyOrders}
+                      isLoading={pharmacyOrdersLoading}
+                      error={pharmacyOrdersError}
+                      emptyMessage="No prescriptions recorded on this patient file yet."
+                    />
+                  </div>
+                </Card>
+              ) : null}
+
               {chartSection ? (
                 <Card className="p-5">
                   <PageHeader
                     title={chartSection[0].toUpperCase() + chartSection.slice(1)}
                     description="Existing records only. Opening this tab does not create anything."
                   />
-                  {chart?.items?.length ? (
+                  {chartError ? (
+                    <Alert tone="error" className="mt-3">
+                      {formatApiError(chartError, `Could not load ${chartSection} records.`)}
+                    </Alert>
+                  ) : chartLoading ? (
+                    <div className="mt-3 h-28 animate-skeleton rounded-xl" />
+                  ) : chart?.items?.length ? (
                     <div className="mt-3 divide-y divide-slate-100">
                       {chart.items.map((row) => (
                         <div key={`${row.kind}-${row.id}`} className="py-3">

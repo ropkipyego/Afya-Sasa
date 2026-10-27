@@ -145,6 +145,14 @@ export class PaymentsService {
 
     const posted = await this.transactions.manager.transaction(async (manager) => {
       if (idempotencyKey) {
+        try {
+          await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+            'afyasasa.payments.idempotency',
+            idempotencyKey,
+          ]);
+        } catch {
+          // Non-Postgres or mock manager in unit tests
+        }
         const existing = await this.findByIdempotencyKey(idempotencyKey, manager);
         if (existing) return { replay: true as const, txn: existing, receiptNo: existing.externalReference };
       }
@@ -909,6 +917,16 @@ export class PaymentsService {
   private async nextHospitalReceiptNo(manager?: EntityManager) {
     const year = new Date().getFullYear();
     const prefix = `JH-RCP-${year}-`;
+    if (manager) {
+      try {
+        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+          'afyasasa.payments.receipt',
+          prefix,
+        ]);
+      } catch {
+        // Non-Postgres or mock manager in unit tests
+      }
+    }
     const latest = await this.paymentRepo(manager)
       .createQueryBuilder('txn')
       .where('txn.externalReference LIKE :prefix', { prefix: `${prefix}%` })

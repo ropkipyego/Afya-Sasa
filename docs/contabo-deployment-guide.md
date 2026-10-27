@@ -1,7 +1,5 @@
 # AfyaSasa — Contabo VPS Deployment Guide
 
-> **Detailed PDF (28 pages):** [`contabo-deployment-guide.pdf`](./contabo-deployment-guide.pdf) · Source: [`contabo-deployment-guide-detailed.md`](./contabo-deployment-guide-detailed.md)
-
 **Hospital:** Jalaram Hospital (single-tenant pilot)  
 **Stack:** Docker Compose — PostgreSQL, Redis, MinIO, NestJS, React, Nginx  
 **Audience:** IT admin deploying a supervised clinical pilot (not anonymous public SaaS)
@@ -375,7 +373,7 @@ Test from Admin → Notifications before bulk sends.
 - Use strong passwords for all staff accounts.
 - Enable **fail2ban** (installed above).
 - Restrict SSH to key-based auth; disable password login when stable.
-- Pilot only with **supervised** clinical use until UAT sign-off (`docs/go-live-checklist.md`).
+- Pilot only with **supervised** clinical use until UAT sign-off. See `docs/local-testing-guide.md`.
 - Do not put real patient data on the server until backups are verified.
 
 ---
@@ -395,10 +393,9 @@ Test from Admin → Notifications before bulk sends.
 
 ## 16. Related documents
 
-- Core workflow test plan: `docs/core-workflow-test-plan.md`
-- Go-live checklist: `docs/go-live-checklist.md`
-- Core workflow gaps: `docs/core-workflow-gap-matrix.md`
 - Local testing: `docs/local-testing-guide.md`
+- Integrations (SMS, object storage): `docs/integrations.md`
+- Email: `docs/email-configuration.md`
 
 ---
 

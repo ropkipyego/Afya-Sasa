@@ -33,6 +33,9 @@ type StockRow = {
   reserved: number
   available: number
   stockStatus: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'EXPIRED' | 'INACTIVE'
+  formularyStatusLabel?: string | null
+  prescribingStatusLabel?: string | null
+  regulatoryStatusLabel?: string | null
 }
 
 type StockTableResponse = {
@@ -106,10 +109,10 @@ export function PharmacyProductsStockPanel() {
   return (
     <Card className="p-6">
       <PageHeader
-        title="Products & Stock"
+        title="Hospital Formulary Products & Stock"
         description={`Store scope: ${
           data?.selectedLocation?.name ?? 'PHARMACY'
-        }. Each row represents a specific lot/batch at the selected store so batch expiry dates and held reservations are never merged across lots.`}
+        }. Each row is one lot at the selected store. Hospital formulary / prescribing status is separate from PPB registration, which is shown only when verified.`}
       />
 
       <div className="mt-4 grid gap-3 md:grid-cols-4">
@@ -208,8 +211,8 @@ export function PharmacyProductsStockPanel() {
                     Available
                   </th>
                   <th className="pb-2 pr-3 text-right">Reorder</th>
-                  <th className="pb-2 pr-3">Status</th>
-                  <th className="pb-2">Active</th>
+                  <th className="pb-2 pr-3">Stock</th>
+                  <th className="pb-2">Formulary / PPB</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,7 +254,15 @@ export function PharmacyProductsStockPanel() {
                     <td className="py-2.5 pr-3">
                       <StatusBadge status={row.stockStatus} />
                     </td>
-                    <td className="py-2.5 text-xs">{row.active ? 'Active' : 'Inactive'}</td>
+                    <td className="py-2.5 text-xs text-slate-700">
+                      <p>{row.formularyStatusLabel ?? (row.category === 'pharmaceutical' ? 'Hospital formulary' : 'Non-formulary')}</p>
+                      <p className="text-slate-500">
+                        {row.prescribingStatusLabel ?? (row.active ? 'Available for prescribing' : 'Inactive in formulary')}
+                      </p>
+                      <p className="text-slate-500">
+                        {row.regulatoryStatusLabel ?? 'PPB regulatory registration not recorded'}
+                      </p>
+                    </td>
                   </tr>
                 ))}
               </tbody>

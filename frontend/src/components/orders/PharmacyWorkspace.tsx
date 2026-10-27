@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Field, SelectField } from '../ui'
 import { apiRequest, formatApiError } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { useCan } from '../../lib/action-access'
 import { formatPatientNoShort } from '../../lib/patient-utils'
 import { openPatientFile } from '../../lib/patient-file'
 import {
@@ -22,17 +23,23 @@ type PharmacyOrder = {
   status: string
   priority: string
   orderedAt: string
+  orderedBy?: { id?: string; firstName: string; lastName: string } | null
   patient?: { id?: string; firstName: string; lastName: string; patientNo: string }
-  encounter?: { id?: string; type?: string | null } | null
-  admission?: { id?: string; ward?: { name?: string } | null; bed?: { bedNo?: string } | null } | null
+  encounter?: { id?: string; encounterNo?: string; type?: string | null } | null
+  admission?: { id?: string; admissionNo?: string; ward?: { name?: string } | null; bed?: { bedNo?: string } | null } | null
   metadata?: {
     kind?: string
     parentOrderId?: string
     prescriptionGroupId?: string
     medication?: string
+    sku?: string | null
+    strength?: string | null
+    dosageForm?: string | null
+    unit?: string | null
     dose?: string
     route?: string
     frequency?: string
+    duration?: string | null
     itemId?: string | null
     quantity?: number | string | null
     quantityPrescribed?: number | string | null
@@ -44,7 +51,14 @@ type PharmacyOrder = {
 
 type CatalogItem = { id: string; sku: string; name: string; unit: string; category: string; sell?: number }
 type Location = { id: string; code: string; locationType: string }
-type BalanceBatch = { qtyOnHand: string; expiryDate?: string | null; batchNo?: string; item: { id: string } }
+type BalanceBatch = {
+  qtyOnHand: string
+  availableQuantity?: number
+  reservedQuantity?: number
+  expiryDate?: string | null
+  batchNo?: string
+  item: { id: string }
+}
 
 type LineDraft = {
   clinicalOrderId: string
@@ -84,7 +98,17 @@ function matchCatalogItem(items: CatalogItem[], order: PharmacyOrder) {
 }
 
 function scriptLine(order: PharmacyOrder) {
-  return [order.metadata?.medication, order.metadata?.dose, order.metadata?.frequency].filter(Boolean).join(' · ')
+  return [
+    order.metadata?.medication,
+    order.metadata?.strength,
+    order.metadata?.dosageForm,
+    order.metadata?.dose,
+    order.metadata?.route,
+    order.metadata?.frequency,
+    order.metadata?.duration,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function isIpd(order: PharmacyOrder) {
@@ -96,6 +120,8 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<LineDraft[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const canDispense = useCan('pharmacy:dispense')
+  const canCancelHold = useCan('pharmacy:dispense', 'payments:manage')
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['clinical-orders', 'pharmacy'],
@@ -125,7 +151,7 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
     const map = new Map<string, { qty: number; batchNo?: string; expiry?: string | null }>()
     const today = new Date().toISOString().slice(0, 10)
     for (const batch of balances?.batches ?? []) {
-      const qty = Number(batch.qtyOnHand)
+      const qty = Number(batch.availableQuantity ?? batch.qtyOnHand)
       if (!Number.isFinite(qty) || qty <= 0) continue
       if (batch.expiryDate && batch.expiryDate < today) continue
       const current = map.get(batch.item.id)
@@ -385,7 +411,13 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
                         <p className="mt-1 text-sm text-slate-600">
                           Prescribed {prescribedQty(line) || '—'} · already issued {dispensedQty(line)} · remaining{' '}
                           {remaining ?? '—'}
+                          {line.orderedBy ? ` · Dr. ${line.orderedBy.firstName} ${line.orderedBy.lastName}` : ''}
                         </p>
+                        {line.metadata?.instructions ? (
+                          <p className="mt-1 text-xs italic text-teal-900">
+                            Instructions: {String(line.metadata.instructions)}
+                          </p>
+                        ) : null}
                       </div>
                       <label className="text-xs font-medium text-slate-600">
                         <input
@@ -551,7 +583,7 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
               <Button
                 type="button"
                 loading={prepare.isPending}
-                disabled={!selectedLines.length || prepare.isPending}
+                disabled={!selectedLines.length || prepare.isPending || !canDispense}
                 onClick={() => prepare.mutate()}
               >
                 Prepare / send to cashier
@@ -560,18 +592,18 @@ export function PharmacyWorkspace({ filter = 'pending' }: { filter?: DispenseFil
                 type="button"
                 variant="secondary"
                 loading={cancelSale.isPending}
-                disabled={cancelSale.isPending || !saleStatus?.reservedQuantity}
+                disabled={cancelSale.isPending || !saleStatus?.reservedQuantity || !canCancelHold}
                 onClick={() => cancelSale.mutate()}
               >
                 Cancel hold
               </Button>
-              <Button type="button" variant="secondary" onClick={() => setConfirmOpen(true)} disabled={!selectedLines.length}>
+              <Button type="button" variant="secondary" onClick={() => setConfirmOpen(true)} disabled={!selectedLines.length || !canDispense}>
                 Review issue
               </Button>
               <Button
                 type="button"
                 loading={dispense.isPending}
-                disabled={!confirmOpen || dispense.isPending}
+                disabled={!confirmOpen || dispense.isPending || !canDispense}
                 onClick={() => dispense.mutate()}
               >
                 Issue after clearance

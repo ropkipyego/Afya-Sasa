@@ -32,10 +32,11 @@ import { ClinicalInvestigationOrders } from '../investigations/ClinicalInvestiga
 import { calcLosDays } from './ipd-utils'
 import { apiRequest, formatApiError } from '../../lib/api'
 import { useAuthStore } from '../../lib/auth-store'
+import { useCan } from '../../lib/action-access'
 import { formDataFromElement, optionalNumber, submitClinicalForm } from '../../lib/form-utils'
 import { notify } from '../../lib/notify'
 import { viewClinicalFile } from '../../lib/clinical-upload'
-import { PrescriptionForm } from '../orders/PrescriptionForm'
+import { PrescriptionForm, PrescriptionOrdersList, type PersistedPharmacyOrder } from '../orders/PrescriptionForm'
 import { IpdAdmissionAccount } from './IpdAdmissionAccount'
 
 type WorkspaceTab =
@@ -97,6 +98,23 @@ export function PatientWorkspace({
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview')
   const [activeAction, setActiveAction] = useState<ActionKey>(null)
+  const canProgressNote = useCan('progress_notes:create')
+  const canNursingNote = useCan('nursing_observations:create')
+  const canVitals = useCan('vitals:create')
+  const canMar = useCan('mar:manage')
+  const canTransfer = useCan('admissions:transfer')
+  const canDischarge = useCan('admissions:discharge')
+  const canCreateSummary = useCan('discharge_summaries:create')
+  const canCompleteSummary = useCan('discharge_summaries:complete')
+  const allowedActions = actions.filter((action) => {
+    if (action.id === 'doctor-review') return canProgressNote
+    if (action.id === 'nursing-note') return canNursingNote
+    if (action.id === 'vitals') return canVitals
+    if (action.id === 'medication') return canMar
+    if (action.id === 'transfer') return canTransfer
+    if (action.id === 'discharge') return canDischarge || canCreateSummary || canCompleteSummary
+    return true
+  })
 
   const { data: workspace, isLoading } = useQuery({
     queryKey: ['ipd-workspace', admissionId],
@@ -203,11 +221,15 @@ export function PatientWorkspace({
       ),
   })
 
-  const { data: pharmacyOrders = [] } = useQuery({
+  const {
+    data: pharmacyOrders = [],
+    isLoading: pharmacyOrdersLoading,
+    error: pharmacyOrdersError,
+  } = useQuery({
     queryKey: ['ipd-pharmacy', patientId],
     queryFn: () =>
-      apiRequest<{ id: string; orderNo: string; status: string; orderedAt: string; metadata?: Record<string, unknown> }[]>(
-        `/clinical-orders?module=pharmacy&patientId=${patientId}&limit=50`,
+      apiRequest<PersistedPharmacyOrder[]>(
+        `/clinical-orders?module=pharmacy&patientId=${patientId}&limit=80`,
       ),
     enabled: Boolean(patientId),
   })
@@ -471,6 +493,8 @@ export function PatientWorkspace({
 
   const { admission, progressNotes, transfers, dischargeSummaries, lengthOfStayDays } = workspace
   const patient = admission.patient
+  const isActiveAdmission = admission.status === 'active'
+  const recordActions = isActiveAdmission ? allowedActions : []
   const hasCompleteSummary = dischargeSummaries.some((s) => s.status === 'complete')
   const pendingLabs = patientLabs.filter((l) => !['verified', 'cancelled'].includes(l.status))
   const pendingRadiology = patientRadiology.filter(
@@ -478,6 +502,7 @@ export function PatientWorkspace({
   )
 
   function handleAction(action: ActionKey) {
+    if (!isActiveAdmission) return
     setActiveAction(action)
     const match = actions.find((a) => a.id === action)
     if (match?.tab) setActiveTab(match.tab)
@@ -510,6 +535,7 @@ export function PatientWorkspace({
             <select
               className="input min-w-[11rem] py-2 text-sm"
               value={activeAction ?? ''}
+              disabled={!isActiveAdmission}
               onChange={(e) => {
                 const value = e.target.value as ActionKey | ''
                 if (!value) {
@@ -519,8 +545,8 @@ export function PatientWorkspace({
                 handleAction(value)
               }}
             >
-              <option value="">Choose action…</option>
-              {actions.map((action) => (
+              <option value="">{isActiveAdmission ? 'Choose action…' : `Admission ${admission.status}`}</option>
+              {recordActions.map((action) => (
                 <option key={action.id} value={action.id!}>
                   {action.label}
                 </option>
@@ -567,7 +593,7 @@ export function PatientWorkspace({
                     <TextareaField name="plan" label="Plan" required rows={3} />
                   </FormSection>
                   <FormActions>
-                    <Button type="submit" loading={addProgressNote.isPending}>Save review</Button>
+                    <Button type="submit" loading={addProgressNote.isPending} disabled={!canProgressNote}>Save review</Button>
                   </FormActions>
                 </ClinicalForm>
               )}
@@ -586,7 +612,7 @@ export function PatientWorkspace({
                     <Field name="unit" label="Unit (optional)" />
                   </FormSection>
                   <FormActions>
-                    <Button type="submit" loading={createObservation.isPending}>Save note</Button>
+                    <Button type="submit" loading={createObservation.isPending} disabled={!canNursingNote}>Save note</Button>
                   </FormActions>
                 </ClinicalForm>
               )}
@@ -594,7 +620,7 @@ export function PatientWorkspace({
                 <ClinicalForm onSubmit={(e) => submitClinicalForm(createVitals, e)}>
                   <VitalsForm />
                   <FormActions>
-                    <Button type="submit" loading={createVitals.isPending}>Record vitals</Button>
+                    <Button type="submit" loading={createVitals.isPending} disabled={!canVitals}>Record vitals</Button>
                   </FormActions>
                 </ClinicalForm>
               )}
@@ -616,7 +642,7 @@ export function PatientWorkspace({
                     <Field name="scheduledTime" label="Scheduled time" type="datetime-local" required />
                   </FormSection>
                   <FormActions>
-                    <Button type="submit" loading={createMar.isPending}>Add to MAR</Button>
+                    <Button type="submit" loading={createMar.isPending} disabled={!canMar || !isActiveAdmission}>Add to MAR</Button>
                   </FormActions>
                 </ClinicalForm>
               )}
@@ -634,7 +660,7 @@ export function PatientWorkspace({
                     <Field name="reason" label="Reason" required />
                   </FormSection>
                   <FormActions>
-                    <Button type="submit" loading={transferBed.isPending}>Transfer patient</Button>
+                    <Button type="submit" loading={transferBed.isPending} disabled={!canTransfer || !isActiveAdmission}>Transfer patient</Button>
                   </FormActions>
                 </ClinicalForm>
               )}
@@ -709,6 +735,9 @@ export function PatientWorkspace({
               }}
               dischargePending={dischargeAdmission.isPending}
               cancelPending={cancelAdmission.isPending}
+              canCreateSummary={canCreateSummary}
+              canCompleteSummary={canCompleteSummary}
+              canDischarge={canDischarge}
             />
             </div>
           )}
@@ -726,7 +755,11 @@ export function PatientWorkspace({
               <MarGrid
                 entries={mar}
                 updatingId={updateMarStatus.isPending ? updateMarStatus.variables?.id ?? null : null}
-                onUpdateStatus={(id, status) => updateMarStatus.mutate({ id, status })}
+                onUpdateStatus={
+                  isActiveAdmission && canMar
+                    ? (id, status) => updateMarStatus.mutate({ id, status })
+                    : undefined
+                }
               />
               {pharmacyOrders.length ? (
                 <DepartmentList
@@ -786,15 +819,21 @@ export function PatientWorkspace({
                   />
                 </div>
               </Card>
-              <DepartmentList
-                title="Pharmacy"
-                empty="No pharmacy orders on this admission yet."
-                items={pharmacyOrders.map((order) => ({
-                  id: order.id,
-                  title: String(order.metadata?.medication ?? order.orderNo),
-                  meta: `${order.status}${order.metadata?.quantity != null ? ` · qty ${String(order.metadata.quantity)}` : ''} · ${new Date(order.orderedAt).toLocaleString()}`,
-                }))}
-              />
+              <Card className="p-5">
+                <p className="text-sm font-semibold text-slate-900">Prescriptions & pharmacy progress</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Grouped by prescription order with prescribed dose, route, frequency, quantity, and dispensing progress.
+                </p>
+                <div className="mt-4">
+                  <PrescriptionOrdersList
+                    orders={pharmacyOrders}
+                    isLoading={pharmacyOrdersLoading}
+                    error={pharmacyOrdersError}
+                    emptyMessage="No pharmacy prescriptions on this admission yet."
+                    allowCancel
+                  />
+                </div>
+              </Card>
             </div>
           ) : null}
           {activeTab === 'theatre' && (
@@ -853,6 +892,9 @@ export function PatientWorkspace({
               }}
               dischargePending={dischargeAdmission.isPending}
               cancelPending={cancelAdmission.isPending}
+              canCreateSummary={canCreateSummary}
+              canCompleteSummary={canCompleteSummary}
+              canDischarge={canDischarge}
             />
           )}
         </Card>
@@ -1414,6 +1456,9 @@ function DischargeTab({
   onCancel,
   dischargePending,
   cancelPending,
+  canCreateSummary,
+  canCompleteSummary,
+  canDischarge,
 }: {
   admissionId: string
   admissionStatus: string
@@ -1425,12 +1470,30 @@ function DischargeTab({
   onCancel: () => void
   dischargePending: boolean
   cancelPending: boolean
+  canCreateSummary: boolean
+  canCompleteSummary: boolean
+  canDischarge: boolean
 }) {
+  const { data: account } = useQuery({
+    queryKey: ['ipd-account', admissionId],
+    queryFn: () =>
+      apiRequest<{
+        policy: { blockDischargeOnBalance: boolean }
+        totals: { outstanding: number }
+      }>(`/payments/admissions/${admissionId}/account`),
+  })
+  const balanceBlocked = Boolean(
+    account?.policy.blockDischargeOnBalance && (account.totals.outstanding ?? 0) > 0,
+  )
   const checklist = [
     { label: 'Discharge summary drafted', done: summaries.length > 0 },
     { label: 'Discharge summary finalised', done: hasCompleteSummary },
+    {
+      label: balanceBlocked ? 'Outstanding balance collected or waived' : 'Cashier notified of any outstanding',
+      done: !balanceBlocked,
+    },
   ]
-  const allDone = hasCompleteSummary
+  const allDone = hasCompleteSummary && !balanceBlocked
 
   return (
     <div className="space-y-6">
@@ -1465,13 +1528,13 @@ function DischargeTab({
             <Field name="diet" label="Diet" />
           </FormSection>
           <FormActions>
-            <Button type="submit">Save draft summary</Button>
+            <Button type="submit" disabled={!canCreateSummary}>Save draft summary</Button>
           </FormActions>
         </ClinicalForm>
       </CollapsibleSection>
 
       {summaries.filter((s) => s.status === 'draft').map((s) => (
-        <Button key={s.id} variant="secondary" onClick={() => onComplete(s.id)}>
+        <Button key={s.id} variant="secondary" onClick={() => onComplete(s.id)} disabled={!canCompleteSummary}>
           Finalise summary: {s.finalDiagnosis}
         </Button>
       ))}
@@ -1486,13 +1549,17 @@ function DischargeTab({
             <option value="absconded">Absconded</option>
           </SelectField>
         </FormSection>
-        {!allDone ? (
+        {!hasCompleteSummary ? (
           <Alert tone="warning">Finalise the discharge summary before discharging the patient. The bed will then go to cleaning.</Alert>
+        ) : balanceBlocked ? (
+          <Alert tone="warning">
+            Hospital policy blocks discharge while the admission account has an outstanding balance. Collect or waive it at cashier first.
+          </Alert>
         ) : (
           <Alert tone="info">Discharge will close this admission and mark the bed for housekeeping.</Alert>
         )}
         <FormActions>
-          <Button type="submit" loading={dischargePending} disabled={!allDone}>
+          <Button type="submit" loading={dischargePending} disabled={!allDone || !canDischarge}>
             Discharge patient
           </Button>
         </FormActions>
@@ -1505,7 +1572,7 @@ function DischargeTab({
             Cancel releases the bed and restores the encounter. Do not use this as a discharge.
           </p>
           <div className="mt-3">
-            <Button type="button" variant="secondary" loading={cancelPending} onClick={onCancel}>
+            <Button type="button" variant="secondary" loading={cancelPending} disabled={!canDischarge} onClick={onCancel}>
               Cancel admission
             </Button>
           </div>

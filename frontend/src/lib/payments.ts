@@ -92,6 +92,23 @@ export function listRecentPayments(limit = 200) {
   return apiRequest<PaymentTransactionRow[]>(`/payments/transactions?limit=${Math.min(limit, 200)}`)
 }
 
+export type CashierSummary = {
+  from: string
+  to: string
+  generatedAt: string
+  collections: number
+  refunds: number
+  unmatchedCount: number
+  unmatchedAmount: number
+  collectionsByMethod: Record<string, number>
+  note: string
+}
+
+export function fetchCashierSummary(from: string, to: string) {
+  const qs = new URLSearchParams({ from, to })
+  return apiRequest<CashierSummary>(`/payments/cashier/summary?${qs.toString()}`)
+}
+
 export type OutstandingPharmacyBill = {
   serviceLine: PaymentServiceLine
   serviceEntityId: string

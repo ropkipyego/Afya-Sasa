@@ -9,12 +9,16 @@ import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { useClinicalCatalog } from '../../hooks/useClinicalCatalog'
 import { doctorSelectOptions } from '../../lib/clinical-catalog'
+import { useCan } from '../../lib/action-access'
+import { theatreMayEnter } from '../../lib/theatre-lifecycle'
 
 type BookingRow = {
   id: string
   bookingNo: string
   status: string
   priority: string
+  consentStatus?: string
+  checklistStatus?: string
   scheduledStartAt: string
   patient?: { firstName: string; lastName: string; patientNo: string }
   procedure?: { name: string }
@@ -29,8 +33,8 @@ type BookingDetail = BookingRow & {
 
 const NOTE_TYPES = [
   { id: 'pre_op_assessment', label: 'Pre-operative assessment' },
-  { id: 'consent', label: 'Consent' },
-  { id: 'checklist', label: 'Counts / checklist' },
+  { id: 'consent', label: 'Consent note (free text)' },
+  { id: 'checklist', label: 'Counts / checklist note (free text)' },
   { id: 'intraoperative', label: 'Anaesthesia / intra-op' },
   { id: 'operation', label: 'Operative note' },
   { id: 'findings', label: 'Findings / specimens' },
@@ -53,14 +57,23 @@ export function TheatreWorkspace() {
   const staff = doctorSelectOptions(catalog)
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const canBook = useCan('surgery_bookings:create')
+  const canUpdate = useCan('surgery_bookings:update')
+  const canAssign = useCan('surgery_staff:assign')
+  const canNote = useCan('surgery_notes:create')
+  const canComplication = useCan('surgery_complications:create')
+  const canReadTheatres = useCan('theatres:read')
+  const canReadProcedures = useCan('surgical_procedures:read', 'payments:initiate')
 
   const { data: theatres = [] } = useQuery({
     queryKey: ['theatres'],
     queryFn: () => apiRequest<{ id: string; name: string }[]>('/theatre/theatres'),
+    enabled: canReadTheatres,
   })
   const { data: procedures = [] } = useQuery({
     queryKey: ['surgical-procedures'],
     queryFn: () => apiRequest<{ id: string; name: string }[]>('/theatre/procedures'),
+    enabled: canReadProcedures,
   })
   const { data: bookings = [], isLoading } = useQuery({
     queryKey: ['surgery-bookings'],
@@ -114,6 +127,7 @@ export function TheatreWorkspace() {
         body: JSON.stringify({ status }),
       }),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] }),
+    onError: (error: Error) => notify('Theatre status not updated', error.message, 'critical'),
   })
 
   const assignStaff = useMutation({
@@ -141,6 +155,7 @@ export function TheatreWorkspace() {
     onSuccess: async () => {
       notify('Note saved', 'Surgery note recorded.', 'success')
       await queryClient.invalidateQueries({ queryKey: ['surgery-booking', activeId] })
+      await queryClient.invalidateQueries({ queryKey: ['surgery-bookings'] })
     },
   })
 
@@ -201,7 +216,7 @@ export function TheatreWorkspace() {
               <option value="emergency">Emergency</option>
             </SelectField>
             {createBooking.isError ? <Alert tone="error">{createBooking.error.message}</Alert> : null}
-            <Button type="submit" loading={createBooking.isPending} disabled={!selectedPatient}>
+            <Button type="submit" loading={createBooking.isPending} disabled={!selectedPatient || !canBook}>
               Book surgery
             </Button>
           </form>
@@ -242,18 +257,29 @@ export function TheatreWorkspace() {
             title={`Case ${active.bookingNo}`}
             description={`${active.patient?.firstName ?? ''} ${active.patient?.lastName ?? ''} — ${active.procedure?.name ?? ''}`}
           />
+          <p className="mt-2 text-sm text-slate-600">
+            Consent: {active.consentStatus ?? 'pending'} · Checklist: {active.checklistStatus ?? 'pending'}
+            {active.priority === 'emergency' ? ' · Emergency (consent not required)' : ''}
+          </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            {stages.map((stage) => (
+            {stages.map((stage) => {
+              const blocked =
+                stage.id === 'in_theatre' &&
+                !theatreMayEnter(active.consentStatus, active.checklistStatus, active.priority)
+              return (
               <Button
                 key={stage.id}
                 type="button"
                 variant={active.status === stage.id ? 'primary' : 'secondary'}
                 loading={updateStatus.isPending}
+                disabled={!canUpdate || blocked}
+                title={blocked ? 'Record a consent note and a checklist note first.' : undefined}
                 onClick={() => updateStatus.mutate({ id: active.id, status: stage.id })}
               >
                 {stage.label}
               </Button>
-            ))}
+              )
+            })}
           </div>
 
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -280,7 +306,7 @@ export function TheatreWorkspace() {
                 <option value="anesthetist">Anesthetist</option>
                 <option value="theatre_nurse">Theatre nurse</option>
               </SelectField>
-              <Button type="submit" loading={assignStaff.isPending}>
+              <Button type="submit" loading={assignStaff.isPending} disabled={!canAssign}>
                 Assign
               </Button>
             </form>
@@ -304,7 +330,7 @@ export function TheatreWorkspace() {
               </SelectField>
               <TextareaField name="body" label="Note" required />
               {addNote.isError ? <Alert tone="error">{addNote.error.message}</Alert> : null}
-              <Button type="submit" loading={addNote.isPending}>
+              <Button type="submit" loading={addNote.isPending} disabled={!canNote}>
                 Save note
               </Button>
             </form>
@@ -348,7 +374,7 @@ export function TheatreWorkspace() {
               </SelectField>
               <TextareaField name="description" label="Description" required />
               <TextareaField name="actionTaken" label="Action taken" required />
-              <Button type="submit" loading={addComplication.isPending}>
+              <Button type="submit" loading={addComplication.isPending} disabled={!canComplication}>
                 Record complication
               </Button>
             </form>

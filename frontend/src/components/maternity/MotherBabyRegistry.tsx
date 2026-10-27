@@ -5,6 +5,7 @@ import { Pencil } from 'lucide-react'
 import { Button, Card, Field, PageHeader } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { useCan } from '../../lib/action-access'
 
 type RegistryRow = {
   id: string
@@ -20,6 +21,7 @@ type RegistryRow = {
 export function MotherBabyRegistry() {
   const queryClient = useQueryClient()
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const canRename = useCan('newborns:create')
 
   const { data: links = [], isLoading } = useQuery({
     queryKey: ['mother-baby-registry'],
@@ -80,7 +82,7 @@ export function MotherBabyRegistry() {
                     }}
                   >
                     <Field name="babyName" label="Official baby name" required />
-                    <Button type="submit" loading={rename.isPending}>Save name</Button>
+                    <Button type="submit" loading={rename.isPending} disabled={!canRename}>Save name</Button>
                     <Button type="button" variant="ghost" onClick={() => setRenamingId(null)}>Cancel</Button>
                   </form>
                 ) : (
@@ -88,6 +90,7 @@ export function MotherBabyRegistry() {
                     type="button"
                     variant="secondary"
                     className="mt-4"
+                    disabled={!canRename}
                     onClick={() => setRenamingId(row.newborn!.id)}
                   >
                     <Pencil className="h-4 w-4" />

@@ -1,4 +1,4 @@
-import { mapPatient } from './fhir-mapper';
+import { mapMedicationDispense, mapMedicationRequest, mapPatient } from './fhir-mapper';
 import { validateMappedResource } from './fhir-validate';
 import { FHIR_R4_VERSION, KENYA_CORE_IG_VERSION, KENYA_ECLAIMS_STATUS } from './kenya-core';
 
@@ -34,5 +34,49 @@ describe('Kenya Core FHIR mapper', () => {
     const result = validateMappedResource(resource as unknown as Record<string, unknown>);
     expect(result.valid).toBe(false);
     expect(result.issues.some((issue) => issue.path.includes('identifier'))).toBe(true);
+  });
+
+  it('maps and validates Kenya Core MedicationRequest and MedicationDispense', () => {
+    const req = mapMedicationRequest({
+      id: 'rx-1',
+      orderNo: 'RX-2026-1',
+      status: 'requested',
+      priority: 'routine',
+      patientId: 'p1',
+      encounterId: 'enc-1',
+      itemId: 'item-1',
+      sku: 'PARA500',
+      medicationName: 'Paracetamol 500mg tablet',
+      dose: '1g',
+      route: 'oral',
+      frequency: 'TDS',
+      duration: '3 days',
+      quantity: 18,
+      unit: 'tablet',
+    });
+    expect(validateMappedResource(req as unknown as Record<string, unknown>).valid).toBe(true);
+
+    const badReq = mapMedicationRequest({
+      id: 'rx-bad',
+      orderNo: 'RX-BAD',
+      status: 'requested',
+      patientId: '',
+      medicationName: '',
+      quantity: 0,
+    });
+    expect(validateMappedResource(badReq as unknown as Record<string, unknown>).valid).toBe(false);
+
+    const disp = mapMedicationDispense({
+      id: 'disp-1',
+      orderId: 'rx-1',
+      status: 'dispensed',
+      patientId: 'p1',
+      itemId: 'item-1',
+      sku: 'PARA500',
+      medicationName: 'Paracetamol 500mg tablet',
+      quantityDispensed: 18,
+      unit: 'tablet',
+    });
+    expect(validateMappedResource(disp as unknown as Record<string, unknown>).valid).toBe(true);
   });
 });

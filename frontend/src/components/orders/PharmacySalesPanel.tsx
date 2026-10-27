@@ -94,6 +94,7 @@ export function PharmacySalesPanel({ mode = 'all' }: { mode?: 'all' | 'unpaid' |
                   <th className="pb-2 pr-3">Patient</th>
                   <th className="pb-2 pr-3">Description</th>
                   <th className="pb-2 pr-3">Status</th>
+                  <th className="pb-2 pr-3">Receipt</th>
                   <th className="pb-2">Amount</th>
                 </tr>
               </thead>
@@ -106,6 +107,7 @@ export function PharmacySalesPanel({ mode = 'all' }: { mode?: 'all' | 'unpaid' |
                     </td>
                     <td className="py-2 pr-3">{row.serviceDescription ?? 'Pharmacy'}</td>
                     <td className="py-2 pr-3">{row.status}</td>
+                    <td className="py-2 pr-3 font-mono text-xs">{row.externalReference ?? '—'}</td>
                     <td className="py-2">{formatConfiguredPrice(amountOf(row)) ?? '—'}</td>
                   </tr>
                 ))}

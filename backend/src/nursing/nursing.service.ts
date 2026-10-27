@@ -4,6 +4,7 @@ import { In, MoreThanOrEqual, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
 import { tenantChannel } from '../common/tenant-defaults';
 import { User } from '../core/core.entities';
+import { assertActiveAdmission } from '../inpatient/admission-state';
 import { Admission, Ward } from '../inpatient/inpatient.entities';
 import { Encounter } from '../opd/opd.entities';
 import {
@@ -40,6 +41,7 @@ export class NursingService {
     const admission = dto.admissionId ? await this.admissions.findOne({ where: { id: dto.admissionId } }) : null;
     if (dto.encounterId && !encounter) throw new NotFoundException('Encounter not found');
     if (dto.admissionId && !admission) throw new NotFoundException('Admission not found');
+    if (admission) assertActiveAdmission(admission.status, 'record vital signs');
     const saved = await this.vitals.save(
       this.vitals.create({
         encounter,
@@ -95,6 +97,7 @@ export class NursingService {
   async createMar(dto: CreateMarDto, request: RequestContext) {
     const admission = await this.admissions.findOne({ where: { id: dto.admissionId } });
     if (!admission) throw new NotFoundException('Admission not found');
+    assertActiveAdmission(admission.status, 'record a MAR entry');
     const scheduledTime = new Date(dto.scheduledTime);
     const duplicate = await this.mar.findOne({
       where: {
@@ -136,6 +139,9 @@ export class NursingService {
   }
 
   async updateMarStatus(id: string, dto: UpdateMarStatusDto, request: RequestContext) {
+    const existing = await this.mar.findOne({ where: { id }, relations: { admission: true } });
+    if (!existing) throw new NotFoundException('Medication administration record not found');
+    assertActiveAdmission(existing.admission?.status, 'update a MAR entry');
     await this.mar.update(id, {
       status: dto.status,
       actualTime: new Date(),
@@ -175,6 +181,7 @@ export class NursingService {
   async createObservation(dto: CreateObservationDto, request: RequestContext) {
     const admission = await this.admissions.findOne({ where: { id: dto.admissionId } });
     if (!admission) throw new NotFoundException('Admission not found');
+    assertActiveAdmission(admission.status, 'record a nursing observation');
     return this.observations.save(
       this.observations.create({
         admission,

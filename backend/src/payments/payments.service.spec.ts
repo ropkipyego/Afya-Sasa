@@ -50,4 +50,53 @@ describe('PaymentsService amount rules', () => {
     expect(() => service.assertAmount(0, true)).not.toThrow();
     expect(() => service.assertAmount(250, false)).not.toThrow();
   });
+
+  it('acquires PostgreSQL advisory lock on idempotencyKey and replays existing transaction without creating a second payment or receipt', async () => {
+    const existingTxn = {
+      id: 'txn-existing-1',
+      status: 'completed',
+      amount: '500',
+      externalReference: 'JH-RCP-2026-00001',
+    };
+    const query = jest.fn().mockResolvedValue([]);
+    const save = jest.fn();
+    const instance = Object.create(PaymentsService.prototype) as PaymentsService;
+    Object.assign(instance, {
+      patients: { findOne: jest.fn().mockResolvedValue({ id: 'p1', patientNo: 'JAL-1' }) },
+      findByIdempotencyKey: jest
+        .fn()
+        .mockResolvedValueOnce(null) // pre-transaction check
+        .mockResolvedValueOnce(existingTxn), // inside transaction after advisory lock
+      assertNoRecentDuplicate: jest.fn().mockResolvedValue(undefined),
+      resolveLabRequest: jest.fn().mockResolvedValue(null),
+      transactions: {
+        manager: {
+          transaction: jest.fn(async (cb: (mgr: unknown) => Promise<unknown>) =>
+            cb({
+              query,
+              getRepository: () => ({ save, create: jest.fn() }),
+            }),
+          ),
+        },
+      },
+    });
+
+    const result = await instance.recordManualPayment(
+      {
+        patientId: 'p1',
+        serviceLine: 'consultation',
+        method: 'cash',
+        amount: 500,
+        idempotencyKey: 'idem-key-123',
+      } as never,
+      { user: { sub: 'cashier-1' } } as never,
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+      ['afyasasa.payments.idempotency', 'idem-key-123'],
+    );
+    expect(result).toBe(existingTxn);
+    expect(save).not.toHaveBeenCalled();
+  });
 });

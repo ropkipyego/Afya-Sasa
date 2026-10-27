@@ -27,6 +27,7 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
       ),
     refetchInterval: 20_000,
   })
+  const visibleOrders = orders.filter((order) => order.metadata?.kind !== 'prescription')
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -34,7 +35,7 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
         <Card className="bg-gradient-to-br from-slate-900 to-indigo-950 p-8 text-white">
           <PageHeader
             title="Clinical orders"
-            description="Unified view of laboratory, imaging, and pharmacy orders across the hospital."
+            description="Laboratory and imaging orders. Prescriptions are dispensed from the Pharmacy desk, not this list."
           />
         </Card>
       ) : null}
@@ -58,13 +59,13 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
       <Card className="p-6">
         <h3 className="flex items-center gap-2 text-lg font-bold">
           <ClipboardList className="h-5 w-5 text-teal-700" />
-          Open orders ({orders.length})
+          Open orders ({visibleOrders.length})
         </h3>
         {isLoading ? (
           <div className="mt-4 h-32 animate-skeleton rounded-xl" />
         ) : (
           <ul className="mt-4 max-h-[28rem] space-y-2 overflow-y-auto">
-            {orders.map((order) => (
+            {visibleOrders.map((order) => (
               <li key={order.id} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
@@ -80,7 +81,11 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
                       <p className="text-xs text-teal-800">
                         {String(order.metadata.medication)}
                         {order.metadata.dose ? ` · ${String(order.metadata.dose)}` : ''}
+                        {order.metadata.route ? ` · ${String(order.metadata.route)}` : ''}
+                        {order.metadata.frequency ? ` · ${String(order.metadata.frequency)}` : ''}
+                        {order.metadata.duration ? ` · ${String(order.metadata.duration)}` : ''}
                         {order.metadata.quantity != null ? ` · qty ${String(order.metadata.quantity)}` : ''}
+                        {order.metadata.instructions ? ` · ${String(order.metadata.instructions)}` : ''}
                       </p>
                     ) : null}
                     <p className="text-xs text-slate-400">
@@ -99,7 +104,7 @@ export function ClinicalOrdersDashboard({ embedded = false }: { embedded?: boole
                 </div>
               </li>
             ))}
-            {!orders.length ? (
+            {!visibleOrders.length ? (
               <p className="py-10 text-center text-sm text-slate-500">No clinical orders found.</p>
             ) : null}
           </ul>

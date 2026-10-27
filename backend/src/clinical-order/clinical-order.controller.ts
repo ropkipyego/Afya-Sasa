@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { RequestContext } from '../common/request-context';
 import { RequirePermissions } from '../core/auth/auth.decorators';
@@ -112,6 +112,28 @@ class PharmacyPrescriptionLineDto {
   @IsOptional()
   @IsString()
   instructions?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  strength?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  dosageForm?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  unit?: string;
+}
+
+class CancelPharmacyPrescriptionDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }
 
 class CreatePharmacyPrescriptionDto {
@@ -159,6 +181,8 @@ export class ClinicalOrderController {
     @Query('module') sourceModule?: string,
     @Query('status') status?: string,
     @Query('patientId') patientId?: string,
+    @Query('encounterId') encounterId?: string,
+    @Query('admissionId') admissionId?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -166,6 +190,8 @@ export class ClinicalOrderController {
       sourceModule,
       status,
       patientId,
+      encounterId,
+      admissionId,
       limit: limit ? Number(limit) : 100,
       offset: offset ? Number(offset) : 0,
     });
@@ -199,5 +225,15 @@ export class ClinicalOrderController {
   @RequirePermissions('pharmacy:prescribe', 'consultations:create')
   createPharmacyPrescription(@Body() dto: CreatePharmacyPrescriptionDto, @Req() request: RequestContext) {
     return this.orders.createPharmacyPrescription(dto, request);
+  }
+
+  @Post('pharmacy/:id/cancel')
+  @RequirePermissions('pharmacy:prescribe', 'consultations:create', 'pharmacy:dispense')
+  cancelPharmacyPrescription(
+    @Param('id') id: string,
+    @Body() dto: CancelPharmacyPrescriptionDto,
+    @Req() request: RequestContext,
+  ) {
+    return this.orders.cancelPharmacyPrescription(id, dto?.reason, request);
   }
 }

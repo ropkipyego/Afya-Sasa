@@ -16,6 +16,10 @@ type Product = {
   dosageForm?: string | null
   sell?: number
   active?: boolean
+  formularyStatusLabel?: string
+  prescribingStatusLabel?: string
+  regulatoryStatusLabel?: string
+  ppbRegistrationNo?: string | null
 }
 
 type Location = { id: string; code: string; locationType: string }
@@ -69,8 +73,8 @@ export function PharmacyProductsPanel() {
   return (
     <Card className="p-6">
       <PageHeader
-        title="Products"
-        description="Medication master from the inventory catalogue. Therapeutic class comes from the backend."
+        title="Hospital Formulary Products"
+        description="Canonical hospital catalogue (demo.inventory_items). Active pharmaceutical items are available for prescribing in AfyaSasa. Catalogue inclusion is not PPB registration unless verified evidence is recorded."
       />
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <input
@@ -101,7 +105,9 @@ export function PharmacyProductsPanel() {
                 <th className="pb-2 pr-3">Strength</th>
                 <th className="pb-2 pr-3">Form</th>
                 <th className="pb-2 pr-3">Class</th>
-                <th className="pb-2 pr-3">Status</th>
+                <th className="pb-2 pr-3">Formulary</th>
+                <th className="pb-2 pr-3">Prescribing</th>
+                <th className="pb-2 pr-3">PPB status</th>
                 <th className="pb-2 pr-3">Sell</th>
                 <th className="pb-2 pr-3 text-right">Usable stock</th>
               </tr>
@@ -114,7 +120,19 @@ export function PharmacyProductsPanel() {
                   <td className="py-2 pr-3">{item.strength || '—'}</td>
                   <td className="py-2 pr-3">{item.dosageForm || item.unit}</td>
                   <td className="py-2 pr-3">{drugClassLabel(item.drugClass)}</td>
-                  <td className="py-2 pr-3">{item.active === false ? 'Inactive' : 'Active'}</td>
+                  <td className="py-2 pr-3 text-xs">
+                    {item.formularyStatusLabel ??
+                      (item.category === 'pharmaceutical' ? 'Hospital formulary' : 'Non-formulary supply item')}
+                  </td>
+                  <td className="py-2 pr-3 text-xs">
+                    {item.prescribingStatusLabel ?? (item.active === false ? 'Inactive in hospital formulary' : 'Available for prescribing')}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-slate-600">
+                    {item.regulatoryStatusLabel ??
+                      (item.ppbRegistrationNo
+                        ? `PPB registration verified (${item.ppbRegistrationNo})`
+                        : 'PPB regulatory registration not recorded')}
+                  </td>
                   <td className="py-2 pr-3">
                     {formatConfiguredPrice(item.sell) ?? (
                       <span className="text-amber-800">No price configured</span>

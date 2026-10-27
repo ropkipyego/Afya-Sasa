@@ -5,6 +5,7 @@ import { Activity, ArrowLeft, ClipboardList, Pill, Stethoscope } from 'lucide-re
 import { Button, Card, PageHeader, SelectField, TextareaField } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { useCan } from '../../lib/action-access'
 import { calcLosDays, ipdStatusLabels, ipdStatusStyles } from './ipd-utils'
 
 type ActiveAdmission = {
@@ -58,7 +59,7 @@ export function NursingCommandCenter({
       <PageHeader
         eyebrow="Nursing"
         title="Nursing command center"
-        description="Shift overview — medications, vitals, handover, and escalations."
+        description="Ward queues and shift handover notes. MAR, vitals, and patient observations are on the IPD patient workspace."
       />
 
       <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -186,6 +187,8 @@ type ShiftNote = {
 
 function ShiftHandoverPanel({ admissions }: { admissions: ActiveAdmission[] }) {
   const queryClient = useQueryClient()
+  const canReadNotes = useCan('shift_notes:read')
+  const canWriteNotes = useCan('shift_notes:create')
   const wards = useMemo(() => {
     const map = new Map<string, string>()
     for (const admission of admissions) {
@@ -204,7 +207,7 @@ function ShiftHandoverPanel({ admissions }: { admissions: ActiveAdmission[] }) {
       apiRequest<ShiftNote[]>(
         `/nursing/shift-notes?wardId=${encodeURIComponent(selectedWardId)}&date=${today}`,
       ),
-    enabled: Boolean(selectedWardId),
+    enabled: Boolean(selectedWardId) && canReadNotes,
   })
 
   const createNote = useMutation({
@@ -264,7 +267,7 @@ function ShiftHandoverPanel({ admissions }: { admissions: ActiveAdmission[] }) {
             <option value="night">Night</option>
           </SelectField>
           <TextareaField name="body" label="Handover note" required rows={4} />
-          <Button type="submit" loading={createNote.isPending}>
+          <Button type="submit" loading={createNote.isPending} disabled={!canWriteNotes}>
             Save shift note
           </Button>
         </form>

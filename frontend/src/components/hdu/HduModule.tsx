@@ -4,6 +4,7 @@ import { Activity, ArrowLeft, HeartPulse, Stethoscope } from 'lucide-react'
 import { Alert, Button, Card, Field, PageHeader, SelectField, TextareaField } from '../ui'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { useCan } from '../../lib/action-access'
 
 type HduAdmission = {
   id: string
@@ -45,6 +46,7 @@ type IpdAdmission = {
 export function HduModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdmit, setShowAdmit] = useState(false)
+  const canAdmit = useCan('hdu_admissions:create')
 
   const { data: admissions = [], isLoading } = useQuery({
     queryKey: ['hdu-admissions', 'active'],
@@ -76,9 +78,11 @@ export function HduModule() {
             title="High Dependency Unit"
             description="Step-down critical care — close monitoring, oxygen support, and consultant review."
           />
-          <Button variant="secondary" onClick={() => setShowAdmit(true)}>
-            Admit to HDU
-          </Button>
+          {canAdmit ? (
+            <Button variant="secondary" onClick={() => setShowAdmit(true)}>
+              Admit to HDU
+            </Button>
+          ) : null}
         </div>
         <p className="mt-4 text-sm text-white/80">
           Active patients: <strong>{admissions.length}</strong>
@@ -180,6 +184,9 @@ function HduAdmitPanel({
 function HduPatientWorkspace({ hduId, onBack }: { hduId: string; onBack: () => void }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<'monitor' | 'rounds'>('monitor')
+  const canObserve = useCan('hdu_observations:create')
+  const canRound = useCan('hdu_rounds:create')
+  const canTransferOut = useCan('hdu_admissions:update')
 
   const { data, isLoading } = useQuery({
     queryKey: ['hdu-workspace', hduId],
@@ -255,6 +262,7 @@ function HduPatientWorkspace({ hduId, onBack }: { hduId: string; onBack: () => v
   }
 
   const patient = data.admission.patient
+  const chartOpen = data.status === 'active'
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -273,8 +281,11 @@ function HduPatientWorkspace({ hduId, onBack }: { hduId: string; onBack: () => v
               {new Date(data.admittedToHduAt).toLocaleString()}
             </p>
             <p className="mt-2 text-sm text-slate-700">{data.reason}</p>
+            {chartOpen ? null : (
+              <p className="mt-2 text-sm font-medium text-amber-800">This HDU overlay is closed. Charting is read-only.</p>
+            )}
           </div>
-          <Button variant="secondary" onClick={() => discharge.mutate()} disabled={discharge.isPending}>
+          <Button variant="secondary" onClick={() => discharge.mutate()} disabled={discharge.isPending || !canTransferOut || !chartOpen}>
             Transfer out of HDU
           </Button>
         </div>
@@ -311,7 +322,7 @@ function HduPatientWorkspace({ hduId, onBack }: { hduId: string; onBack: () => v
               <Field name="hdu-dia" label="BP dia" value={dia} onChange={(e) => setDia(e.target.value)} />
               <Field name="hdu-o2" label="Oxygen support" value={oxygen} onChange={(e) => setOxygen(e.target.value)} className="col-span-2" />
             </div>
-            <Button className="mt-4" onClick={() => observe.mutate()} disabled={observe.isPending}>
+            <Button className="mt-4" onClick={() => observe.mutate()} disabled={observe.isPending || !canObserve || !chartOpen}>
               Save observation
             </Button>
           </Card>
@@ -341,7 +352,7 @@ function HduPatientWorkspace({ hduId, onBack }: { hduId: string; onBack: () => v
               <TextareaField name="hdu-assessment" label="Assessment" rows={4} value={assessment} onChange={(e) => setAssessment(e.target.value)} />
               <TextareaField name="hdu-plan" label="Plan" rows={4} value={plan} onChange={(e) => setPlan(e.target.value)} />
             </div>
-            <Button className="mt-4" onClick={() => round.mutate()} disabled={!assessment.trim() || !plan.trim() || round.isPending}>
+            <Button className="mt-4" onClick={() => round.mutate()} disabled={!assessment.trim() || !plan.trim() || round.isPending || !canRound || !chartOpen}>
               Save round
             </Button>
           </Card>

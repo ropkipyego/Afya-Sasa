@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import { groupPermissionsByResource } from './permission-categories'
 
 describe('groupPermissionsByResource', () => {

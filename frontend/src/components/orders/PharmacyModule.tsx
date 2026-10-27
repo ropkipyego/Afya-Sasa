@@ -6,6 +6,7 @@ import { PharmacyProductsStockPanel } from './PharmacyProductsStockPanel'
 import type { PharmacyScreen } from './PharmacyNav'
 import { DepartmentWorkspaceHeader } from '../layout/DepartmentWorkspaceHeader'
 import { WorkspaceTabs } from '../ui/WorkspaceTabs'
+import { dispatchHospitalNavigate } from '../../lib/navigate'
 
 export const pharmacyScreenByNav: Record<string, PharmacyScreen> = {
   Dashboard: 'overview',
@@ -50,7 +51,7 @@ export function PharmacyModule({ initialTab = 'overview' }: { initialTab?: Pharm
   }, [initialTab])
 
   const openPharmacyConfig = () => {
-    window.dispatchEvent(new CustomEvent('afyasasa:navigate', { detail: 'Pharmacy Configuration' }))
+    dispatchHospitalNavigate('Pharmacy Configuration')
   }
 
   return (

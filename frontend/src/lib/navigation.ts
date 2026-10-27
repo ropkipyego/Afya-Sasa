@@ -151,9 +151,11 @@ export const workflowDescriptions: Record<string, string> = {
   Payments: 'Hospital-wide cashier — M-Pesa STK, cash, card, insurance, and QuickBooks for any service.',
   Marketing: 'Record daily outreach activities, track follow-ups, and review team performance.',
   Laboratory: 'Lab overview, sample worklist, and clinician results inbox.',
-  'Blood Bank': 'Laboratory blood bank — grouping, crossmatch and issue. Not pharmacy stock.',
+  'Blood Bank':
+    'Blood request, grouping, crossmatch and authorised issue. Not a bedside transfusion chart or donor programme, and not pharmacy stock.',
   Radiology: 'Imaging overview and reporting worklist.',
   Emergency: 'ED command center — triage, bays, observation, disposition.',
+  Theatre: 'Theatre bookings, team assignment, and operative notes. Not a full peri-operative safety programme.',
   Dashboard: 'Pharmacy operational summary — OPD/IPD prescriptions, today’s OTC sales, stock availability, and alerts.',
   'Prescription & OTC Queue': 'Unified OPD, IPD, and OTC pharmacy queue with stock eligibility and cashier clearance.',
   'OTC Point of Sale': 'Walk-in or identified patient checkout. Prepare, cashier, then issue. Not a second ledger.',

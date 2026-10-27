@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateSlotDto {
   @ApiProperty()
@@ -71,6 +71,26 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   clinicId?: string;
+}
+
+export class PublicBookAppointmentDto {
+  @ApiProperty({ description: 'Hospital number or the phone used at registration' })
+  @IsString()
+  @IsNotEmpty()
+  hospitalNumberOrPhone!: string;
+
+  @ApiProperty()
+  @IsString()
+  slotId!: string;
+
+  @ApiProperty({ enum: ['new', 'follow_up', 'procedure', 'review', 'antenatal'] })
+  @IsIn(['new', 'follow_up', 'procedure', 'review', 'antenatal'])
+  type!: 'new' | 'follow_up' | 'procedure' | 'review' | 'antenatal';
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
 }
 
 export class UpdateAppointmentStatusDto {

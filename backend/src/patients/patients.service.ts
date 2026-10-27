@@ -442,13 +442,19 @@ export class PatientsService {
         take: 100,
       }),
       this.labResults.find({
-        where: { requestItem: { request: { patient: { id } } } },
+        where: {
+          requestItem: { request: { patient: { id } } },
+          verifiedAt: Not(IsNull()),
+        },
         relations: { requestItem: { request: true, test: true, panel: true } },
         order: { enteredAt: 'DESC' },
         take: 100,
       }),
       this.radiologyReports.find({
-        where: { request: { patient: { id } } },
+        where: {
+          request: { patient: { id } },
+          verifiedAt: Not(IsNull()),
+        },
         relations: { request: { modality: true } },
         order: { createdAt: 'DESC' },
         take: 100,
@@ -541,6 +547,7 @@ export class PatientsService {
     if (key === 'medications' || key === 'prescriptions' || key === 'pharmacy') {
       const items = await this.clinicalOrders.find({
         where: { patient: { id }, orderType: 'pharmacy' },
+        relations: { orderedBy: true, encounter: true, admission: true },
         order: { orderedAt: 'DESC' },
         take,
       });
@@ -548,15 +555,29 @@ export class PatientsService {
         section: key,
         source: 'clinical_orders',
         items: items
-          .filter((row) => row.metadata?.kind !== 'prescription' || key !== 'medications')
-          .map((row) => ({
-            id: row.id,
-            kind: row.metadata?.kind === 'prescription' ? 'prescription' : 'medication',
-            title: String(row.metadata?.medication ?? row.orderNo),
-            status: row.status,
-            occurredAt: row.orderedAt,
-            summary: `${row.orderNo} · dispensed ${String(row.metadata?.dispensedQuantity ?? 0)} of ${String(row.metadata?.quantity ?? '')}`,
-          })),
+          .filter((row) => row.metadata?.kind !== 'prescription')
+          .map((row) => {
+            const prescribed = Number(row.metadata?.quantityPrescribed ?? row.metadata?.quantity ?? 0);
+            const dispensed = Number(row.metadata?.quantityDispensed ?? row.metadata?.dispensedQuantity ?? 0);
+            const parts = [
+              row.orderNo,
+              row.metadata?.dose ? `Dose: ${String(row.metadata.dose)}` : null,
+              row.metadata?.route ? `Route: ${String(row.metadata.route)}` : null,
+              row.metadata?.frequency ? `Freq: ${String(row.metadata.frequency)}` : null,
+              row.metadata?.duration ? `Duration: ${String(row.metadata.duration)}` : null,
+              `Dispensed ${dispensed} of ${prescribed || '—'}`,
+              row.metadata?.instructions ? `Instructions: ${String(row.metadata.instructions)}` : null,
+              row.orderedBy ? `Dr. ${row.orderedBy.firstName} ${row.orderedBy.lastName}` : null,
+            ].filter(Boolean);
+            return {
+              id: row.id,
+              kind: 'medication',
+              title: String(row.metadata?.medication ?? row.orderNo),
+              status: row.status,
+              occurredAt: row.orderedAt,
+              summary: parts.join(' · '),
+            };
+          }),
       };
     }
     if (key === 'laboratory') {
@@ -755,13 +776,19 @@ export class PatientsService {
       this.admissions.find({ where: { patient: { id } }, relations: { ward: true, bed: true }, order: { createdAt: 'DESC' }, take: 50 }),
       this.labRequests.find({ where: { patient: { id } }, order: { createdAt: 'DESC' }, take: 50 }),
       this.labResults.find({
-        where: { requestItem: { request: { patient: { id } } } },
+        where: {
+          requestItem: { request: { patient: { id } } },
+          verifiedAt: Not(IsNull()),
+        },
         relations: { requestItem: { request: true, test: true, panel: true } },
         order: { enteredAt: 'DESC' },
         take: 50,
       }),
       this.radiologyReports.find({
-        where: { request: { patient: { id } } },
+        where: {
+          request: { patient: { id } },
+          verifiedAt: Not(IsNull()),
+        },
         relations: { request: { modality: true } },
         order: { createdAt: 'DESC' },
         take: 50,
@@ -948,29 +975,36 @@ export class PatientsService {
         title: `${item.type} referral`,
         summary: `${item.status} — ${item.reason}`,
       })),
-      ...pharmacyOrders.flatMap((item) => {
-        const medication = String(item.metadata?.medication ?? item.orderNo);
-        const dose = item.metadata?.dose ? ` — ${String(item.metadata.dose)}` : '';
-        const events = [
-          {
-            id: `${item.id}-ordered`,
-            type: 'pharmacy_prescription',
-            occurredAt: item.orderedAt,
-            title: 'Pharmacy prescription',
-            summary: `${medication}${dose} (${item.status})`,
-          },
-        ];
-        if (item.status === 'dispensed' && item.completedAt) {
-          events.push({
-            id: `${item.id}-dispensed`,
-            type: 'pharmacy_dispense',
-            occurredAt: item.completedAt,
-            title: 'Medication dispensed',
-            summary: `${medication}${dose} — ${item.orderNo}`,
-          });
-        }
-        return events;
-      }),
+      ...pharmacyOrders
+        .filter((item) => item.metadata?.kind !== 'prescription')
+        .flatMap((item) => {
+          const medication = String(item.metadata?.medication ?? item.orderNo);
+          const dose = item.metadata?.dose ? ` — ${String(item.metadata.dose)}` : '';
+          const route = item.metadata?.route ? ` · ${String(item.metadata.route)}` : '';
+          const freq = item.metadata?.frequency ? ` · ${String(item.metadata.frequency)}` : '';
+          const dur = item.metadata?.duration ? ` · ${String(item.metadata.duration)}` : '';
+          const qty = item.metadata?.quantity != null ? ` · qty ${String(item.metadata.quantity)}` : '';
+          const instr = item.metadata?.instructions ? ` · ${String(item.metadata.instructions)}` : '';
+          const events = [
+            {
+              id: `${item.id}-ordered`,
+              type: 'pharmacy_prescription',
+              occurredAt: item.orderedAt,
+              title: 'Pharmacy prescription',
+              summary: `${medication}${dose}${route}${freq}${dur}${qty}${instr} (${item.status})`,
+            },
+          ];
+          if (item.status === 'dispensed' && item.completedAt) {
+            events.push({
+              id: `${item.id}-dispensed`,
+              type: 'pharmacy_dispense',
+              occurredAt: item.completedAt,
+              title: 'Medication dispensed',
+              summary: `${medication}${dose}${qty} — ${item.orderNo}`,
+            });
+          }
+          return events;
+        }),
       ...payments.map((item) => ({
         id: item.id,
         type: 'payment',
@@ -1017,11 +1051,13 @@ export class PatientsService {
             {
               requestItem: { request: { patient: { id } } },
               flag: 'critically_low',
+              verifiedAt: Not(IsNull()),
               reviewedAt: IsNull(),
             },
             {
               requestItem: { request: { patient: { id } } },
               flag: 'critically_high',
+              verifiedAt: Not(IsNull()),
               reviewedAt: IsNull(),
             },
           ],

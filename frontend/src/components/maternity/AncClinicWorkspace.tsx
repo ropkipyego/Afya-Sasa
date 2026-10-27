@@ -6,6 +6,7 @@ import { Button, Card, Field, PageHeader, SelectField, TextareaField } from '../
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { apiRequest } from '../../lib/api'
 import { notify } from '../../lib/notify'
+import { useCan } from '../../lib/action-access'
 
 type PregnancyRow = {
   id: string
@@ -37,6 +38,8 @@ export function AncClinicWorkspace() {
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchItem | null>(null)
+  const canRegisterPregnancy = useCan('pregnancies:create')
+  const canRecordAnc = useCan('anc_visits:create')
 
   const { data: pregnancies = [] } = useQuery({
     queryKey: ['pregnancies'],
@@ -113,7 +116,7 @@ export function AncClinicWorkspace() {
               <option value="high">High</option>
             </SelectField>
             <TextareaField name="riskNotes" label="Risk factors / history" />
-            <Button type="submit" loading={createPregnancy.isPending} disabled={!selectedPatient}>
+            <Button type="submit" loading={createPregnancy.isPending} disabled={!selectedPatient || !canRegisterPregnancy}>
               Register pregnancy
             </Button>
           </form>
@@ -166,7 +169,7 @@ export function AncClinicWorkspace() {
             <TextareaField name="ultrasoundSummary" label="Ultrasound summary" />
             <TextareaField name="riskAssessment" label="Risk assessment" />
             <TextareaField name="plan" label="Plan" required />
-            <Button type="submit" loading={createAnc.isPending}>Record ANC visit</Button>
+            <Button type="submit" loading={createAnc.isPending} disabled={!canRecordAnc}>Record ANC visit</Button>
           </form>
         </Card>
       ) : (

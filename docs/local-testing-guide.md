@@ -123,7 +123,22 @@ cd backend && npm run test:inventory-pg
 
 The harness refuses any other database name or a non-loopback host.
 
-Pharmacy cashier-controlled release (prepare → reserve → pay → issue) is documented in `docs/pharmacy-cashier-release.md`.
+Pharmacy cashier-controlled release (do not skip steps):
+
+1. Clinician creates a prescription. Stock is not touched.
+2. Pharmacy **prepares** the sale. Lots are reserved; `qty_on_hand` does not change.
+3. Cashier collects against that pharmacy charge.
+4. Pharmacy **issues** only after clearance succeeds. Issue consumes the reservation, reduces `qty_on_hand`, and posts `DISPENSE`.
+5. **Cancel** releases held lots. It does not invent a refund or stock return.
+
+Unpaid issue is refused with `FINANCIAL_CLEARANCE_DENIED`. There is no pharmacy return / write-off path.
+
+Disposable HMIS journey (never the hospital `afyasasa` database):
+
+```bash
+export HMIS_SIM_DATABASE_URL='postgresql://hmis_sim:hmis_sim@127.0.0.1:5433/hmis_sim'
+cd backend && npm test -- --testPathPatterns=hmis-sim.integration --runInBand --forceExit
+```
 
 ## Smoke test
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { formDataFromElement } from '../../lib/form-utils'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileUp, Download, Printer } from 'lucide-react'
-import { Button, Card, PageHeader, TextareaField } from '../ui'
+import { Button, Card, Field, PageHeader, TextareaField } from '../ui'
 import { PatientSearchAutocomplete, type PatientSearchItem } from '../PatientSearchAutocomplete'
 import { RadiologyRequestTemplateForm } from './RadiologyRequestTemplateForm'
 import { apiRequest } from '../../lib/api'
@@ -14,6 +14,8 @@ import { resolveHospitalBranding } from '../../lib/hospital-configuration'
 import { parseStoredRequestFormData } from '../../lib/jalaram-imaging-request'
 import { printJalaramImagingRequest } from '../../lib/print-radiology-request'
 import { formatPatientNoShort } from '../../lib/patient-utils'
+import { useAuthStore } from '../../lib/auth-store'
+import { radiologyReportBodyFromForm, radiologyReportReady } from '../../lib/radiology-report'
 import { LabKanbanColumn, LabModal, LabQueueItem } from './lab-ui'
 
 type RadiologyRequestRow = {
@@ -48,6 +50,9 @@ function waitLabel(createdAt: string) {
 
 export function RadiologyWorklist({ initialRequestId }: { initialRequestId?: string | null }) {
   const queryClient = useQueryClient()
+  const permissions = useAuthStore((state) => state.user?.permissions ?? [])
+  const canCreateReport = permissions.includes('radiology_reports:create')
+  const canVerifyReport = permissions.includes('radiology_reports:verify')
   const fileRef = useRef<HTMLInputElement>(null)
   const { data: rawCatalog } = useClinicalCatalog()
   const catalog = normalizeClinicalCatalog(rawCatalog)
@@ -148,19 +153,19 @@ export function RadiologyWorklist({ initialRequestId }: { initialRequestId?: str
   const createReport = useMutation({
     mutationFn: (formElement: HTMLFormElement) => {
       const form = formDataFromElement(formElement)
+      const body = radiologyReportBodyFromForm(form)
+      const problem = radiologyReportReady(body)
+      if (problem) throw new Error(problem)
       return apiRequest(`/radiology/requests/${form.get('requestId')}/reports`, {
         method: 'POST',
-        body: JSON.stringify({
-          findings: form.get('findings'),
-          impression: form.get('impression'),
-          recommendation: form.get('recommendation') || undefined,
-        }),
+        body: JSON.stringify(body),
       })
     },
     onSuccess: async () => {
-      notify('Report saved', 'Ordering clinician notified.', 'success')
+      notify('Report saved', 'Ordering clinician notified. RadWeb link stored with the report.', 'success')
       await refreshClinical()
     },
+    onError: (error: Error) => notify('Report not saved', error.message, 'critical'),
   })
 
   const verifyRequest = useMutation({
@@ -171,6 +176,7 @@ export function RadiologyWorklist({ initialRequestId }: { initialRequestId?: str
       await refreshClinical()
       setActiveId(null)
     },
+    onError: (error: Error) => notify('Verification failed', error.message, 'critical'),
   })
 
   const attachPdf = async (requestId: string, file: File) => {
@@ -290,13 +296,17 @@ export function RadiologyWorklist({ initialRequestId }: { initialRequestId?: str
           ) : null}
           {activeRequest.status === 'reported' && latestReport && !latestReport.verifiedAt ? (
             <div className="mt-6">
-              <Button
-                type="button"
-                onClick={() => verifyRequest.mutate(activeRequest.id)}
-                loading={verifyRequest.isPending}
-              >
-                Verify report
-              </Button>
+              {canVerifyReport ? (
+                <Button
+                  type="button"
+                  onClick={() => verifyRequest.mutate(activeRequest.id)}
+                  loading={verifyRequest.isPending}
+                >
+                  Verify report
+                </Button>
+              ) : (
+                <p className="text-sm text-slate-600">Verification needs radiology_reports:verify. The report stays unverified until a senior reviewer releases it.</p>
+              )}
             </div>
           ) : null}
           {latestReport?.verifiedAt ? (
@@ -310,12 +320,22 @@ export function RadiologyWorklist({ initialRequestId }: { initialRequestId?: str
             }}
           >
             <input type="hidden" name="requestId" value={activeRequest.id} />
+            <Field
+              name="imageUrl"
+              label="RadWeb / image link"
+              hint="Compulsory. Paste the study URL from RadWeb. The server rejects reports without it."
+              placeholder="https://"
+              required
+            />
             <TextareaField name="findings" label="Findings" required />
             <TextareaField name="impression" label="Impression" required />
             <TextareaField name="recommendation" label="Recommendation" />
-            <Button type="submit" loading={createReport.isPending}>
-              Save text report
+            <Button type="submit" loading={createReport.isPending} disabled={!canCreateReport}>
+              Save report
             </Button>
+            {!canCreateReport ? (
+              <p className="text-xs text-slate-500">Saving a report needs radiology_reports:create.</p>
+            ) : null}
           </form>
 
           <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">

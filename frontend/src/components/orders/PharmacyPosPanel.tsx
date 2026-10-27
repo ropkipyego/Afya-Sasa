@@ -7,6 +7,7 @@ import { apiRequest, formatApiError } from '../../lib/api'
 import { notify } from '../../lib/notify'
 import { formatConfiguredPrice } from '../../lib/clinical-catalog'
 import { useAuthStore } from '../../lib/auth-store'
+import { useCan } from '../../lib/action-access'
 import { PharmacySalesPanel } from './PharmacySalesPanel'
 
 type InventoryItem = {
@@ -29,9 +30,17 @@ type BalanceBatch = {
 
 type CartLine = { itemId: string; name: string; sku: string; unit: string; quantity: number; unitSell: number }
 
+type IssuedSale = {
+  saleId: string
+  replay?: boolean
+  allocations?: Array<{ batchNo?: string | null; quantity: number }>
+  transactions?: Array<{ id: string; transactionType?: string; quantity?: string; reason?: string | null }>
+}
+
 export function PharmacyPosPanel() {
   const queryClient = useQueryClient()
   const canDispense = useAuthStore((s) => (s.user?.permissions ?? []).includes('pharmacy:dispense'))
+  const canReturn = useCan('pharmacy:dispense', 'payments:manage')
   const [patient, setPatient] = useState<PatientSearchItem | null>(null)
   const [walkInName, setWalkInName] = useState('')
   const [walkInPhone, setWalkInPhone] = useState('')
@@ -41,6 +50,8 @@ export function PharmacyPosPanel() {
   const [cart, setCart] = useState<CartLine[]>([])
   const [saleId] = useState(() => crypto.randomUUID())
   const [prepared, setPrepared] = useState(false)
+  const [lastIssue, setLastIssue] = useState<IssuedSale | null>(null)
+  const [returnReason, setReturnReason] = useState('Patient returned unused medicine')
 
   const { data: items = [] } = useQuery({
     queryKey: ['inventory-items', 'pharmaceutical', 'pos'],
@@ -156,12 +167,19 @@ export function PharmacyPosPanel() {
 
   const issue = useMutation({
     mutationFn: () =>
-      apiRequest('/inventory/dispense/otc', {
+      apiRequest<IssuedSale>('/inventory/dispense/otc', {
         method: 'POST',
         body: JSON.stringify({ saleId, notes: notes.trim() || undefined, patientId: patient?.id }),
       }),
-    onSuccess: async () => {
-      notify('Issued', 'Reserved stock was deducted after clearance.', 'success')
+    onSuccess: async (result) => {
+      setLastIssue(result)
+      notify(
+        result.replay ? 'Already issued' : 'Issued',
+        result.replay
+          ? `Sale ${result.saleId.slice(0, 8)} was already deducted. Stock was not taken again.`
+          : `Sale ${result.saleId.slice(0, 8)} deducted from reserved batches. Cashier receipt stays on the payment ledger.`,
+        'success',
+      )
       setCart([])
       setPrepared(false)
       setNotes('')
@@ -183,6 +201,20 @@ export function PharmacyPosPanel() {
       await queryClient.invalidateQueries({ queryKey: ['inventory-balances'] })
     },
     onError: (e: Error) => notify('Could not cancel', formatApiError(e, 'Cancel failed.'), 'critical'),
+  })
+
+  const returnSale = useMutation({
+    mutationFn: () =>
+      apiRequest<{ saleId: string; nextAction?: string }>('/inventory/sales/return', {
+        method: 'POST',
+        body: JSON.stringify({ saleId: lastIssue?.saleId, reason: returnReason.trim() }),
+      }),
+    onSuccess: async (result) => {
+      notify('Stock returned', result.nextAction ?? 'Returned to the pharmacy shelf.', 'success')
+      await queryClient.invalidateQueries({ queryKey: ['inventory-balances'] })
+      await queryClient.invalidateQueries({ queryKey: ['payments-recent'] })
+    },
+    onError: (e: Error) => notify('Return failed', formatApiError(e, 'Stock was not put back.'), 'critical'),
   })
 
   return (
@@ -324,12 +356,65 @@ export function PharmacyPosPanel() {
             <Button type="button" variant="secondary" loading={cancelSale.isPending} disabled={!prepared} onClick={() => cancelSale.mutate()}>
               Cancel hold
             </Button>
-            <Button type="button" loading={issue.isPending} disabled={!canDispense || !prepared} onClick={() => issue.mutate()}>
+            <Button
+              type="button"
+              loading={issue.isPending}
+              disabled={!canDispense || !prepared || issue.isPending}
+              onClick={() => issue.mutate()}
+            >
               Issue after clearance
             </Button>
           </div>
         </Card>
       </div>
+
+      {lastIssue ? (
+        <Card className="p-6">
+          <h3 className="text-lg font-bold">Last issue</h3>
+          <p className="mt-1 font-mono text-sm text-slate-600">Sale {lastIssue.saleId}</p>
+          {lastIssue.replay ? (
+            <p className="mt-2 text-sm text-slate-600">Idempotent retry. No second stock movement.</p>
+          ) : null}
+          {lastIssue.allocations?.length ? (
+            <ul className="mt-3 space-y-1 text-sm">
+              {lastIssue.allocations.map((row, index) => (
+                <li key={`${row.batchNo ?? 'batch'}-${index}`}>
+                  Batch {row.batchNo || 'unnumbered'} · {row.quantity} deducted
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {lastIssue.transactions?.length ? (
+            <p className="mt-3 text-xs text-slate-500">
+              Stock audit {lastIssue.transactions.map((row) => row.id.slice(0, 8)).join(', ')} · DISPENSE ledger
+            </p>
+          ) : null}
+          <p className="mt-3 text-xs text-slate-500">
+            Cashier receipt number is on the payment ledger below. Pharmacy does not print a second accounts book.
+          </p>
+          {canReturn && !lastIssue.replay ? (
+            <div className="mt-4 space-y-2">
+              <Field
+                name="returnReason"
+                label="Return unused stock"
+                value={returnReason}
+                onChange={(e) => setReturnReason(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                loading={returnSale.isPending}
+                disabled={!returnReason.trim()}
+                onClick={() => returnSale.mutate()}
+              >
+                Return to shelf
+              </Button>
+              <p className="text-xs text-slate-500">Refund collected money separately at cashier.</p>
+              {returnSale.error ? <Alert tone="error">{formatApiError(returnSale.error, 'Return failed.')}</Alert> : null}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       <PharmacySalesPanel mode="all" />
     </div>

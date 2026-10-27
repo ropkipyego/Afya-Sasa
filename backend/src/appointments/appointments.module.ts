@@ -8,6 +8,7 @@ import { Clinic } from '../core/core.entities';
 import { Appointment, AppointmentSlot } from './appointment.entities';
 import { AppointmentsController } from './appointments.controller';
 import { AppointmentsService } from './appointments.service';
+import { PublicAppointmentsController } from './public-appointments.controller';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { AppointmentsService } from './appointments.service';
     OpdModule,
     NotificationsModule,
   ],
-  controllers: [AppointmentsController],
+  controllers: [AppointmentsController, PublicAppointmentsController],
   providers: [AppointmentsService],
 })
 export class AppointmentsModule {}

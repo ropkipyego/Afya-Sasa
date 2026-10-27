@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import type { RequestContext } from '../common/request-context';
@@ -379,6 +379,14 @@ export class MaternityService {
   async admitToUnit(dto: CreateMaternityUnitAdmissionDto, request: RequestContext) {
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
+    const duplicate = await this.unitAdmissions.findOne({
+      where: { patient: { id: patient.id }, unit: dto.unit, status: 'active' },
+    });
+    if (duplicate) {
+      throw new BadRequestException(
+        'This patient is already on that maternity unit. Transfer or discharge the current episode first.',
+      );
+    }
     return this.unitAdmissions.save(
       this.unitAdmissions.create({
         patient,

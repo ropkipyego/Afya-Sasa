@@ -95,6 +95,12 @@ export class LaboratoryController {
     return this.bloodBank.stock(from, to);
   }
 
+  @Get('blood-bank/units')
+  @RequirePermissions('lab_requests:read')
+  listBloodBankUnits() {
+    return this.bloodBank.listUnits();
+  }
+
   @Post('blood-bank')
   @RequirePermissions('lab_requests:create')
   createBloodBank(@Body() dto: CreateBloodBankRequestDto, @Req() request: RequestContext) {

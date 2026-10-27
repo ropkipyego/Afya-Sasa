@@ -16,7 +16,13 @@ import { Patient } from '../patients/patient.entities';
 import { AuditService } from '../core/audit/audit.service';
 import { OrderableLabTest, LabReferenceRange } from './lab-catalog.entities';
 import { LabCatalogService } from './lab-catalog.service';
-import { assertLabTransition, isTerminalStatus, LAB_AUDIT } from './lab-lifecycle';
+import {
+  assertLabTransition,
+  duplicateOpenLabOrder,
+  isTerminalStatus,
+  LAB_AUDIT,
+  OPEN_LAB_REQUEST_STATUSES,
+} from './lab-lifecycle';
 import { canAccessStructuredLabReport, canAmendLabResult, canCancelLabRequest } from './lab-access';
 import { buildStructuredLabReportHtml } from './lab-report.builder';
 import { AccommodationChargeService } from '../payments/accommodation-charge.service';
@@ -198,6 +204,8 @@ export class LaboratoryService {
       throw new BadRequestException('No valid tests or panels were found for this order.');
     }
 
+    await this.assertNoOpenDuplicateOnEncounter(encounter.id, itemRows);
+
     const patient = await this.patients.findOne({ where: { id: dto.patientId } });
     if (!patient) throw new NotFoundException('Patient not found');
 
@@ -272,6 +280,46 @@ export class LaboratoryService {
       });
     }
     return this.detail(labRequest.id);
+  }
+
+  private async assertNoOpenDuplicateOnEncounter(
+    encounterId: string,
+    itemRows: Array<{
+      test: LabTest | null;
+      panel: LabPanel | null;
+      orderableTest: OrderableLabTest | null;
+    }>,
+  ) {
+    const open = await this.items.find({
+      where: {
+        request: {
+          encounter: { id: encounterId },
+          status: In([...OPEN_LAB_REQUEST_STATUSES]),
+        },
+      },
+      relations: { request: true, test: true, panel: true, orderableTest: true },
+    });
+    const duplicate = duplicateOpenLabOrder(
+      itemRows.map((row) => ({
+        testId: row.test?.id ?? null,
+        panelId: row.panel?.id ?? null,
+        orderableTestId: row.orderableTest?.id ?? null,
+        label: row.orderableTest?.name ?? row.test?.name ?? row.panel?.name ?? 'laboratory test',
+      })),
+      open.map((row) => ({
+        testId: row.test?.id ?? null,
+        panelId: row.panel?.id ?? null,
+        orderableTestId: row.orderableTest?.id ?? null,
+        label: row.orderableTest?.name ?? row.test?.name ?? row.panel?.name ?? 'laboratory test',
+        requestNo: row.request?.requestNo,
+      })),
+    );
+    if (!duplicate) return;
+    throw new BadRequestException(
+      duplicate.requestNo
+        ? `An active ${duplicate.label} order already exists on this visit (${duplicate.requestNo}). Complete, verify, or cancel it before repeating.`
+        : `An active ${duplicate.label} order already exists on this visit. Complete, verify, or cancel it before repeating.`,
+    );
   }
 
   listPatientRequests(patientId: string) {
@@ -1100,6 +1148,7 @@ export class LaboratoryService {
       .leftJoinAndSelect('item.panel', 'panel')
       .leftJoinAndSelect('item.orderableTest', 'orderableTest')
       .where('result.is_critical = true')
+      .andWhere('result.verified_at IS NOT NULL')
       .orderBy('result.entered_at', 'DESC')
       .take(patientId ? 200 : 100);
     if (patientId) {

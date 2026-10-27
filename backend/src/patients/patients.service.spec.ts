@@ -276,4 +276,71 @@ describe('PatientsService.history', () => {
     expect(result.diagnoses[0].description).toBe('Malaria');
     expect(result.events[0].type).toBe('visit');
   });
+
+  it('filters timeline and history labResults and radiologyReports to verifiedAt IS NOT NULL and includes full prescription instructions in timeline', async () => {
+    const service = serviceStub();
+    const labFind = jest.fn().mockResolvedValue([]);
+    const radFind = jest.fn().mockResolvedValue([]);
+    const emptyFind = { find: jest.fn().mockResolvedValue([]) };
+    Object.assign(service, {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'p1',
+        patientNo: 'JAL-P-2026-0001',
+        createdAt: new Date('2026-10-01T08:00:00Z'),
+      }),
+      encounters: emptyFind,
+      admissions: emptyFind,
+      labRequests: emptyFind,
+      labResults: { find: labFind },
+      radiologyReports: { find: radFind },
+      radiologyRequests: emptyFind,
+      surgeries: emptyFind,
+      pregnancies: emptyFind,
+      icuAdmissions: emptyFind,
+      hduAdmissions: emptyFind,
+      appointments: emptyFind,
+      referrals: emptyFind,
+      triages: emptyFind,
+      consultations: emptyFind,
+      diagnoses: emptyFind,
+      clinicalOrders: {
+        find: jest.fn().mockResolvedValue([
+          {
+            id: 'rx-hdr',
+            orderNo: 'RX-1',
+            status: 'requested',
+            orderedAt: new Date('2026-10-02T09:00:00Z'),
+            metadata: { kind: 'prescription', prescriptionGroupId: 'rx-hdr' },
+          },
+          {
+            id: 'rx-line-1',
+            orderNo: 'RX-1-1',
+            status: 'requested',
+            orderedAt: new Date('2026-10-02T09:00:00Z'),
+            metadata: {
+              kind: 'line',
+              prescriptionGroupId: 'rx-hdr',
+              medication: 'Paracetamol 500mg tablet',
+              dose: '500mg',
+              route: 'oral',
+              frequency: 'TDS',
+              duration: '5 days',
+              quantity: 15,
+              instructions: 'Take after meals',
+            },
+          },
+        ]),
+      },
+      payments: emptyFind,
+      charges: emptyFind,
+      queueItems: emptyFind,
+    });
+
+    const tl = await service.timeline('p1');
+    expect(labFind.mock.calls[0][0].where).toHaveProperty('verifiedAt');
+    expect(radFind.mock.calls[0][0].where).toHaveProperty('verifiedAt');
+    const rxEvents = tl.events.filter((e) => e.type === 'pharmacy_prescription');
+    expect(rxEvents).toHaveLength(1);
+    expect(rxEvents[0].summary).toContain('Paracetamol 500mg tablet — 500mg · oral · TDS · 5 days · qty 15 · Take after meals');
+  });
 });

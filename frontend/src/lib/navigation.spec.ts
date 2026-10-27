@@ -1,4 +1,5 @@
-import { NAV_GROUP_ORDER, navigation } from './navigation'
+import { describe, expect, it } from 'vitest'
+import { NAV_GROUP_ORDER, navigation, workflowDescriptions } from './navigation'
 
 describe('hospital navigation groups', () => {
   it('puts OPD work in OPD and IPD work in IPD', () => {
@@ -27,6 +28,18 @@ describe('hospital navigation groups', () => {
     const insurance = navigation.find((item) => item.label === 'Insurance & Claims')
     expect(insurance?.permission).toBe('payments:read')
     expect(insurance?.permission).not.toBe('patients:read')
+  })
+
+  it('describes Theatre as bookings and notes, not a full peri-operative programme', () => {
+    const copy = workflowDescriptions.Theatre ?? ''
+    expect(copy.toLowerCase()).toContain('bookings')
+    expect(copy.toLowerCase()).not.toMatch(/complete peri-operative|full theatre suite/)
+  })
+
+  it('describes Blood Bank as grouping and issue, not a bedside transfusion chart', () => {
+    const copy = workflowDescriptions['Blood Bank'] ?? ''
+    expect(copy.toLowerCase()).toContain('crossmatch')
+    expect(copy.toLowerCase()).not.toMatch(/bedside transfusion chart|donor programme/)
   })
 
   it('orders OPD before IPD and procurement after pharmacy', () => {
