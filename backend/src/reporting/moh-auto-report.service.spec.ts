@@ -1,8 +1,5 @@
 import { Logger } from '@nestjs/common';
-import {
-  MohAutoReportService,
-  isMohAutoReportEnabled,
-} from './moh-auto-report.service';
+import { MohAutoReportService } from './moh-auto-report.service';
 
 const ENV_KEY = 'MOH_AUTO_REPORT_ENABLED';
 const originalEnv = process.env[ENV_KEY];
@@ -31,36 +28,26 @@ function createService() {
     save: jest.fn(async (row: unknown) => row),
   };
   return {
-    service: new MohAutoReportService(mohReports as never, adminService as never, notifications as never),
+    service: new MohAutoReportService(
+      mohReports as never,
+      adminService as never,
+      notifications as never,
+    ),
     mohReports,
-    adminService,
     notifications,
   };
 }
 
-describe('MOH_AUTO_REPORT_ENABLED', () => {
-  afterEach(() => {
-    restoreEnv();
-  });
+function schedulerTimeouts(spy: jest.SpyInstance) {
+  return spy.mock.calls.filter((call) => call[1] === 20_000);
+}
 
-  it('is enabled by default when the variable is unset', () => {
-    delete process.env[ENV_KEY];
-    expect(isMohAutoReportEnabled()).toBe(true);
-  });
-
-  it('is enabled when explicitly set to true', () => {
-    process.env[ENV_KEY] = 'true';
-    expect(isMohAutoReportEnabled()).toBe(true);
-  });
-
-  it('is disabled when explicitly set to false', () => {
-    process.env[ENV_KEY] = 'false';
-    expect(isMohAutoReportEnabled()).toBe(false);
-  });
-});
+function schedulerIntervals(spy: jest.SpyInstance) {
+  return spy.mock.calls.filter((call) => call[1] === 60 * 60 * 1000);
+}
 
 describe('MohAutoReportService scheduler flag', () => {
-  let service: MohAutoReportService;
+  let service: MohAutoReportService | undefined;
   let setIntervalSpy: jest.SpyInstance;
   let setTimeoutSpy: jest.SpyInstance;
   let logSpy: jest.SpyInstance;
@@ -70,25 +57,56 @@ describe('MohAutoReportService scheduler flag', () => {
     setIntervalSpy = jest.spyOn(global, 'setInterval');
     setTimeoutSpy = jest.spyOn(global, 'setTimeout');
     logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    setIntervalSpy.mockClear();
+    setTimeoutSpy.mockClear();
   });
 
   afterEach(() => {
     service?.onModuleDestroy();
+    service = undefined;
     restoreEnv();
     jest.restoreAllMocks();
     jest.useRealTimers();
   });
 
-  it('does not schedule a startup timeout or hourly interval when disabled', () => {
+  it('starts the scheduler when the environment variable is unset', () => {
+    delete process.env[ENV_KEY];
+    service = createService().service;
+    service.onModuleInit();
+
+    expect(schedulerIntervals(setIntervalSpy)).toHaveLength(1);
+    expect(schedulerTimeouts(setTimeoutSpy)).toHaveLength(1);
+    expect(logSpy).toHaveBeenCalledWith('MOH auto-report scheduler started');
+  });
+
+  it('starts the scheduler when explicitly set to true', () => {
+    process.env[ENV_KEY] = 'true';
+    service = createService().service;
+    service.onModuleInit();
+
+    expect(schedulerIntervals(setIntervalSpy)).toHaveLength(1);
+    expect(schedulerTimeouts(setTimeoutSpy)).toHaveLength(1);
+    expect(logSpy).toHaveBeenCalledWith('MOH auto-report scheduler started');
+  });
+
+  it('does not start the scheduler when explicitly set to false', () => {
     process.env[ENV_KEY] = 'false';
     service = createService().service;
     service.onModuleInit();
 
     expect(logSpy).toHaveBeenCalledWith('MOH auto-report scheduler disabled');
-    expect(
-      setIntervalSpy.mock.calls.filter((call) => call[1] === 60 * 60 * 1000),
-    ).toHaveLength(0);
-    expect(setTimeoutSpy.mock.calls.filter((call) => call[1] === 20_000)).toHaveLength(0);
+    expect(logSpy).not.toHaveBeenCalledWith('MOH auto-report scheduler started');
+  });
+
+  it('does not call setTimeout or setInterval when disabled', () => {
+    process.env[ENV_KEY] = 'false';
+    service = createService().service;
+    setIntervalSpy.mockClear();
+    setTimeoutSpy.mockClear();
+    service.onModuleInit();
+
+    expect(schedulerIntervals(setIntervalSpy)).toHaveLength(0);
+    expect(schedulerTimeouts(setTimeoutSpy)).toHaveLength(0);
   });
 
   it('keeps runForCurrentMonth callable when the scheduler is disabled', async () => {
