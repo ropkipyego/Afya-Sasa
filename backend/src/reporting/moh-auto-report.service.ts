@@ -6,6 +6,12 @@ import { AdminService } from '../core/admin/admin.service';
 import { InternalNotification } from '../notifications/notification.entities';
 import { MohReportsService } from './moh-reports.service';
 
+/** Unset keeps the scheduler on. Only an explicit `false` disables it. */
+export function isMohAutoReportEnabled(raw = process.env.MOH_AUTO_REPORT_ENABLED) {
+  if (raw === undefined) return true;
+  return String(raw).trim().toLowerCase() !== 'false';
+}
+
 /**
  * Automates daily MOH report preparation (Nairobi timezone).
  * Notifies administrators so reports can be downloaded / submitted to KHIS.
@@ -14,6 +20,7 @@ import { MohReportsService } from './moh-reports.service';
 export class MohAutoReportService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MohAutoReportService.name);
   private timer: NodeJS.Timeout | null = null;
+  private startupTimer: NodeJS.Timeout | null = null;
   private lastRunKey: string | null = null;
 
   constructor(
@@ -24,15 +31,26 @@ export class MohAutoReportService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    if (!isMohAutoReportEnabled()) {
+      this.logger.log('MOH auto-report scheduler disabled');
+      return;
+    }
     this.timer = setInterval(() => {
       void this.maybeRunDaily();
     }, 60 * 60 * 1000);
-    setTimeout(() => void this.maybeRunDaily(), 20_000);
+    this.startupTimer = setTimeout(() => void this.maybeRunDaily(), 20_000);
     this.logger.log('MOH auto-report scheduler started');
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    if (this.startupTimer) {
+      clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+    }
   }
 
   private nairobiNow() {
